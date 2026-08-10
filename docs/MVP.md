@@ -1597,7 +1597,9 @@ export const PRICE_TIERS = {
 
 export const PLATFORM_FEE_PCT     = 0.15;
 export const NEW_TEACHER_FEE_DAYS = 30;
-export const LOW_DEMAND_HOURS     = [6, 14];   // 0% commission
+export const LOW_DEMAND_HOURS     = [6, 14];   // 0% commission. [start, end) — Israel
+                                               // time, never the host's. Compare via
+                                               // isLowDemandHour() in utils/time.js.
 
 export const MATCH_WEIGHTS = {
   topicFit:        0.35,

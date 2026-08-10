@@ -58,6 +58,14 @@ server/src/middlewares/validate.js
 shared/errorCodes.js                      single source, re-exported by config/errors/codes.js
 ```
 
+Added by the review pass (PR #2), same scope:
+
+```
+server/src/config/constants/app.js        TIMEZONE
+server/src/utils/time.js                  currentHour(), isLowDemandHour()
+server/src/utils/fieldErrors.js           moved out of errorHandler.js
+```
+
 ## Files you must NOT touch
 
 ```
@@ -116,6 +124,33 @@ within 2× of each other.
 `MATCH_WEIGHTS` throws at import time if the weights do not sum to 1.0. A typo
 there does not crash anything — it silently skews every ranking, and E4's
 acceptance test would fail for reasons that look like a scoring bug.
+
+## Amended after review (PR #2)
+
+The brief above records what was built. This section records what the review
+changed, because three of the four would have surfaced as bugs in a later epic
+rather than here.
+
+| Was | Is | Why it mattered |
+|---|---|---|
+| `LOW_DEMAND_HOURS` in "server local time" | `TIMEZONE` + `utils/time.js`, resolved through `Intl` | Local time is Israel on a laptop and UTC on Render. The commission-free window would have been correct in development and three hours wrong in production — the worst kind of bug, because nothing fails |
+| `NO_AVAILABLE_TEACHERS` → 404 | → 409 | Nothing is missing when the matcher returns empty. It is a state the request collided with, and one that may differ a minute later. `MVP.md` §9 already returns it as a `reason` on an otherwise-normal result |
+| `fieldErrors` exported from `errorHandler.js` | `utils/fieldErrors.js` | `validate()` imported it from another middleware. E3's classifier needs the same function inside a *service*, and a service importing a middleware is the direction that eventually closes into a cycle — which in ESM fails as `undefined` at call time, not at import |
+| `import 'dotenv/config'` | path resolved from `import.meta.url` | `dotenv` resolves against cwd, and `npm run dev -w server` sets cwd to `server/`. The root `.env` was never found. Nothing had caught it because 0.3 ships no entry point — PR 0.4 would have been the first to run it, and would have looked broken |
+
+Also settled here: **one `.env` for the whole monorepo, at the repo root.**
+`client/.env.example` is folded into the root one and Vite's `envDir` points at it.
+Sharing the file with the server is safe because Vite exposes only the `VITE_`
+prefix — the server's keys beside it are unreachable, not merely unused. PR 0.8's
+brief carries the Vercel-specific consequences.
+
+Two more from the same review, applied without changing behaviour: `validate()`
+passes `configurable` and `enumerable` explicitly when redefining `req.query`
+(both default to `false`, which made a second `validate()` on one route throw),
+and `ERROR_STATUS` groups the three 409s together.
+
+Deliberately **not** changed: the bcrypt `hashSync` at module load. It costs ~300ms
+of boot once and buys the timing equalizer described above.
 
 ## Notes
 
