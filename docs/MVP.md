@@ -1053,8 +1053,8 @@ Mobile-first. The student arrives from a phone while working from a notebook.
 
 | Layer | Technology |
 |---|---|
-| Client | React 18 + Vite · React Router v6 · **Zustand** · Mantine v7 · Socket.IO client · Axios |
-| Server | Node 20 + Express · MVC · Socket.IO · **Zod** · JWT + bcrypt · node-cron |
+| Client | React 18 + Vite · React Router v7 · **Zustand** · Mantine v7 · Socket.IO client · Axios |
+| Server | Node 24 + Express · MVC · Socket.IO · **Zod** · JWT + bcrypt · node-cron |
 | DB | PostgreSQL 16 + **Prisma** |
 | Storage | Cloudinary (question images and teacher documents) |
 | AI | Anthropic Claude API (Vision + JSON mode) |

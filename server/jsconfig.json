@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "#config/*": ["src/config/*"],
+      "#controllers/*": ["src/controllers/*"],
+      "#jobs/*": ["src/jobs/*"],
+      "#middlewares/*": ["src/middlewares/*"],
+      "#repositories/*": ["src/repositories/*"],
+      "#routes/*": ["src/routes/*"],
+      "#services/*": ["src/services/*"],
+      "#sockets/*": ["src/sockets/*"],
+      "#utils/*": ["src/utils/*"],
+      "#validators/*": ["src/validators/*"]
+    },
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "esnext",
+    "checkJs": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}

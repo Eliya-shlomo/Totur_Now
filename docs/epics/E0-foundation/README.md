@@ -31,7 +31,7 @@ rest of the epic in parallel.
 
 | # | PR | Owner | Size | Depends on | Status |
 |---|---|---|---|---|---|
-| 0.1 | [Monorepo scaffold, deps, tooling](PR-0.1-monorepo-scaffold.md) | **both, together** | M | — | ☐ |
+| 0.1 | [Monorepo scaffold, deps, tooling](PR-0.1-monorepo-scaffold.md) | **both, together** | M | — | ☑ in review |
 | 0.2 | [Prisma schema folder + first migration](PR-0.2-prisma-schema.md) | DEV-B · **human** | L | 0.1 | ☐ |
 | 0.3 | [Server core: constants, AppError, error codes, handlers](PR-0.3-server-core.md) | DEV-B · **human** | M | 0.1 | ☐ |
 | 0.4 | [Express skeleton, health, security middleware, route registry](PR-0.4-express-skeleton.md) | DEV-B | S | 0.3 | ☐ |

@@ -1,0 +1,11 @@
+node_modules
+dist
+build
+coverage
+package-lock.json
+
+# docs/ is hand-formatted — ASCII diagrams and aligned tables that Prettier reflows.
+# Formatting it would produce a huge, meaningless diff on every commit.
+docs
+
+.husky

@@ -8,13 +8,29 @@ codebase instead of two. Every PR is reviewed against them.
 ```
 tutor_now/
 ├── client/          React 18 + Vite
-├── server/          Node 20 + Express
-├── shared/          api.d.ts, error codes mirror — imported by both
+├── server/          Node 24 + Express
+├── shared/          @tutor/shared — api.d.ts, error codes. Imported by both.
 ├── prisma/          schema folder + migrations  (see OWNERSHIP.md §3.1)
 └── docs/            this folder
 ```
 
-npm workspaces at the root. `npm run dev` starts both.
+npm workspaces at the root. `npm run dev` starts both. `npm run db:up` starts the
+local Postgres 16 container (host port **5433**, not 5432 — see `docker-compose.yml`).
+
+### Module resolution — three mechanisms, one per workspace
+
+| Need | Mechanism | Looks like |
+|---|---|---|
+| client-internal | Vite alias + `client/jsconfig.json` | `import X from '@/components/X'` |
+| server-internal | Node subpath imports in `server/package.json` | `import { env } from '#config/env.js'` |
+| cross-workspace | real npm workspace package | `import { CODES } from '@tutor/shared'` |
+
+The server uses `#`, not `@/`: plain Node ESM cannot resolve `@/` without a bundler
+or a custom loader, whereas the `imports` field is native. Server imports keep the
+`.js` extension — Node requires it.
+
+`shared` is a real package rather than a path alias, so it needs no configuration in
+Vite, Node, or the editor. Workspaces symlink it into `node_modules`.
 
 ## Server layering — the iron rules
 
@@ -79,8 +95,8 @@ Order, separated by blank lines:
 ```js
 // 1. node builtins
 // 2. external packages
-// 3. shared/  (via @shared alias)
-// 4. internal absolute (@/config, @/services, ...)
+// 3. @tutor/shared
+// 4. internal absolute — client: @/components, ...  server: #config/env.js, ...
 // 5. relative (./ ../)
 ```
 
@@ -119,5 +135,12 @@ commit `node_modules`, or reformat a file you are not otherwise changing.
 
 ## Lint & format
 
-ESLint + Prettier run on pre-commit. A PR that fails lint is not reviewed. This
-removes an entire class of review comment, which is the whole point.
+ESLint 9 **flat config** (`eslint.config.js` at the root — not `.eslintrc.json`,
+which is the legacy format and needs a compat shim on ESLint 9). Prettier alongside
+it, with `eslint-config-prettier` last so the two never fight.
+
+Both run on pre-commit via husky + lint-staged. A PR that fails lint is not reviewed.
+This removes an entire class of review comment, which is the whole point.
+
+`docs/` is in `.prettierignore` — it is hand-formatted, with ASCII diagrams and
+aligned tables that Prettier reflows into noise.
