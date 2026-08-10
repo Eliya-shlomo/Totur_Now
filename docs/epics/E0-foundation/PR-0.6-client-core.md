@@ -58,14 +58,14 @@ server/**  prisma/**
 
 ## Acceptance criteria
 
-- [ ] All server calls go through the single axios instance; nothing imports `axios` directly
-- [ ] A success response resolves to the payload, not the `{ success, data }` envelope
-- [ ] A server error rejects with `ApiError` carrying the server's `code`, `message`, `details`
-- [ ] A network failure with no envelope still produces an `ApiError` with a readable message
-- [ ] `ApiError` codes are compared against the imported `shared/errorCodes.js` — no string literals
-- [ ] The 401-refresh seam exists, is commented, and is a no-op that E1.5 fills in
-- [ ] A thrown render error shows the ErrorBoundary fallback with a recovery action, not a blank page
-- [ ] The three state primitives render correctly at 375px
+- [x] All server calls go through the single axios instance; nothing imports `axios` directly
+- [x] A success response resolves to the payload, not the `{ success, data }` envelope
+- [x] A server error rejects with `ApiError` carrying the server's `code`, `message`, `details`
+- [x] A network failure with no envelope still produces an `ApiError` with a readable message
+- [x] `ApiError` codes are compared against the imported `shared/errorCodes.js` — no string literals
+- [x] The 401-refresh seam exists, is commented, and is a no-op that E1.5 fills in
+- [x] A thrown render error shows the ErrorBoundary fallback with a recovery action, not a blank page
+- [x] The three state primitives render correctly at 375px
 
 ## Manual test
 
