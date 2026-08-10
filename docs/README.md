@@ -1,0 +1,43 @@
+# TutorNow — Documentation
+
+## What lives here
+
+| Path | Purpose |
+|---|---|
+| [`MVP.md`](MVP.md) | The product specification. Source of truth for *what* we build. |
+| [`OWNERSHIP.md`](OWNERSHIP.md) | File ownership map + conflict-avoidance rules. Read before your first PR. |
+| [`CONVENTIONS.md`](CONVENTIONS.md) | Naming, folder rules, imports, commits, branches. |
+| [`epics/`](epics/) | One folder per epic. Each contains a `README.md` (the epic) and one file per PR. |
+
+## How the docs drive the work
+
+```
+docs/epics/E1-auth/README.md          ← the epic: goal, slices, order, done criteria
+docs/epics/E1-auth/PR-1.1-....md      ← one PR brief per file
+```
+
+A PR brief is the contract handed to an AI agent. It states which files may be
+touched, which files must not be, and what "done" means. Per `MVP.md` §17.3, the
+**human writes the brief, the agent implements it, the human reviews it.**
+
+## Working loop
+
+1. Pick the next unclaimed PR in your epic's `README.md` order table.
+2. Read its PR brief. Read `OWNERSHIP.md` for any file it touches that you do not own.
+3. `git switch main && git pull --rebase && git switch -c <dev>/E1.2-register-endpoint`
+4. Hand the PR brief to the agent as its prompt.
+5. Review against the checklist in `MVP.md` §17.4.
+6. Squash-merge. Tick the box in the epic README. Same day.
+
+## Epic index
+
+| Epic | Split | Status | Folder |
+|---|---|---|---|
+| E0 — Foundation & Infrastructure | by directory: B `server/`+`prisma/`, A `client/` | not started | [`E0-foundation/`](epics/E0-foundation/) |
+| E1 — Auth & Users | by flow: A registration, B session | not started | [`E1-auth/`](epics/E1-auth/) |
+| E2–E11 | not written yet | — | — |
+
+DEV-A is eliya, DEV-B is rotem — see [`OWNERSHIP.md`](OWNERSHIP.md) §0.
+
+Epics are written **two at a time**, not all upfront. Writing E4's PR briefs before
+E1 has merged means rewriting them.
