@@ -1,0 +1,65 @@
+// Domain: money. Source of truth is MVP.md §11.2, "MONEY".
+//
+// Every balance change goes through wallet.service and writes one row here —
+// no exceptions (CONVENTIONS.md, "Server layering", rule 3). If a wallet's
+// balance does not equal the sum of that user's wallet_transactions, that is a
+// bug, and one query finds it (MVP.md §11.3).
+
+model Wallet {
+  userId String @id @map("user_id") @db.Uuid
+
+  // CHECK (balance >= 0) is hand-added to the migration SQL — Prisma has no
+  // representation for a check constraint. It is the last line of defence
+  // against a concurrent charge driving a student negative; the row lock in
+  // MVP.md §11.3-B is the first. See prisma/migrations/*_init/migration.sql.
+  balance Int @default(0)
+
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wallets")
+}
+
+enum TxType {
+  TOPUP
+  SESSION_CHARGE
+  REFUND
+  TEACHER_EARNING
+  PAYOUT
+  PROMO
+
+  @@map("tx_type")
+}
+
+/// Append-only ledger. No UPDATE, no DELETE. Ever.
+model WalletTransaction {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String? @map("user_id") @db.Uuid
+  type         TxType
+  amount       Int // positive = credit, negative = debit
+  balanceAfter Int     @map("balance_after")
+  sessionId    String? @map("session_id") @db.Uuid
+  note         String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  session Session? @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+
+  @@map("wallet_transactions")
+}
+
+model Payout {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teacherId   String?   @map("teacher_id") @db.Uuid
+  amount      Int
+  status      String    @default("PENDING") @db.VarChar(20)
+  periodStart DateTime? @map("period_start") @db.Date
+  periodEnd   DateTime? @map("period_end") @db.Date
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  teacher User? @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+
+  @@map("payouts")
+}

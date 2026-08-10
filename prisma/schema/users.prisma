@@ -1,0 +1,53 @@
+// Domain: users. Source of truth is MVP.md §11.2, "USERS".
+//
+// This file carries more back-relations than any other, because Prisma requires
+// both sides of every relation to be declared and almost everything in the
+// schema points at User. Adding a model elsewhere that references User means
+// appending one line here — append, never reorder (OWNERSHIP.md §1, rule 3).
+
+enum UserRole {
+  student
+  teacher
+  admin
+
+  @@map("user_role")
+}
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String   @unique @db.VarChar(255)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  fullName     String   @map("full_name") @db.VarChar(100)
+  role         UserRole
+  avatarUrl    String?  @map("avatar_url")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  studentProfile StudentProfile?
+  teacherProfile TeacherProfile?
+  wallet         Wallet?
+
+  questions          Question[]
+  sessionsAsStudent  Session[]           @relation("SessionStudent")
+  sessionsAsTeacher  Session[]           @relation("SessionTeacher")
+  offers             Offer[]
+  reviewsAsStudent   Review[]            @relation("ReviewStudent")
+  reviewsAsTeacher   Review[]            @relation("ReviewTeacher")
+  walletTransactions WalletTransaction[]
+  payouts            Payout[]
+  reviewedDocuments  TeacherDocument[]   @relation("DocumentReviewer")
+  entranceAttempts   EntranceAttempt[]
+
+  @@map("users")
+}
+
+model StudentProfile {
+  userId    String  @id @map("user_id") @db.Uuid
+  grade     Int?    @db.SmallInt // 10 / 11 / 12
+  mathLevel Int?    @map("math_level") @db.SmallInt // 3 / 4 / 5
+  school    String? @db.VarChar(120)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("student_profiles")
+}

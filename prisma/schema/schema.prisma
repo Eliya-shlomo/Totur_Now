@@ -1,0 +1,23 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// Datasource and generator ONLY. Frozen after PR 0.2 (OWNERSHIP.md §3.1).
+//
+// Models live in the sibling domain files — users, teachers, questions,
+// sessions, wallet, exam — so that two developers adding columns to different
+// domains edit different files and merge cleanly. Prisma resolves relations
+// across every .prisma file in this folder.
+//
+// The schema folder is GA as of Prisma 6.7, so there is no previewFeatures
+// flag. It is not auto-detected, though: the CLI looks only at
+// ./prisma/schema.prisma and ./schema.prisma. The folder is pointed at once via
+// the `prisma.schema` key in the root package.json, which keeps every command
+// working without a --schema argument.
+// ══════════════════════════════════════════════════════════════════════════════
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}

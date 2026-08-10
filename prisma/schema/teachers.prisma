@@ -1,0 +1,133 @@
+// Domain: teachers and the topic taxonomy. Source of truth is MVP.md §11.2,
+// "TEACHERS". Topics live here rather than in their own file per OWNERSHIP.md
+// §3.1 — they exist to be taught, and every write to them is a teacher write.
+
+enum TeacherStatus {
+  OFFLINE
+  ONLINE
+  OFFER_LOCKED
+  IN_SESSION
+
+  @@map("teacher_status")
+}
+
+enum TeacherBadge {
+  NEW
+  STUDENT
+  CERTIFIED
+
+  @@map("teacher_badge")
+}
+
+enum PriceTier {
+  BASE
+  REGULAR
+  PRO
+
+  @@map("price_tier")
+}
+
+model TeacherProfile {
+  userId           String        @id @map("user_id") @db.Uuid
+  bio              String?
+  badge            TeacherBadge  @default(NEW)
+  priceTier        PriceTier     @default(BASE) @map("price_tier")
+  pricePerBlock    Int           @default(8) @map("price_per_block")
+  status           TeacherStatus @default(OFFLINE)
+  levelMax         Int           @default(3) @map("level_max") @db.SmallInt
+  entranceScore    Int?          @map("entrance_score") @db.SmallInt
+  academicEmail    String?       @map("academic_email") @db.VarChar(255)
+  academicVerified Boolean       @default(false) @map("academic_verified")
+  adminVerified    Boolean       @default(false) @map("admin_verified")
+  zoomPersonalLink String?       @map("zoom_personal_link")
+
+  // Denormalized aggregates for performance. Every one of them is maintained by
+  // a service, never by a controller.
+  sessionsCount  Int       @default(0) @map("sessions_count")
+  resolvedCount  Int       @default(0) @map("resolved_count")
+  offersReceived Int       @default(0) @map("offers_received")
+  offersAccepted Int       @default(0) @map("offers_accepted")
+  ratingSum      Int       @default(0) @map("rating_sum")
+  ratingCount    Int       @default(0) @map("rating_count")
+  noShowCount    Int       @default(0) @map("no_show_count")
+  lastSeenAt     DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topics     TeacherTopic[]
+  topicStats TeacherTopicStat[]
+  documents  TeacherDocument[]
+
+  // NOTE: idx_teacher_available — `(status, level_max) WHERE status = 'ONLINE'`,
+  // the index the matching hard filter runs on (MVP.md §9.1) — is deliberately
+  // NOT declared here. Prisma cannot express a partial index, and declaring the
+  // full one instead makes every future `migrate dev` emit a CREATE INDEX for a
+  // name that already exists. It lives only in
+  // prisma/migrations/20260810113433_init/migration.sql.
+  @@map("teacher_profiles")
+}
+
+model Topic {
+  id       Int    @id @default(autoincrement())
+  parentId Int?   @map("parent_id") // NULL = parent topic
+  nameHe   String @map("name_he") @db.VarChar(80)
+  nameEn   String @map("name_en") @db.VarChar(80)
+  slug     String @unique @db.VarChar(80)
+
+  parent   Topic?  @relation("TopicHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children Topic[] @relation("TopicHierarchy")
+
+  teacherTopics       TeacherTopic[]
+  teacherTopicStats   TeacherTopicStat[]
+  questionsAsTopic    Question[]         @relation("QuestionTopic")
+  questionsAsSubtopic Question[]         @relation("QuestionSubtopic")
+  entranceQuestions   EntranceQuestion[]
+
+  @@map("topics")
+}
+
+model TeacherTopic {
+  teacherId String @map("teacher_id") @db.Uuid
+  topicId   Int    @map("topic_id")
+
+  teacher TeacherProfile @relation(fields: [teacherId], references: [userId], onDelete: Cascade)
+  topic   Topic          @relation(fields: [topicId], references: [id], onDelete: Restrict)
+
+  @@id([teacherId, topicId])
+  @@map("teacher_topics")
+}
+
+model TeacherTopicStat {
+  teacherId String @map("teacher_id") @db.Uuid
+  topicId   Int    @map("topic_id")
+
+  // NUMERIC(8,2), not INTEGER. A session on a subtopic propagates to its parent
+  // topic at weight 0.3 (MVP.md §9.3); integer columns would truncate that to
+  // zero and the Bayesian smoothing would silently never see parent history.
+  ratingSum     Decimal @default(0) @map("rating_sum") @db.Decimal(8, 2)
+  ratingCount   Decimal @default(0) @map("rating_count") @db.Decimal(8, 2)
+  resolvedCount Decimal @default(0) @map("resolved_count") @db.Decimal(8, 2)
+  sessionsCount Decimal @default(0) @map("sessions_count") @db.Decimal(8, 2)
+
+  teacher TeacherProfile @relation(fields: [teacherId], references: [userId], onDelete: Cascade)
+  topic   Topic          @relation(fields: [topicId], references: [id], onDelete: Restrict)
+
+  @@id([teacherId, topicId])
+  @@map("teacher_topic_stats")
+}
+
+model TeacherDocument {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teacherId  String?  @map("teacher_id") @db.Uuid
+  fileUrl    String   @map("file_url")
+  docType    String?  @map("doc_type") @db.VarChar(40) // teaching_certificate | transcript
+  status     String   @default("PENDING") @db.VarChar(20) // PENDING|APPROVED|REJECTED
+  rejectNote String?  @map("reject_note")
+  reviewedBy String?  @map("reviewed_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  teacher  TeacherProfile? @relation(fields: [teacherId], references: [userId], onDelete: Cascade)
+  reviewer User?           @relation("DocumentReviewer", fields: [reviewedBy], references: [id], onDelete: Restrict)
+
+  @@map("teacher_documents")
+}
