@@ -1,0 +1,40 @@
+# Line endings, decided once for both machines.
+#
+# This project is written on a Mac and on Windows. Without this file the two
+# check out different bytes for the same commit, and `lint-staged` runs
+# `prettier --write` — whose config sets `endOfLine: lf` — on every staged file.
+# The result is that each developer silently rewrites the other's line endings
+# for whatever files they happen to touch, so every diff carries a tail of
+# unrelated whole-file changes and the repo converts one file at a time forever.
+#
+# `eol=lf` normalises in the repository *and* in the working copy, which is what
+# makes `prettier --check` pass on Windows. It overrides `core.autocrlf`, so
+# neither developer has to configure anything locally.
+#
+# Editors handle LF on Windows without complaint — VS Code, WebStorm and modern
+# Notepad all do. The one thing that does not is `cmd.exe` reading a .bat file,
+# which is why those are pinned to CRLF below.
+
+* text=auto eol=lf
+
+# Shell scripts must be LF or they will not run — including the husky hooks.
+*.sh        text eol=lf
+.husky/*    text eol=lf
+
+# Windows batch files must be CRLF for cmd.exe to parse them.
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+
+# Binary — never touch, never diff.
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.webp      binary
+*.ico       binary
+*.pdf       binary
+*.woff      binary
+*.woff2     binary
+
+# Generated. Keeps `git diff` and PR reviews readable.
+package-lock.json   linguist-generated=true -diff
