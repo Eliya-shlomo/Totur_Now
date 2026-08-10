@@ -44,9 +44,11 @@ infrastructure files. Sections 2–4 exist to pay that cost.
 | `prisma/migrations/` | anyone | New folders only; never edit an existing migration. **Never two migrations in flight at once** — announce in chat before generating one. |
 | `server/src/app.js` | DEV-B | Frozen after PR 0.4. New routes go through the route registry, not here. |
 | `server/src/routes/index.js` | shared | Append-only, alphabetical, one `use()` line per router. |
-| `server/src/config/constants/` | shared | One file per domain (`money.js`, `matching.js`, `session.js`…). Add a file; do not grow one shared file. |
-| `server/src/config/errors/codes.js` | shared | Append-only, alphabetical within its group. |
-| `server/src/middlewares/` | DEV-B | Security-critical. Human-written per `MVP.md` §17.5. |
+| `server/src/config/constants/` | shared | One file per domain (`money.js`, `matching.js`, `session.js`, `auth.js`, `llm.js`). Add a file; do not grow one shared file. `index.js` is append-only. |
+| `shared/errorCodes.js` | shared | **The** source of error codes. Append-only, alphabetical within its group. `server/src/config/errors/codes.js` only re-exports it — never define a code there. |
+| `server/src/config/env.js` | DEV-A | Created in 0.3. Adding a variable means adding it here **and** to `.env.example`. |
+| `server/src/utils/` | DEV-A | `AppError`, `asyncHandler`, `logger`, `password` — created in 0.3, imported by everything. |
+| `server/src/middlewares/` | DEV-A for `errorHandler`/`validate` (0.3); DEV-B for auth middleware (1.1) | Security-critical. Human-written per `MVP.md` §17.5. |
 | `server/src/services/wallet.service.js` | DEV-B | Human-written, no agent. Per `MVP.md` §17.5. |
 | `client/src/router/routes.*.jsx` | split by area — see §3 | Edit only your area file. |
 | `client/src/router/index.jsx` | DEV-A | **Frozen** as of PR 0.5. |

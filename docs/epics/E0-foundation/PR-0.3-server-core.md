@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Epic** | E0 — Foundation |
-| **Owner** | DEV-B |
+| **Owner** | DEV-A (reassigned — every remaining DEV-A PR in E0 was blocked behind this one) |
 | **Size** | M |
 | **Written by** | **Human** (`MVP.md` §17.2 — shared contracts are human-written) |
 | **Depends on** | 0.1 |
@@ -68,21 +68,54 @@ server/src/app.js        (0.4 creates it)
 
 ## Acceptance criteria
 
-- [ ] Every constant in the `MVP.md` appendix exists, with the exact value given there
-- [ ] `constants/index.js` re-exports all domain files; importing `@/config/constants` gets everything
-- [ ] Error codes live in `shared/` so the client can import the same list
-- [ ] `errorHandler` output matches `MVP.md` §12 byte-for-byte in shape
-- [ ] A non-operational error returns `INTERNAL_ERROR` with a generic message and logs the real one
-- [ ] An operational `AppError` returns its own code, message, and `details`
-- [ ] `validate()` on a bad body produces `VALIDATION_ERROR` with a per-field `details` object
-- [ ] `env.js` throws at boot, with a clear message, if a required env var is missing
-- [ ] `password.js` uses 12 rounds, from a constant, not a literal
+Verified by a throwaway harness that mounted a minimal Express app and exercised the
+real middleware chain — 16/16 assertions passed.
+
+- [x] Every constant in the `MVP.md` appendix exists, with the exact value given there
+- [x] `constants/index.js` re-exports all domain files; one import gets everything
+- [x] Error codes live in `shared/` so the client can import the same list
+- [x] `errorHandler` output matches `MVP.md` §12 byte-for-byte in shape
+- [x] A non-operational error returns `INTERNAL_ERROR` with a generic message and logs the real one
+- [x] An operational `AppError` returns its own code, message, and `details`
+- [x] `validate()` on a bad body produces `VALIDATION_ERROR` with a per-field `details` object
+- [x] `env.js` exits at boot, naming the variable, if config is missing or malformed
+- [x] `password.js` uses 12 rounds, from a constant, not a literal
+- [x] Async rejections reach the error handler via `asyncHandler`
+- [x] Prisma `P2002` becomes a field-level `VALIDATION_ERROR`, not a 500
+- [x] `MATCH_WEIGHTS` sum to exactly 1.0
+- [x] Logger redacts passwords, hashes and tokens at any nesting depth
 
 ## Manual test
 
-1. Temporary throw route: `throw new AppError('TEACHER_UNAVAILABLE', 'gone', 409)` → 409 with the exact shape.
-2. Temporary throw route: `throw new Error('boom')` → 500, generic message to client, full error in the log.
-3. Delete a required env var, boot → clear startup failure, not a runtime surprise.
+1. `throw new AppError(ERROR_CODES.TEACHER_UNAVAILABLE, 'gone')` → 409, exact shape, no status literal needed.
+2. `throw new Error('boom')` → 500, generic message to the client, full stack in the log.
+3. Break a required env var, boot → exits 1 with the variable named. Verified for a
+   short secret, a malformed `DATABASE_URL`, and production missing its service keys.
+
+## Deviations from this brief, and why
+
+| Brief said | Built | Why |
+|---|---|---|
+| (not listed) | `constants/auth.js` | PR 1.1 needs every value in it; creating it there means an E1 PR editing `constants/` instead of importing from it |
+| (not listed) | `ERROR_STATUS` map in `shared/` | Status is a property of the code, not of the call site. `new AppError(TEACHER_UNAVAILABLE, '...')` no longer repeats `409` everywhere |
+| (not listed) | `AppError.notFound()` etc. | Shorthands for the codes thrown most often |
+| (not listed) | `burnPasswordComparison()` | See below |
+| (not listed) | Prisma error translation in `errorHandler` | `P2002` reaching the client as a 500 is the default outcome otherwise |
+| (not listed) | `.env.example` | Brief assigns it to 0.9, but `env.js` is meaningless without the list it validates against |
+| `logger.js` unspecified | Redacting structured logger | Passwords and tokens in logs are the easiest security mistake to make and the hardest to notice |
+
+**Two worth explaining.**
+
+`burnPasswordComparison()` runs a bcrypt compare against a throwaway hash. PR 1.4
+requires login to answer identically for a wrong password and an unknown email —
+but without this, the unknown-email path skips bcrypt entirely and returns
+measurably faster, which is an account-enumeration oracle. Identical response
+bodies are not enough; the timing has to match too. Verified: the two paths are
+within 2× of each other.
+
+`MATCH_WEIGHTS` throws at import time if the weights do not sum to 1.0. A typo
+there does not crash anything — it silently skews every ranking, and E4's
+acceptance test would fail for reasons that look like a scoring bug.
 
 ## Notes
 
@@ -90,3 +123,7 @@ server/src/app.js        (0.4 creates it)
 interceptor (PR 0.6) switches on these codes, and two drifting lists would be a
 silent bug. From this PR onward the file is **append-only, alphabetical**
 (`OWNERSHIP.md` §2).
+
+The 0.1 scaffold's `config/scaffold.js` is deleted here — `config/` is real now.
+
+**Unblocks 0.6 immediately.** 0.4 also depends on this and is still DEV-B's.

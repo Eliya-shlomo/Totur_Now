@@ -15,6 +15,11 @@ sense. Instead it splits by **directory**, which is the cleanest possible bounda
 - **DEV-B owns `server/` and `prisma/`.**
 - **DEV-A owns `client/`.**
 
+> **Amended mid-epic:** 0.3 moved to DEV-A. Every remaining DEV-A PR (0.6, 0.7, 0.8)
+> was blocked behind a DEV-B PR, so DEV-A took the server-core PR to unblock 0.6.
+> `server/src/config/`, `utils/` and `middlewares/` are therefore DEV-A's as of 0.3;
+> `app.js`, routes and Prisma remain DEV-B's.
+
 After E0, this split dissolves and both developers work full-stack. E0 is the
 exception, not the pattern.
 
@@ -33,7 +38,7 @@ rest of the epic in parallel.
 |---|---|---|---|---|---|
 | 0.1 | [Monorepo scaffold, deps, tooling](PR-0.1-monorepo-scaffold.md) | **both, together** | M | — | ☑ in review |
 | 0.2 | [Prisma schema folder + first migration](PR-0.2-prisma-schema.md) | DEV-B · **human** | L | 0.1 | ☐ |
-| 0.3 | [Server core: constants, AppError, error codes, handlers](PR-0.3-server-core.md) | DEV-B · **human** | M | 0.1 | ☐ |
+| 0.3 | [Server core: constants, AppError, error codes, handlers](PR-0.3-server-core.md) | **DEV-A** · **human** | M | 0.1 | ☑ in review |
 | 0.4 | [Express skeleton, health, security middleware, route registry](PR-0.4-express-skeleton.md) | DEV-B | S | 0.3 | ☐ |
 | 0.5 | [React skeleton, Mantine theme, router shell](PR-0.5-react-skeleton.md) | DEV-A | M | 0.1 | ☑ in review |
 | 0.6 | [Client core: axios, interceptor, ErrorBoundary, UI primitives](PR-0.6-client-core.md) | DEV-A | M | 0.5 | ☐ |
