@@ -1,0 +1,43 @@
+// Domain: questions. Source of truth is MVP.md §11.2, "QUESTIONS".
+
+model Question {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  studentId  String? @map("student_id") @db.Uuid
+  rawText    String  @map("raw_text")
+  title      String? @db.VarChar(160)
+  topicId    Int?    @map("topic_id")
+  subtopicId Int?    @map("subtopic_id")
+
+  // Filled by the LLM classifier (MVP.md §8.1). Null until call 1 returns.
+  difficulty       Int?     @db.SmallInt
+  estimatedLevel   Int?     @map("estimated_level") @db.SmallInt
+  teacherBrief     String?  @map("teacher_brief")
+  llmConfidence    Decimal? @map("llm_confidence") @db.Decimal(3, 2)
+  classificationOk Boolean  @default(true) @map("classification_ok")
+
+  // Teachers who declined this question, so matching can exclude them on the
+  // next pass. A UUID[] rather than a join table: it is read on every matching
+  // run, never joined, and never grows past a handful of entries.
+  rejectedBy String[] @default([]) @map("rejected_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  student     User?                @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  topic       Topic?               @relation("QuestionTopic", fields: [topicId], references: [id], onDelete: Restrict)
+  subtopic    Topic?               @relation("QuestionSubtopic", fields: [subtopicId], references: [id], onDelete: Restrict)
+  attachments QuestionAttachment[]
+  session     Session?
+
+  @@map("questions")
+}
+
+model QuestionAttachment {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  questionId String? @map("question_id") @db.Uuid
+  fileUrl    String  @map("file_url")
+  mimeType   String? @map("mime_type") @db.VarChar(60)
+
+  question Question? @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@map("question_attachments")
+}

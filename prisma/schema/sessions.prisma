@@ -1,0 +1,115 @@
+// Domain: sessions, the blocks they bill, the offers that create them, and the
+// reviews that close them. Source of truth is MVP.md §11.2, "SESSIONS" and
+// "FEEDBACK".
+//
+// Every state change on Session goes through session.service (CONVENTIONS.md,
+// "Server layering"). Nothing else writes `status`.
+
+enum SessionStatus {
+  PENDING
+  OFFER_SENT
+  ACTIVE
+  ENDED
+  RATED
+  CANCELLED
+  NO_SHOW
+
+  @@map("session_status")
+}
+
+model Session {
+  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  questionId String?       @unique @map("question_id") @db.Uuid
+  studentId  String?       @map("student_id") @db.Uuid
+  teacherId  String?       @map("teacher_id") @db.Uuid
+  status     SessionStatus @default(PENDING)
+
+  // Snapshot of the teacher's price at offer time — a tier change mid-session
+  // must not reprice blocks already agreed to.
+  pricePerBlock Int? @map("price_per_block")
+
+  budgetCap      Int @default(40) @map("budget_cap")
+  blocksUsed     Int @default(0) @map("blocks_used") @db.SmallInt
+  totalCharged   Int @default(0) @map("total_charged")
+  platformFee    Int @default(0) @map("platform_fee")
+  teacherEarning Int @default(0) @map("teacher_earning")
+
+  zoomJoinUrl   String? @map("zoom_join_url")
+  zoomMeetingId String? @map("zoom_meeting_id") @db.VarChar(60)
+
+  startedAt DateTime? @map("started_at") @db.Timestamptz(6)
+  endsAt    DateTime? @map("ends_at") @db.Timestamptz(6) // when the current block ends
+  endedAt   DateTime? @map("ended_at") @db.Timestamptz(6)
+  // student_ended|no_extension|no_credit|budget_cap|teacher_no_show|error
+  endReason String?   @map("end_reason") @db.VarChar(40)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  question Question? @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  student  User?     @relation("SessionStudent", fields: [studentId], references: [id], onDelete: Restrict)
+  teacher  User?     @relation("SessionTeacher", fields: [teacherId], references: [id], onDelete: Restrict)
+
+  blocks       SessionBlock[]
+  offers       Offer[]
+  review       Review?
+  transactions WalletTransaction[]
+
+  // NOTE: idx_sessions_active — `(status) WHERE status = 'ACTIVE'` — is
+  // deliberately not declared here; Prisma cannot express a partial index. See
+  // prisma/migrations/20260810113433_init/migration.sql.
+  @@map("sessions")
+}
+
+model SessionBlock {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId   String?  @map("session_id") @db.Uuid
+  blockNumber Int?     @map("block_number") @db.SmallInt
+  minutes     Int?     @db.SmallInt // 10 for the opening block, 5 for extensions
+  amount      Int?
+  startedAt   DateTime @default(now()) @map("started_at") @db.Timestamptz(6)
+
+  session Session? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("session_blocks")
+}
+
+model Offer {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId   String?   @map("session_id") @db.Uuid
+  teacherId   String?   @map("teacher_id") @db.Uuid
+  status      String    @default("PENDING") @db.VarChar(20) // PENDING|ACCEPTED|REJECTED|EXPIRED
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(6)
+  respondedAt DateTime? @map("responded_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  session Session? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  teacher User?    @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+
+  // NOTE: idx_offers_pending — `(expires_at) WHERE status = 'PENDING'`, read by
+  // the offer-expiry cron every 10 seconds (MVP.md §13) — is deliberately not
+  // declared here; Prisma cannot express a partial index. See
+  // prisma/migrations/20260810113433_init/migration.sql.
+  @@map("offers")
+}
+
+model Review {
+  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId String? @unique @map("session_id") @db.Uuid
+  studentId String? @map("student_id") @db.Uuid
+  teacherId String? @map("teacher_id") @db.Uuid
+
+  isResolved Boolean @map("is_resolved") // the core KPI
+
+  // CHECK (stars BETWEEN 1 AND 5) is hand-added to the migration SQL — Prisma
+  // has no representation for a check constraint. See
+  // prisma/migrations/*_init/migration.sql.
+  stars   Int?     @db.SmallInt
+  comment String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  session Session? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student User?    @relation("ReviewStudent", fields: [studentId], references: [id], onDelete: Restrict)
+  teacher User?    @relation("ReviewTeacher", fields: [teacherId], references: [id], onDelete: Restrict)
+
+  @@map("reviews")
+}
