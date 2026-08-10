@@ -45,8 +45,14 @@ client/src/components/state/LoadingState.jsx
 client/src/components/state/ErrorState.jsx
 client/src/components/state/EmptyState.jsx
 client/src/App.jsx                     mount ErrorBoundary only
-client/.env.example
+client/.env.example                    superseded — see note below
 ```
+
+> **Amended after the 0.3 review.** `client/.env.example` no longer exists: there is
+> one `.env` for the whole monorepo, at the repo root, and Vite's `envDir` points at
+> it. `VITE_API_URL` lives in the root `.env.example` under the client section.
+> Sharing the file with the server is safe because Vite exposes only the `VITE_`
+> prefix. Nothing else in this PR changed.
 
 ## Files you must NOT touch
 

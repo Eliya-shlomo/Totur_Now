@@ -60,10 +60,12 @@ export const ERROR_STATUS = {
 
   [ERROR_CODES.NOT_FOUND]: 404,
 
+  // 409 rather than 404: none of these are a missing resource. They are a state the
+  // request collided with, and one that may well be different a minute from now.
   [ERROR_CODES.TEACHER_UNAVAILABLE]: 409,
   [ERROR_CODES.OFFER_EXPIRED]: 409,
   [ERROR_CODES.SESSION_NOT_ACTIVE]: 409,
-  [ERROR_CODES.NO_AVAILABLE_TEACHERS]: 404,
+  [ERROR_CODES.NO_AVAILABLE_TEACHERS]: 409,
 
   [ERROR_CODES.INSUFFICIENT_CREDIT]: 402,
   [ERROR_CODES.BUDGET_CAP_REACHED]: 402,

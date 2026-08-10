@@ -27,8 +27,12 @@ export const PLATFORM_FEE_PCT = 0.15;
 export const NEW_TEACHER_FEE_DAYS = 30;
 
 /**
- * Commission-free hours, as [startHour, endHour) in server local time.
+ * Commission-free hours, as [startHour, endHour) — start inclusive, end exclusive.
  * Availability incentive without paying for standby (§5.3).
+ *
+ * Israel time, always. Never compare these against `new Date().getHours()`, which
+ * answers in the host's timezone and is UTC on Render — use `isLowDemandHour()`
+ * from `#utils/time.js`, which resolves through `TIMEZONE`.
  */
 export const LOW_DEMAND_HOURS = [6, 14];
 

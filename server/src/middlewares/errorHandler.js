@@ -1,6 +1,7 @@
 import { ZodError } from 'zod';
 import { ERROR_CODES } from '#config/errors/codes.js';
 import { AppError } from '#utils/AppError.js';
+import { fieldErrors } from '#utils/fieldErrors.js';
 import { logger } from '#utils/logger.js';
 import { env } from '#config/env.js';
 
@@ -87,16 +88,4 @@ function normalize(err) {
   wrapped.isOperational = false;
   wrapped.stack = err?.stack ?? wrapped.stack;
   return wrapped;
-}
-
-/** Zod issues → `{ fieldName: 'message' }`, which is what the client renders inline. */
-export function fieldErrors(zodError) {
-  const out = {};
-  for (const issue of zodError.issues) {
-    // Drop the leading source segment ('body' | 'params' | 'query') so the client
-    // sees the field name the form actually uses.
-    const path = issue.path.slice(1).join('.') || issue.path.join('.');
-    if (!out[path]) out[path] = issue.message;
-  }
-  return out;
 }

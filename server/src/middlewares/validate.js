@@ -1,5 +1,5 @@
 import { AppError } from '#utils/AppError.js';
-import { fieldErrors } from '#middlewares/errorHandler.js';
+import { fieldErrors } from '#utils/fieldErrors.js';
 
 /**
  * Runs a Zod schema against the request. MVP.md §16 — every endpoint gets one,
@@ -29,10 +29,18 @@ export function validate(schema) {
 
     if (result.data.body !== undefined) req.body = result.data.body;
     if (result.data.params !== undefined) req.params = result.data.params;
-    // req.query is a getter-only property on Express 5; assign defensively so this
-    // keeps working if the project upgrades.
+    // req.query is a getter-only property on Express 5; defined rather than assigned
+    // so this keeps working if the project upgrades. `configurable` and `enumerable`
+    // are explicit: both default to false, which would make a second validate() on
+    // the same route throw "Cannot redefine property" and would hide query from any
+    // dump of the request.
     if (result.data.query !== undefined) {
-      Object.defineProperty(req, 'query', { value: result.data.query, writable: true });
+      Object.defineProperty(req, 'query', {
+        value: result.data.query,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
     }
 
     return next();

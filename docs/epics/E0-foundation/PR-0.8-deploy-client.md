@@ -29,9 +29,23 @@ check a screen without pulling the branch.
 
 ```
 vercel.json                or client/vercel.json
-client/.env.example
+.env.example               root — the client section only, not the server keys
 docs/DEPLOYMENT.md         create — the client half
 ```
+
+There is one `.env` for the whole monorepo, at the repo root (settled in the 0.3
+review). `client/.env.example` does not exist, and Vite's `envDir` in
+`client/vite.config.js` is what points the client at the root file.
+
+Two consequences for this PR, both of which are easy to get wrong on Vercel:
+
+- Vercel's root directory is `client/`, so `.env` at the repo root is **outside** it.
+  Do not rely on the file being deployed — `VITE_API_URL` is set in the Vercel
+  dashboard per environment, which the criteria below already require.
+- Only `VITE_`-prefixed variables reach the bundle. Do not add the server's keys to
+  the Vercel project to "keep them together": the client half of the deployment has
+  no use for them, and every one of them would be one prefix rename away from
+  shipping to the browser.
 
 ## Files you must NOT touch
 
