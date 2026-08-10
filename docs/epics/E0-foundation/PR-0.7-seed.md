@@ -40,6 +40,10 @@ than the volume:
 
 Also seed 2–3 students with wallet balances, and one admin.
 
+The seed never assigns an `id` — the database generates every primary key, per
+`CONVENTIONS.md` § Database. Idempotency therefore upserts on the stable business key
+(`topics.slug`, `users.email`), not on an id the script made up.
+
 ## Files you may touch
 
 ```
