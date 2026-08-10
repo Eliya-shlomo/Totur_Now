@@ -1,4 +1,7 @@
-import 'dotenv/config';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import dotenv from 'dotenv';
 import { z } from 'zod';
 
 /**
@@ -11,6 +14,21 @@ import { z } from 'zod';
  * must not stop PR 0.4 from booting. `requiredInProduction` below is what tightens
  * that for the deployed environment.
  */
+
+/**
+ * One `.env` for the whole monorepo, at the repo root, next to `docker-compose.yml`
+ * and `prisma.config.js` — both of which already read from there.
+ *
+ * The path is resolved from this file rather than from `process.cwd()`, because cwd
+ * is not the repo root when it matters: `npm run dev -w server` runs with cwd set to
+ * `server/`, so a bare `import 'dotenv/config'` looks for `server/.env`, finds
+ * nothing, and the server refuses to boot with every variable reported missing.
+ *
+ * Missing file is not an error. In production Render injects the variables directly
+ * and no `.env` exists — the schema below is what decides whether that is survivable.
+ */
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+dotenv.config({ path: resolve(REPO_ROOT, '.env') });
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),

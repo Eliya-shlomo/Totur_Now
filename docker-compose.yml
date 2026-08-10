@@ -10,7 +10,7 @@
 # project's container or a local Homebrew Postgres. Binding a dedicated port means
 # TutorNow starts regardless of what else is running.
 #
-# Connection string for server/.env (PR 0.9 documents the full env list):
+# Connection string for .env at the repo root (PR 0.9 documents the full env list):
 #   DATABASE_URL="postgresql://tutor:tutor@localhost:5433/tutor_now?schema=public"
 
 services:

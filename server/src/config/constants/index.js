@@ -6,6 +6,7 @@
  * point of the folder, and it is why this never becomes a merge conflict.
  */
 
+export * from './app.js';
 export * from './auth.js';
 export * from './llm.js';
 export * from './matching.js';
