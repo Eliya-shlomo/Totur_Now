@@ -59,9 +59,25 @@ server/**  prisma/**
 - [ ] A hard refresh on a deep route (`/app/wallet`) loads the app, not a 404
 - [ ] `VITE_API_URL` is set for production and preview, and is not committed
 - [ ] Opening a PR produces a preview deployment with its own URL
-- [ ] `docs/DEPLOYMENT.md` records: project settings, root directory, build command,
+- [x] `docs/DEPLOYMENT.md` records: project settings, root directory, build command,
       the env var list, and where the secrets actually live
-- [ ] No secret is present in the built bundle — grep `dist/` to confirm
+- [x] No secret is present in the built bundle — grep `dist/` to confirm
+
+The four unticked boxes all require the Vercel project to exist, and creating it is
+the manual half of this PR (the header says so). The committed half is done and
+verified: `client/vercel.json`, the `.env.example` note, and `docs/DEPLOYMENT.md`.
+Tick them after following `docs/DEPLOYMENT.md` § "One-time project setup".
+
+Two findings from building this, both recorded rather than fixed here:
+
+- `client/src/api/client.js` is imported by nothing yet, so Rollup tree-shakes it and
+  axios never enters the bundle. The secret grep therefore passes trivially today.
+  The env plumbing was verified directly instead, through Vite's own `loadEnv`: the
+  repo-root `.env` resolves from `client/` via `envDir`, and a variable already in the
+  environment overrides it — which is the mechanism Vercel's dashboard values use.
+  Re-run the grep once E1 imports the axios instance for real.
+- Preview origins and CORS do not compose cleanly. See the hand-off note in
+  `docs/DEPLOYMENT.md` § "Preview deployments"; it is 0.9's call, not this PR's.
 
 ## Manual test
 
