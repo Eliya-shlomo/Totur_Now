@@ -171,10 +171,263 @@ almost always a browser console error, not a Vercel one. Check devtools first.
 
 ## Server → Render + Neon
 
-> **PR 0.9, DEV-B.** Not yet written. This section covers the Render service, the Neon
-> project and its scratch branch, migrations on deploy, running the seed against
-> production on demand, connecting to the production database, reading logs, rolling
-> back, and the free-tier cold start (~50 s on the first request after idle — warm the
-> service before a demo).
->
-> Append below this line; do not restructure the client half above.
+Two platforms, in this order — Render needs a connection string, so the database goes
+first. Everything Render needs that can be expressed as code lives in
+[`render.yaml`](../render.yaml); this section covers the rest, which is the parts a
+YAML file cannot hold: the Neon project, the secrets, and what to do when something
+breaks.
+
+### 1. Neon
+
+1. neon.tech → **New Project**. Postgres **16**, region **eu-central-1 (Frankfurt)**.
+2. Name the database `tutor_now`.
+3. Branches → **New Branch** → `scratch`, created from `main`.
+
+The scratch branch is not decoration. It is a full copy-on-write clone of production
+that costs nothing until it diverges, and it is what makes the destructive commands
+safe to run: `prisma migrate reset`, a seed you are not sure about, a migration you
+want to watch apply before it touches real data. Point a local `.env` at it and the
+worst case is that you delete a copy.
+
+Neon gives two connection strings per branch, and they differ by one word in the host:
+
+```
+direct  postgresql://…@ep-xxx.eu-central-1.aws.neon.tech/tutor_now?sslmode=require
+pooled  postgresql://…@ep-xxx-pooler.eu-central-1.aws.neon.tech/tutor_now?sslmode=require
+```
+
+#### Pooled vs direct
+
+**Use the direct string.** `prisma migrate deploy` takes a Postgres advisory lock for
+the duration of the migration run, and PgBouncer in transaction mode hands the
+underlying connection to somebody else between statements — so the lock is taken on
+one connection and looked for on another. It shows up as a deploy that hangs until
+Render times it out, or as `prepared statement "s0" already exists`.
+
+The reason we can simply not use the pooler is that there is nothing to pool: the free
+plan runs one instance, one Node process, one Prisma connection pool. Pooling matters
+when many instances each hold connections against a Postgres `max_connections` ceiling,
+which is a problem this project does not have yet.
+
+When it does — more than one instance, or a serverless runtime — the fix is
+`directUrl` in the datasource block:
+
+```prisma
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")   // pooled, for queries
+  directUrl = env("DIRECT_URL")     // unpooled, for migrations
+}
+```
+
+That edits `prisma/schema/`, which is the highest-conflict file in the repo
+(`OWNERSHIP.md` §3.1). It is a deliberate, announced change when the time comes, not
+something to slip in during an unrelated PR.
+
+`?sslmode=require` stays on the string. Neon rejects plaintext connections.
+
+### 2. Render
+
+Dashboard → **New → Blueprint** → connect `Eliya-shlomo/Totur_Now` → it reads
+[`render.yaml`](../render.yaml) from the repo root and creates the service from it.
+
+Creating the service by hand instead means it is not linked to the blueprint and never
+picks up changes to that file — the two configurations then drift, and the one in the
+repo becomes a lie that reviews are conducted against. If the service already exists
+unlinked, delete it and re-create from the blueprint.
+
+Render will prompt for every `sync: false` variable during the sync. What each one is
+and where it comes from:
+
+| Variable | Value | Where to get it |
+|---|---|---|
+| `DATABASE_URL` | Neon **direct** string, `main` branch | Neon → Connection Details → uncheck "Pooled connection" |
+| `CORS_ORIGINS` | `https://<vercel-production-domain>` | The production URL from PR 0.8. No trailing slash. |
+| `CLOUDINARY_*` | 3 values | cloudinary.com → Dashboard → Product Environment Credentials |
+| `ANTHROPIC_API_KEY` | `sk-ant-…` | console.anthropic.com → API keys |
+| `ZOOM_*`, `RESEND_API_KEY`, `EMAIL_FROM` | leave blank | E5 / E6. `env.js` treats them as optional. |
+
+`JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` are **not** in that list: `render.yaml`
+marks them `generateValue: true`, so Render generates them and nobody ever sees them.
+They are deliberately different from the local development values. Regenerating either
+invalidates every token issued against it — which is the correct response to a leak,
+and the reason not to do it casually.
+
+> **Cloudinary and Anthropic are required to deploy, today, before E3 starts.**
+> `requiredInProduction` in [`server/src/config/env.js`](../server/src/config/env.js)
+> exits the process on boot when `NODE_ENV=production` and any of those four is
+> missing, and a process that exits on boot is a service Render marks as failed. Both
+> have free tiers; create the accounts now. Setting a placeholder string gets the
+> service green, but it converts a startup failure you would have seen today into a
+> runtime failure in E3, which is the trade the fail-fast check exists to prevent.
+
+### 3. Migrations
+
+`render.yaml` runs them in the build command, before the new instance starts:
+
+```
+npm ci && npx prisma migrate deploy && npx prisma generate
+```
+
+`migrate deploy` is the only migrate subcommand safe to point at production. It applies
+pending migrations in order and does nothing else — it never generates a new migration
+from schema drift, never prompts, and never resets. `migrate dev` does all three, which
+is why it is a local-only command.
+
+Three details that are easy to get wrong:
+
+- **It runs from the repo root**, not from `server/`. `prisma.config.js` lives at the
+  root and declares `schema: prisma/schema` and `migrations: prisma/migrations` as
+  paths relative to cwd. Run the CLI from `server/` and it finds neither.
+- **`NPM_CONFIG_INCLUDE=dev` is what makes the CLI exist.** Render sets
+  `NODE_ENV=production`, npm reads that as `--omit=dev`, and `prisma` is a
+  devDependency of the `server` workspace. Without the override the build dies on
+  `prisma: not found`. This is the same failure as `vite: command not found` on Vercel,
+  one section up.
+- **A failed migration fails the deploy, and that is the safe outcome.** Render only
+  routes traffic to a new instance after the build succeeds and the health check
+  passes, so the previous instance keeps serving. A bad migration means a broken
+  deploy, not a broken site.
+
+A fresh deploy against an empty Neon branch works with no extra steps: `migrate deploy`
+applies every migration from `20260810113433_init` forward.
+
+### 4. Seeding production
+
+Not automatic, and deliberately so. The seed is idempotent — every write upserts on a
+stable business key — but automatic on every deploy means 15 demo teachers reappearing
+after someone deletes them, and demo data quietly resurrecting itself is worse than
+having to type a command.
+
+The free plan has no shell, so it runs from your machine against the production
+connection string:
+
+```bash
+DATABASE_URL="<neon-direct-url>" npm run db:seed
+```
+
+On Windows PowerShell:
+
+```bash
+$env:DATABASE_URL="<neon-direct-url>"; npm run db:seed
+```
+
+Set the variable **inline for that one command**. Putting the production URL in your
+`.env` and forgetting it there is how a local `prisma migrate reset` ends up pointed at
+production, and `reset` does not ask twice.
+
+### 5. Connecting to the production database
+
+```bash
+DATABASE_URL="<neon-direct-url>" npx prisma studio
+```
+
+Same inline-variable rule, same reason. Neon's own SQL Editor (Console → SQL Editor) is
+the read-only-ish alternative and needs no local setup — prefer it for looking, Studio
+for editing.
+
+Never run `prisma migrate dev` or `prisma migrate reset` against a production URL.
+`dev` will invent a migration from whatever drift it sees; `reset` drops the schema.
+
+### 6. CORS
+
+The whitelist is an exact-match list — [`env.js`](../server/src/config/env.js) splits
+`CORS_ORIGINS` on commas, [`app.js`](../server/src/app.js) does an `includes` against
+the result. No wildcards, no trailing slashes, scheme included.
+
+Production is one origin and is set once. Preview deployments are the awkward half:
+Vercel's branch alias contains the branch name, so every branch is a new origin. The
+two honest options, both from PR 0.8's hand-off note:
+
+- **Add branch aliases as they come up.** One dashboard edit per branch that needs to
+  talk to the API, and a redeploy. Fine at this team size.
+- **Point previews at a scratch API.** A second Render service on the Neon `scratch`
+  branch, with a looser origin list, and `VITE_API_URL` set to it for the Preview
+  environment in Vercel. More setup, no per-branch work afterwards.
+
+Start with the first. What you must not do is widen the whitelist to a regex matching
+`.vercel.app` — anyone can deploy a project on that domain, and `credentials: true` is
+on, so a match means their page can make authenticated requests as your users.
+
+### 7. Cold starts
+
+The free plan spins the instance down after ~15 minutes without a request. The next
+request wakes it, and pays for the whole boot: **roughly 50 seconds**, during which the
+client shows its error state because the request has already timed out.
+
+Nothing is broken when this happens. Handle it by hitting the health endpoint a minute
+before anyone looks at the app:
+
+```bash
+curl https://<render-url>/health
+```
+
+Do it before the demo on 8/19. A second request confirms it is warm — it should return
+in well under a second.
+
+Do not paper over it with an external uptime pinger every 5 minutes. Render's free plan
+counts instance hours, and a service kept awake 24/7 burns the monthly allowance in
+about three weeks — trading a 50-second cold start for a hard stop.
+
+### 8. Rolling back
+
+Service → **Events** → find the last good deploy → **Rollback to this deploy**. Render
+redeploys that commit; it takes a build, unlike Vercel's instant alias move.
+
+**A rollback does not undo migrations.** Migrations are forward-only here: there are no
+down-migrations, and `migrate deploy` has no revert. So rolling back application code
+across a migration leaves old code talking to a newer schema. Additive migrations (new
+table, new nullable column) survive that fine; a rename or a drop does not.
+
+The practical rule: if a deploy contains a destructive migration, fixing forward is
+safer than rolling back. Write the compensating migration and deploy it.
+
+### 9. Logs
+
+Service → **Logs** is live tail, and `logger` from 0.3 writes structured JSON, so the
+filter box searches the fields. Service → **Events** is the deploy history — build
+output, health check failures, restarts, OOM kills.
+
+Two log lines are worth recognising:
+
+- `SIGTERM received — shutting down` — normal. Render sends SIGTERM on every deploy;
+  0.4's graceful shutdown drains in-flight requests, disconnects Prisma, and exits 0.
+  It should be followed by `Shutdown complete` well within 10 seconds.
+- `Health check: database unreachable` at warn level — the health endpoint reports
+  `db: 'down'` and still returns 200, on purpose. It means Neon is unreachable, not
+  that this instance is unhealthy; a 500 here would make Render restart the instance on
+  every database blip and turn a recoverable outage into a restart loop.
+
+### 10. Verifying a deploy
+
+```bash
+curl https://<render-url>/health
+```
+
+Expect `{"success":true,"data":{"status":"ok","db":"ok","uptime":N}}`. `db: "down"`
+means the instance is fine and `DATABASE_URL` is not — wrong string, or the pooled one.
+
+From the deployed client's origin, in the browser console:
+
+```js
+await fetch('https://<render-url>/health').then((r) => r.json());
+```
+
+No CORS error. Then the same call from any other origin — this page, for instance —
+should fail with a CORS error in the console, and the server logs a 403. Both halves
+matter: a whitelist that accepts everything passes the first test too.
+
+Finally, push a commit to `main` and watch Events: build, migrate, health check, traffic
+swap, with no manual step anywhere.
+
+### Troubleshooting
+
+| Symptom | Cause |
+|---|---|
+| `prisma: not found` in build | `NPM_CONFIG_INCLUDE=dev` missing |
+| `Could not find a schema.prisma` | Build command running from `server/`, not the repo root |
+| Build hangs at `migrate deploy` | Pooled connection string — switch to direct |
+| Deploy succeeds, service unhealthy, `Missing in production: …` in logs | `requiredInProduction` in `env.js`; set the Cloudinary / Anthropic keys |
+| `Cannot find package '@tutor/shared'` | Installing inside `server/` instead of the workspace root |
+| Health check times out, no app logs | Not binding to Render's `PORT` — do not set `PORT` yourself |
+| First request after a quiet hour takes ~50 s | Cold start, expected. §7. |
