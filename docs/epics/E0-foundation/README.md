@@ -42,7 +42,7 @@ rest of the epic in parallel.
 | 0.4 | [Express skeleton, health, security middleware, route registry](PR-0.4-express-skeleton.md) | DEV-B | S | 0.3 | ☐ |
 | 0.5 | [React skeleton, Mantine theme, router shell](PR-0.5-react-skeleton.md) | DEV-A | M | 0.1 | ☑ in review |
 | 0.6 | [Client core: axios, interceptor, ErrorBoundary, UI primitives](PR-0.6-client-core.md) | DEV-A | M | 0.5 | ☑ in review |
-| 0.7 | [Seed script: topics tree + 15 demo teachers](PR-0.7-seed.md) | DEV-A | M | 0.2 | ☐ |
+| 0.7 | [Seed script: topics tree + 15 demo teachers](PR-0.7-seed.md) | DEV-A | M | 0.2 | ☑ in review |
 | 0.8 | [Deploy client → Vercel](PR-0.8-deploy-client.md) | DEV-A | S | 0.6 | ☐ |
 | 0.9 | [Deploy server → Render + Neon, `.env.example`](PR-0.9-deploy-server.md) | DEV-B | M | 0.4 | ☐ |
 

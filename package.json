@@ -24,6 +24,7 @@
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f db",
     "db:migrate": "prisma migrate dev",
+    "db:seed": "node prisma/seed/index.js",
     "db:studio": "prisma studio",
     "prepare": "husky"
   },

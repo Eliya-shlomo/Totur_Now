@@ -53,8 +53,15 @@ prisma/seed/topics.js
 prisma/seed/teachers.js
 prisma/seed/students.js
 prisma/seed/helpers.js
-package.json            the db:seed script + prisma.seed key only
+package.json            the db:seed script only
+prisma.config.js        the migrations.seed key only — see note below
 ```
+
+> **Amended during the PR.** The brief said `package.json#prisma.seed`. That key is
+> deprecated in Prisma 7 and conflicts with `prisma.config.js`, which 0.2 introduced
+> to point the CLI at the schema folder. The seed command therefore lives in
+> `prisma.config.js` under `migrations.seed`, which is what makes `prisma migrate
+> reset` reseed automatically.
 
 ## Files you must NOT touch
 
@@ -66,14 +73,15 @@ server/src/**  client/**
 
 ## Acceptance criteria
 
-- [ ] `npm run db:seed` succeeds on an empty database
-- [ ] Running it a second time does not duplicate or crash (upsert on stable keys)
-- [ ] Every parent topic and subtopic from `MVP.md` §7 exists, plus topic `0`
-- [ ] 15 teachers exist, spanning every standing badge, all three price bands, and every level cap
-- [ ] At least 4 teachers have integrals stats, and the 1×5.0 vs 40×4.6 pair exists
-- [ ] All demo users share one documented password so the demo never stalls on a login
-- [ ] `wallets.balance` equals the sum of that user's `wallet_transactions` for every seeded user
-- [ ] Seeded teacher aggregates are internally consistent — `rating_sum / rating_count`
+- [x] `npm run db:seed` succeeds on an empty database
+- [x] Running it a second time does not duplicate or crash (upsert on stable keys)
+- [x] Every parent topic and subtopic from `MVP.md` §7 exists, plus topic `0`
+- [x] 15 teachers exist, spanning every standing badge, all three price bands, and every level cap
+- [x] At least 4 teachers have integrals stats, and the 1×5.0 vs 40×4.6 pair exists
+      — five do; the pair is Gil V. (1 rating, 5.00) against Dana K. (40, 4.60)
+- [x] All demo users share one documented password so the demo never stalls on a login
+- [x] `wallets.balance` equals the sum of that user's `wallet_transactions` for every seeded user
+- [x] Seeded teacher aggregates are internally consistent — `rating_sum / rating_count`
       matches the intended average, `resolved_count <= sessions_count`
 
 ## Manual test
