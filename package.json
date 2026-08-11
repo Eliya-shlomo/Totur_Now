@@ -26,7 +26,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "node prisma/seed/index.js",
     "db:studio": "prisma studio",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "lint-staged": {
     "*.{js,jsx}": [

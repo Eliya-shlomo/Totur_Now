@@ -66,6 +66,24 @@ There is no `.env` at the repo root on Vercel — it is gitignored and never upl
 Vite falls back to reading `VITE_`-prefixed variables straight out of the build
 environment, which is exactly what the dashboard variables below are.
 
+### Install failures
+
+**`sh: line 1: husky: command not found` → `Command "npm install" exited with 127`**
+
+npm runs the root `prepare` script after every install, and `prepare` was `husky`.
+Husky is a devDependency and a git hook manager — the binary is not present in
+Vercel's install, and there is no `.git` there to install hooks into. A failing
+`prepare` aborts the whole install, so the deploy dies before the build starts.
+
+The script is now `husky || true`, which is what husky's own docs give for CI. Hooks
+still install locally, where husky is present and the exit code is zero.
+
+**`vite: command not found`, or a missing devDependency during the build step**
+
+Different problem, same root: devDependencies were omitted. The build genuinely needs
+them — `vite` is one. Set `NPM_CONFIG_INCLUDE=dev` as a project environment variable,
+or override Install Command to `npm ci --include=dev`.
+
 ### Environment variables
 
 Project → Settings → Environment Variables. Set **per environment** — Production and
