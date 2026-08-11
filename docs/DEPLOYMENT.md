@@ -180,8 +180,13 @@ breaks.
 ### 1. Neon
 
 1. neon.tech → **New Project**. Postgres **16**, region **eu-central-1 (Frankfurt)**.
-2. Name the database `tutor_now`.
-3. Branches → **New Branch** → `scratch`, created from `main`.
+   The region has to match Render's in `render.yaml` — a cross-region hop is added to
+   every query otherwise, and the matching algorithm makes several per request.
+2. Keep Neon's defaults: the primary branch is `production` and the database is
+   `neondb`. Neither name is read by anything — the connection string carries the
+   database, and Prisma is told nothing about branches — so renaming them buys a
+   mismatch with this document and nothing else.
+3. Branches → **New Branch** → `scratch`, parent `production`.
 
 The scratch branch is not decoration. It is a full copy-on-write clone of production
 that costs nothing until it diverges, and it is what makes the destructive commands
@@ -192,9 +197,14 @@ worst case is that you delete a copy.
 Neon gives two connection strings per branch, and they differ by one word in the host:
 
 ```
-direct  postgresql://…@ep-xxx.eu-central-1.aws.neon.tech/tutor_now?sslmode=require
-pooled  postgresql://…@ep-xxx-pooler.eu-central-1.aws.neon.tech/tutor_now?sslmode=require
+direct  postgresql://…@ep-xxx.c-6.eu-central-1.aws.neon.tech/neondb?sslmode=require
+pooled  postgresql://…@ep-xxx-pooler.c-6.eu-central-1.aws.neon.tech/neondb?sslmode=require
 ```
+
+Neon's copy button appends `&channel_binding=require`. **Drop it.** It is a libpq
+parameter, and Prisma's driver is not libpq — it rejects connection-string parameters
+it does not know. `?sslmode=require` on its own is what Prisma wants, and Neon requires
+nothing more.
 
 #### Pooled vs direct
 
@@ -241,7 +251,7 @@ and where it comes from:
 
 | Variable | Value | Where to get it |
 |---|---|---|
-| `DATABASE_URL` | Neon **direct** string, `main` branch | Neon → Connection Details → uncheck "Pooled connection" |
+| `DATABASE_URL` | Neon **direct** string, `production` branch | Neon → Connect → toggle **Connection pooling** off |
 | `CORS_ORIGINS` | `https://<vercel-production-domain>` | The production URL from PR 0.8. No trailing slash. |
 | `CLOUDINARY_*` | 3 values | cloudinary.com → Dashboard → Product Environment Credentials |
 | `ANTHROPIC_API_KEY` | `sk-ant-…` | console.anthropic.com → API keys |
