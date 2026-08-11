@@ -57,6 +57,8 @@ const schema = z.object({
   ZOOM_CLIENT_ID: z.string().optional(),
   ZOOM_CLIENT_SECRET: z.string().optional(),
 
+  DAILY_API_KEY: z.string().optional(), // E6
+
   RESEND_API_KEY: z.string().optional(), // E5
   EMAIL_FROM: z.string().email().optional(),
 });
