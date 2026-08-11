@@ -6,19 +6,33 @@
  */
 
 /**
- * The three tiers. A teacher picks one, subject to verification (MVP.md §5.2).
- * `badge` is the badge a teacher on this tier carries by default (§6.4).
+ * The teacher sets their own price, anywhere in this range (MVP.md §5.2).
+ *
+ * The floor stops undercutting from becoming the way to get matched; the ceiling
+ * keeps the budget cap and the "can afford the opening block" filter meaningful.
+ * The same range is a CHECK constraint on teacher_profiles.price_per_block —
+ * change one and you must change the other, in a migration.
  */
-export const PRICE_TIERS = {
-  BASE: { pricePerBlock: 8, badge: 'NEW' },
-  REGULAR: { pricePerBlock: 12, badge: 'STUDENT' },
-  PRO: { pricePerBlock: 16, badge: 'CERTIFIED' },
+export const MIN_PRICE_PER_BLOCK = 5;
+export const MAX_PRICE_PER_BLOCK = 20;
+export const DEFAULT_PRICE_PER_BLOCK = 10;
+
+/**
+ * The student-facing price filter (§5.2). A band is a **ceiling**: picking B means
+ * bands A and B, so a cheaper teacher is never hidden from someone willing to pay
+ * more.
+ *
+ * Derived from `price_per_block` at read time and never stored on the teacher —
+ * a teacher does not pick a band, they pick a number, and the band follows.
+ */
+export const PRICE_BANDS = {
+  A: { maxPrice: 9 },
+  B: { maxPrice: 14 },
+  C: { maxPrice: MAX_PRICE_PER_BLOCK },
 };
 
-/** Highest price in the system. Feeds `price_fit` in the matching score (§9.2). */
-export const MAX_PRICE_PER_BLOCK = Math.max(
-  ...Object.values(PRICE_TIERS).map((t) => t.pricePerBlock),
-);
+/** Band keys, cheapest first. `#utils/pricing.js` reads them in this order. */
+export const PRICE_BAND_KEYS = Object.keys(PRICE_BANDS);
 
 /** Platform commission. Deliberately below market — supply before profit (§5.3). */
 export const PLATFORM_FEE_PCT = 0.15;

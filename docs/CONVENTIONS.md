@@ -84,8 +84,8 @@ Consequences, and they are review items:
 - `prisma.user.create({ data })` **omits `id`**. Passing one is a failed review.
 - No `uuid` and no `nanoid` in `package.json`. `crypto.randomUUID()` is for things that
   never reach a table (idempotency keys, socket room names).
-- `topics` and `entrance_questions` are `SERIAL` in `MVP.md` §11.2, so they are
-  `Int @id @default(autoincrement())`. The rule is the same: the database assigns it.
+- `topics` is `SERIAL` in `MVP.md` §11.2, so it is `Int @id @default(autoincrement())`.
+  The rule is the same: the database assigns it.
 
 One carve-out, and only one: PR 0.7 seeds `topics` with an explicit `id = 0` for
 "General / Unclassified", because the LLM classifier in E3 falls back to a topic id it

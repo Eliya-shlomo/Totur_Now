@@ -29,10 +29,11 @@ Then, in **one Prisma transaction**: create the `users` row with a bcrypt hash f
 and create the `wallets` row at balance 0. All three or none — a user without a wallet
 breaks the matching hard filter in E4 in a way that is very hard to trace back here.
 
-Teacher rows are created with the defaults from `MVP.md` §11.2: `badge = NEW`,
-`price_tier = BASE`, `price_per_block = 8`, `status = OFFLINE`, `level_max = 3`.
-Those defaults come from `PRICE_TIERS` in `config/constants/money.js`, not from
-literals.
+Teacher rows are created with the defaults from `MVP.md` §11.2:
+`price_per_block = 10`, `status = OFFLINE`, `level_max = 3`. Those defaults come from
+`DEFAULT_PRICE_PER_BLOCK` in `config/constants/money.js` and `DEFAULT_LEVEL_MAX` in
+`config/constants/teacher.js`, not from literals. There is no badge column — standing
+is computed by `#utils/standing.js` (§6.2), and a brand-new teacher computes to `NEW`.
 
 Respond `201` with `{ user, accessToken }` and the refresh cookie set, using 1.1's
 token service — the shape frozen in the [epic README](README.md), identical to login's.
@@ -77,7 +78,7 @@ client/**
 ## Manual test
 
 1. Register a student → 201, three rows present, cookie set in the response headers.
-2. Register a teacher → `teacher_profiles.price_per_block = 8`, `badge = NEW`, `status = OFFLINE`.
+2. Register a teacher → `teacher_profiles.price_per_block = 10`, `status = OFFLINE`, and `standingOf()` on the new row returns `NEW`.
 3. Register the same email twice → clean field-level validation error.
 4. `role: 'admin'` → rejected.
 5. Temporarily throw inside the transaction after the user insert → no orphan `users` row remains.
@@ -86,7 +87,7 @@ client/**
 ## Review checklist additions
 
 - The transaction is real (`prisma.$transaction`), not three sequential awaits with hope.
-- No teacher default is a literal. They come from `PRICE_TIERS`.
+- No teacher default is a literal. They come from the constants folder.
 
 ## Notes
 

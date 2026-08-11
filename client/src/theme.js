@@ -8,8 +8,8 @@ import { createTheme } from '@mantine/core';
  * or in `other` below.
  */
 export const theme = createTheme({
-  // Teal, deliberately: purple / blue / green are reserved for teacher tier badges
-  // (MVP.md §6.4), so the brand colour must not collide with the tier signal.
+  // Teal, deliberately: purple / blue / green / yellow are reserved for teacher
+  // standing badges (MVP.md §6.2), so the brand colour must not collide with them.
   primaryColor: 'teal',
   primaryShade: { light: 6, dark: 5 },
 
@@ -31,14 +31,21 @@ export const theme = createTheme({
 
   other: {
     /**
-     * Teacher tier badges — MVP.md §6.4. Single source so no screen invents its own
-     * mapping. `Certified` is grape rather than plain violet because it has to stay
-     * distinguishable from the primary teal at a glance on the selection screen.
+     * Teacher standing badges — MVP.md §6.2. Single source so no screen invents its
+     * own mapping. Standing is earned on the platform and computed from session
+     * count and rating; the client never decides which badge a teacher carries, it
+     * only decides what colour it is.
+     *
+     * Amended on the 8/11 revision: was CERTIFIED / STUDENT / NEW, which described
+     * credentials the platform no longer checks (§6.1). Grape and blue stay because
+     * both remain distinguishable from the primary teal at a glance on the
+     * selection screen — the reason they were chosen in the first place.
      */
     badgeColors: {
-      CERTIFIED: 'grape', // 🟣 approved teaching certificate
-      STUDENT: 'blue', // 🔵 verified academic email
-      NEW: 'green', // 🟢 passed the entrance exam only
+      TOP: 'yellow', // ⭐ 100+ sessions AND rating ≥ 4.5
+      EXPERIENCED: 'grape', // 🟣 25+ sessions
+      ACTIVE: 'blue', // 🔵 5–24 sessions
+      NEW: 'green', // 🟢 under 5 sessions — gets the cold-start boost
     },
 
     /** Session timer states — MVP.md §14.3. Used by the E6 session screens. */

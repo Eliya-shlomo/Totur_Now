@@ -70,7 +70,7 @@ prisma/**
 - [ ] `GET /public/topics` returns a nested tree: 11 parents with their subtopics, plus topic `0`
 - [ ] Both endpoints work with no `Authorization` header
 - [ ] Neither endpoint exposes any user data
-- [ ] `GET /public/pricing` derives from `config/constants/money.js`; changing `PRICE_TIERS` changes the response with no other edit
+- [ ] `GET /public/pricing` derives from `config/constants/money.js`; changing the price bounds or bands changes the response with no other edit
 - [ ] The pricing page shows no hardcoded number — every price comes from the endpoint
 - [ ] The landing page states the pitch, the problem, the three steps, and both CTAs
 - [ ] Both pages render inside `GuestLayout` and are correct at 375px
@@ -80,7 +80,7 @@ prisma/**
 ## Manual test
 
 1. `curl /api/v1/public/topics` with no auth → the full tree.
-2. Change `PRICE_TIERS.PRO.pricePerBlock` in constants, restart, reload the pricing page → the new number appears. Revert.
+2. Change `MAX_PRICE_PER_BLOCK` in constants, restart, reload the pricing page → the new number appears. Revert.
 3. Both pages at 375px and 1440px.
 4. Stop the server, load the pricing page → error state, not a blank page.
 

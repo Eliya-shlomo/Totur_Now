@@ -13,7 +13,7 @@
 3. [Scope — In and Out](#3-scope--in-and-out)
 4. [Core User Flows](#4-core-user-flows)
 5. [Pricing Model & Economics](#5-pricing-model--economics)
-6. [Teacher Verification & Tiers](#6-teacher-verification--tiers)
+6. [Teacher Onboarding & Standing](#6-teacher-onboarding--standing)
 7. [Topic Taxonomy](#7-topic-taxonomy)
 8. [The LLM Layer](#8-the-llm-layer)
 9. [Matching Algorithm](#9-matching-algorithm)
@@ -87,7 +87,7 @@ The closed loop: every question is LLM-classified → every rating attaches to t
 - Free in random windows — between lectures, in the evening
 - **The need:** flip a switch to "available," get work, switch off whenever
 
-**Use cases:** register + entrance exam · pick specialty topics and price tier · availability toggle · accept/reject offers · run a session · view earnings and ratings
+**Use cases:** register · pick specialty topics, level and price · availability toggle · accept/reject offers · run a session · view earnings and ratings
 
 ### Guest — not logged in
 
@@ -95,7 +95,7 @@ The closed loop: every question is LLM-classified → every rating attaches to t
 
 ### Admin
 
-**Use cases:** approve/reject teacher documents · view sessions · block users
+**Use cases:** view sessions · block users
 
 ---
 
@@ -106,7 +106,7 @@ The closed loop: every question is LLM-classified → every rating attaches to t
 | Area | What's included |
 |---|---|
 | Auth | Register/login, JWT + refresh, 3 roles (student / teacher / admin) |
-| Teachers | Automated entrance exam (LLM-generated bank), topic selection, price tier, availability toggle, academic email verification, manual admin approval, colored badges |
+| Teachers | Open signup, topic selection, self-declared level, teacher-set price, availability toggle, platform standing badge |
 | Questions | Free text + image upload (external storage), automatic LLM classification |
 | Matching | Ranking algorithm + selection screen showing 5 teachers |
 | Offers | One live offer at a time, 60s TTL, atomic teacher locking |
@@ -119,7 +119,9 @@ The closed loop: every question is LLM-classified → every rating attaches to t
 
 ### ❌ Out of MVP (documented in [§21](#21-future-scope))
 
-Real payments (Stripe) · shared whiteboard · session recording · anti-stalling mechanism · full minor-safety program · mid-session topic change detection · question library / RAG · mobile app · additional subjects
+Real payments (Stripe) · shared whiteboard · session recording · anti-stalling mechanism · full minor-safety program · mid-session topic change detection · question library / RAG · mobile app · additional subjects · **teacher entrance exam** · **document verification and the admin approval queue** · **academic email verification**
+
+The last three were in MVP until the 8/11 revision. They were the platform deciding who may teach and what they may charge. The platform now describes teachers and lets students decide — see [§5.2](#52-price--teacher-set-within-bounds) and [§6](#6-teacher-onboarding--standing).
 
 ---
 
@@ -202,17 +204,35 @@ T=end  [Blocking screen] "Was your question resolved?" yes/no → stars → free
 
 **Why blocks:** a second-by-second meter creates anxiety and cuts sessions short before learning happens. Blocks turn it into a series of discrete decisions. **And more importantly** — every extension is a vote of confidence, which makes the teacher dependent on satisfaction rather than on stretching time.
 
-### 5.2 Price tiers
+### 5.2 Price — teacher-set within bounds
 
-The platform defines three tiers. Teachers pick one, subject to verification.
+**The teacher sets their own price.** Any whole number of credits per block between a floor and a ceiling:
 
-| Tier | ₪ / block | Opening block (10 min) | Hourly equivalent | Requirement |
-|---|---|---|---|---|
-| 🟢 **Base** | 8 | 16 | 96 | Default for new teachers |
-| 🔵 **Regular** | 12 | 24 | 144 | Verified academic email + entrance score ≥ 80 |
-| 🟣 **Pro** | 16 | 32 | 192 | Admin-approved teaching certificate **or** rating ≥ 4.5 after 20 sessions |
+| | Value |
+|---|---|
+| Floor | **₪5** / block |
+| Ceiling | **₪20** / block |
+| Default at signup | ₪10 / block |
 
-Tiers instead of free pricing because: prevents a race to the bottom · dramatically simplifies the selection screen (students compare teachers, not price lists) · turns price into a quality signal rather than noise.
+The platform does not decide what a teacher is worth. A tutor with ten years of experience and no certificate may be the best teacher on the platform, and nothing in the product should price them as a beginner. What the platform does instead is *describe* — standing, rating, resolve rate, topics — and let the student weigh that against the price themselves.
+
+**Why bounds at all, if the teacher decides?** The floor stops a race to the bottom, where undercutting rather than teaching becomes the way to get matched. The ceiling keeps the budget cap and the "can afford the opening block" filter meaningful — without it a single ₪200 teacher makes every balance display nonsense.
+
+**Price changes** take effect for future sessions only. A session snapshots `price_per_block` when the offer is accepted, so the number the student saw on the selection screen is the number they are charged for the whole session, extensions included ([§11.2](#112-schema), `sessions.price_per_block`).
+
+#### Price bands — a student filter, not a teacher property
+
+The student filters the selection screen by price, choosing a band as a **ceiling**:
+
+| Band | ₪ / block | Student picking this band sees |
+|---|---|---|
+| **A** | 5–9 | Band A only |
+| **B** | 10–14 | Bands A and B |
+| **C** | 15–20 | Everything |
+
+Bands are derived from `price_per_block` at read time. They are not stored on the teacher, and a teacher never picks one — moving between bands is a side effect of changing price, nothing more.
+
+The band is a **hard filter, never a score**. Price does not raise or lower a teacher's ranking ([§9.2](#92-scoring)): within whatever the student can afford, the order is quality alone. Cheapness is not a virtue and expensiveness is not a signal — the student has already expressed their price preference by choosing the band, and re-applying it in the ranking would charge them for that preference twice.
 
 ### 5.3 Commission & incentives
 
@@ -249,40 +269,48 @@ Average student: 3 questions/week × 15 minutes × ₪12/block = **~₪108/week*
 
 ---
 
-## 6. Teacher Verification & Tiers
+## 6. Teacher Onboarding & Standing
 
-### 6.1 Stage 0 — Entrance exam (mandatory for everyone)
+### 6.1 Getting in — open to everyone
 
-1. Teacher selects levels to teach (3 / 4 / 5 units) and topics
-2. 10 multiple-choice questions at the requested level, 20-minute limit
-3. **The score determines which levels they're authorized for** — not a binary pass/fail:
+There is no entrance exam, no document to upload, and no approval to wait for. A teacher registers, declares what they teach, sets a price, and can go online in the same sitting.
 
-| Score | Authorization |
-|---|---|
-| < 60 | Rejected. Retry after 30 days |
-| 60–79 | 3 units only |
-| 80–89 | 3–4 units |
-| ≥ 90 | 3–5 units |
-
-In MVP: a bank of ~40 questions pre-generated by the LLM and stored in the DB, sampled randomly. Simple, deterministic, and no risk of a live LLM call during an exam.
-
-### 6.2 Stage 1 — Academic email (optional, unlocks "Regular" tier)
-
-Send a 6-digit code to a known academic domain (`tau.ac.il`, `technion.ac.il`, `huji.ac.il`, `bgu.ac.il`, `openu.ac.il`, `biu.ac.il`, `ariel.ac.il`, `hit.ac.il`). The best cost-to-value item in this document: almost zero work, almost impossible to fake.
-
-### 6.3 Stage 2 — Admin approval (unlocks "Pro" tier)
-
-Upload a document (teaching certificate / transcript) → admin queue → approve or reject with a reason.
-
-### 6.4 Badges
-
-| Badge | Meaning | Allowed tiers |
+| Step | What the teacher provides | Checked by |
 |---|---|---|
-| 🟣 Purple — **Certified** | Approved teaching certificate | All |
-| 🔵 Blue — **Student** | Verified academic email | Base / Regular |
-| 🟢 Green — **New** | Passed the exam only | Base |
+| 1 | Topics they teach | nobody |
+| 2 | Highest level they teach (3 / 4 / 5 units) | nobody |
+| 3 | Price per block, ₪5–20 | bounds only |
+| 4 | Bio — free text | nobody |
 
-**"New teacher"** is shown for the first 5 sessions and receives an **exposure boost** in the algorithm — this solves teacher cold start without harming students (low price + calibrated expectations).
+**Why open.** Credentials are a poor proxy for teaching. Plenty of excellent tutors hold no certificate and no degree, and a gate built from paperwork keeps exactly those people out while admitting anyone who can upload a PDF. The platform's real filter is the one that measures the thing it cares about: whether students got unstuck, and whether they said so afterwards.
+
+**What replaces the gate.** Ratings and resolve rate, applied at the point that matters — the ranking. A teacher who does poor work stops being ranked, stops receiving offers, and stops earning. That loop is slower than a gate at signup, but it measures the right thing, and it never rejects a good teacher for lacking a document.
+
+**The risk, stated plainly.** The first session with a bad teacher is real, and it happens to a real student. Two things bound it: `NEW` standing tells the student exactly how much history the platform has (see §6.2), and the no-show and refund rules in §5.5 cover the worst outcomes. This is a deliberate trade, not an oversight — [§21](#21-future-scope) carries the verification track for when supply quality needs a firmer floor.
+
+### 6.2 Standing — earned on the platform, computed not stored
+
+A single badge, derived from what the teacher has actually done here:
+
+| Badge | Condition | Meaning to a student |
+|---|---|---|
+| 🟢 **New** | < 5 sessions | Little history yet — priced by themselves, judged by you |
+| 🔵 **Active** | 5–24 sessions | Working regularly, has a rating worth reading |
+| 🟣 **Experienced** | 25+ sessions | Substantial track record |
+| ⭐ **Top** | 100+ sessions **and** rating ≥ 4.5 | Volume *and* satisfaction, not just volume |
+
+Two properties of this table matter more than the numbers in it:
+
+- **`Top` requires both.** A teacher with 300 sessions and a 4.1 rating stays `Experienced` forever. Volume alone is not excellence, and a badge that rewarded it would point students at the busiest teacher rather than the best one.
+- **It is computed, never stored.** The badge is a function of `sessions_count`, `rating_sum` and `rating_count`, all of which the platform already maintains. A stored copy would be one more thing to recalculate, forget, and drift.
+
+**`New` still gets the exposure boost** — 1.0 on `new_teacher_boost` for the first 5 sessions ([§9.2](#92-scoring)). Cold start is the same problem it always was: a teacher with no history cannot earn history without being shown.
+
+### 6.3 What a student sees
+
+Only facts the platform can stand behind: standing badge, star rating and count, per-topic resolve history, response time, topics, level, price. Everything a teacher says about themselves — degrees, years of experience, where they studied — lives in the free-text bio, presented as the teacher's own words and never as a platform claim.
+
+The platform makes no statement it cannot verify. That is why "10 years experience" is not a badge.
 
 ---
 
@@ -314,7 +342,7 @@ Plus: `topic_id = 0` → **"General / Unclassified"** — fallback when the LLM 
 
 The LLM's role in MVP is **not** to answer the student. It is **to classify and to brief**. This is a deliberate decision: it keeps the value with the teacher and produces exactly the metadata the algorithm needs.
 
-### 8.1 Call 1 — Classification and brief (the core call)
+### 8.1 Classification and brief — the only LLM call in MVP
 
 **Input:** student's text + image (Vision) + declared level
 **Output:** structured JSON only
@@ -338,9 +366,9 @@ The LLM's role in MVP is **not** to answer the student. It is **to classify and 
 - 8-second timeout → same fallback
 - `student_confirmation` is shown to the student with a manual override — improves accuracy and creates a sense of control
 
-### 8.2 Call 2 — Generating the entrance exam bank
-
-**Runs offline once** (a dev-time script); results stored in `entrance_questions`. Zero runtime cost and zero latency.
+> A second call generated the entrance exam bank until the 8/11 revision. The exam
+> is out of MVP ([§6.1](#61-getting-in--open-to-everyone)), so classification is now
+> the whole LLM surface — one call, one prompt, one failure mode to handle.
 
 ---
 
@@ -352,25 +380,32 @@ A teacher enters the candidate pool only if **all** of these hold:
 
 ```
 status == 'ONLINE'                          # not OFFLINE, IN_SESSION, or OFFER_LOCKED
-is_verified == true
-level_max >= question.estimated_level       # authorized for this level
+level_max >= question.estimated_level       # the level the teacher says they teach
 question.topic_id ∈ teacher.topics          # (topic_id == 0 → everyone passes)
+price_per_block <= band_ceiling(student.price_band)   # §5.2 — student's price choice
 student.wallet_balance >= price_per_block*2 # can afford the opening block
 teacher_id ∉ student.blocked_teachers
 teacher_id ∉ question.rejected_by           # hasn't already declined this question
 ```
+
+`is_verified` was a filter here until the 8/11 revision. Signup is open ([§6.1](#61-getting-in--open-to-everyone)), so nothing sets it and nothing filters on it.
+
+The price band is the **only** place price enters matching. It is a ceiling, so a student on band B sees bands A and B — never "band B exactly". A cheaper teacher is never hidden from someone willing to pay more.
 
 ### 9.2 Scoring
 
 ```
 score = 0.35 · topic_fit
       + 0.20 · global_rating
-      + 0.15 · resolve_rate
+      + 0.20 · resolve_rate
       + 0.10 · acceptance_rate
       + 0.10 · history_bonus
-      + 0.05 · price_fit
       + 0.05 · new_teacher_boost
 ```
+
+`price_fit` carried 0.05 until the 8/11 revision. Price is a filter now, not a score
+([§5.2](#52-price--teacher-set-within-bounds)), and its weight went to `resolve_rate`
+— the component that measures whether the student actually got unstuck.
 
 | Component | Computation | Meaning |
 |---|---|---|
@@ -379,7 +414,6 @@ score = 0.35 · topic_fit
 | `resolve_rate` | `resolved_count / sessions_count` | **The real KPI** — was the question actually solved |
 | `acceptance_rate` | `accepted_offers / offers_received` | Reliability. Measures responsiveness, **not** availability |
 | `history_bonus` | 1.0 if this student rated them ≥4 before, else 0 | Continuity wins |
-| `price_fit` | `1 - (price / max_price)` | Slight preference for lower price |
 | `new_teacher_boost` | 1.0 for the first 5 sessions | Solves cold start |
 
 ### 9.3 Bayesian smoothing — the critical piece
@@ -399,6 +433,7 @@ async function matchTeachers(question, student, N = 5) {
   const candidates = await db.query(HARD_FILTERS_SQL, {
     level: question.estimated_level,
     subtopicId: question.subtopic_id,
+    maxPrice: bandCeiling(student.priceBand),   // §5.2 — the student's price choice
     minBalance: student.wallet_balance,
     studentId: student.id,
     rejectedBy: question.rejected_by,
@@ -418,10 +453,9 @@ async function matchTeachers(question, student, N = 5) {
       score:
         0.35 * topicFit +
         0.20 * (t.globalRating / 5) +
-        0.15 * resolve +
+        0.20 * resolve +
         0.10 * accept +
         0.10 * (t.hasPositiveHistoryWith(student.id) ? 1 : 0) +
-        0.05 * (1 - t.pricePerBlock / MAX_PRICE) +
         0.05 * (t.sessionsCount < 5 ? 1 : 0),
     };
   });
@@ -436,6 +470,7 @@ async function matchTeachers(question, student, N = 5) {
 ### 9.5 Deliberate decisions
 
 - **Availability is a filter, not a score.** An offline teacher isn't a candidate — meaning availability already delivered 100% of its value. An additional bonus on top would promote "bad but available"
+- **Price is a filter, not a score,** for the same reason. The student states a ceiling; inside it, ranking is quality only. Scoring price as well would mean the student pays for their own budget twice — once by narrowing the pool, and again by having the cheap end of it pushed to the top
 - **The student chooses, not the algorithm.** The algorithm narrows 200 to 5; the final choice is human
 - **One offer at a time.** Prevents three teachers accepting and two being frustrated. Costs time, buys trust on the supply side — and supply is the bottleneck
 
@@ -501,7 +536,6 @@ users ──1:1── student_profiles ──1:1── wallets ──1:N── w
                   │                                          ▲
                   │                                          │
                   ├──1:N── teacher_topic_stats ──────────────┘
-                  ├──1:N── teacher_documents
                   └──1:N── payouts
 
 questions ──1:N── question_attachments
@@ -539,21 +573,19 @@ CREATE TABLE student_profiles (
 -- ══════════ TEACHERS ══════════
 
 CREATE TYPE teacher_status AS ENUM ('OFFLINE','ONLINE','OFFER_LOCKED','IN_SESSION');
-CREATE TYPE teacher_badge  AS ENUM ('NEW','STUDENT','CERTIFIED');
-CREATE TYPE price_tier     AS ENUM ('BASE','REGULAR','PRO');
+
+-- No badge or price_tier column. The standing badge (§6.2) is computed from
+-- sessions_count and the rating columns below; the price band (§5.2) is computed
+-- from price_per_block. Neither is stored, because both are already derivable and
+-- a stored copy is a copy that drifts.
 
 CREATE TABLE teacher_profiles (
   user_id             UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   bio                 TEXT,
-  badge               teacher_badge  DEFAULT 'NEW',
-  price_tier          price_tier     DEFAULT 'BASE',
-  price_per_block     INTEGER        NOT NULL DEFAULT 8,
+  price_per_block     INTEGER        NOT NULL DEFAULT 10
+                        CHECK (price_per_block BETWEEN 5 AND 20),   -- §5.2
   status              teacher_status DEFAULT 'OFFLINE',
-  level_max           SMALLINT       DEFAULT 3,
-  entrance_score      SMALLINT,
-  academic_email      VARCHAR(255),
-  academic_verified   BOOLEAN DEFAULT FALSE,
-  admin_verified      BOOLEAN DEFAULT FALSE,
+  level_max           SMALLINT       DEFAULT 3,   -- self-declared, §6.1
   zoom_personal_link  TEXT,
   -- denormalized aggregates for performance
   sessions_count      INTEGER DEFAULT 0,
@@ -568,7 +600,7 @@ CREATE TABLE teacher_profiles (
 );
 
 CREATE INDEX idx_teacher_available
-  ON teacher_profiles (status, level_max)
+  ON teacher_profiles (status, level_max, price_per_block)
   WHERE status = 'ONLINE';
 
 CREATE TABLE topics (
@@ -595,16 +627,8 @@ CREATE TABLE teacher_topic_stats (
   PRIMARY KEY (teacher_id, topic_id)
 );
 
-CREATE TABLE teacher_documents (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  teacher_id   UUID REFERENCES teacher_profiles(user_id) ON DELETE CASCADE,
-  file_url     TEXT NOT NULL,
-  doc_type     VARCHAR(40),                    -- teaching_certificate | transcript
-  status       VARCHAR(20) DEFAULT 'PENDING',  -- PENDING|APPROVED|REJECTED
-  reject_note  TEXT,
-  reviewed_by  UUID REFERENCES users(id),
-  created_at   TIMESTAMPTZ DEFAULT NOW()
-);
+-- No teacher_documents table. Documents, the admin approval queue and academic
+-- email verification are out of MVP as of the 8/11 revision (§6.1, §21).
 
 -- ══════════ QUESTIONS ══════════
 
@@ -726,24 +750,8 @@ CREATE TABLE payouts (
   created_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ══════════ ENTRANCE EXAM ══════════
-
-CREATE TABLE entrance_questions (
-  id            SERIAL PRIMARY KEY,
-  level         SMALLINT,
-  topic_id      INTEGER REFERENCES topics(id),
-  body          TEXT NOT NULL,
-  options       JSONB NOT NULL,
-  correct_index SMALLINT NOT NULL
-);
-
-CREATE TABLE entrance_attempts (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  teacher_id  UUID REFERENCES users(id),
-  score       SMALLINT,
-  answers     JSONB,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
-);
+-- No entrance_questions or entrance_attempts. The entrance exam is out of MVP as
+-- of the 8/11 revision — signup is open and level_max is self-declared (§6.1).
 ```
 
 ### 11.3 The three critical transactions
@@ -823,7 +831,7 @@ COMMIT;
 | GET | `/public/teachers/online` | Currently available teachers (no PII) |
 | GET | `/public/teachers/:id` | Public profile + reviews |
 | GET | `/public/topics` | Topic tree |
-| GET | `/public/pricing` | Price tiers |
+| GET | `/public/pricing` | How blocks and pricing work (§5) |
 
 ### Student
 
@@ -838,17 +846,12 @@ COMMIT;
 | Method | Path | Description |
 |---|---|---|
 | GET | `/teachers/me` | Full profile |
-| PATCH | `/teachers/me` | Bio, price tier |
+| PATCH | `/teachers/me` | Bio, `price_per_block` (₪5–20), `level_max` |
 | PUT | `/teachers/me/topics` | Update specialty topics |
 | PATCH | `/teachers/me/status` | `{status: ONLINE\|OFFLINE}` |
 | POST | `/teachers/me/heartbeat` | Prevents auto-away |
 | GET | `/teachers/me/earnings` | Earnings + breakdown |
 | GET | `/teachers/me/stats` | Per-topic ratings |
-| POST | `/teachers/me/documents` | Document upload → cloud storage |
-| POST | `/teachers/me/academic-email` | Send code |
-| POST | `/teachers/me/academic-email/verify` | Verify code |
-| GET | `/teachers/entrance-exam` | 10 questions |
-| POST | `/teachers/entrance-exam` | Submit → score + `level_max` |
 
 ### Questions & Matching
 
@@ -857,7 +860,7 @@ COMMIT;
 | POST | `/questions` | **The core.** Create + LLM classify + create session in PENDING |
 | POST | `/questions/:id/attachments` | Image upload |
 | PATCH | `/questions/:id/classification` | Student's manual correction |
-| GET | `/questions/:id/matches` | **Top 5 ranked teachers.** Re-callable = "show me more teachers" |
+| GET | `/questions/:id/matches` | **Top 5 ranked teachers.** `?priceBand=A\|B\|C` applies the student's price ceiling (§5.2). Re-callable = "show me more teachers" |
 
 ### Sessions & Offers
 
@@ -884,8 +887,6 @@ COMMIT;
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/admin/documents/pending` | Approval queue |
-| POST | `/admin/documents/:id/review` | `{approve, note}` |
 | GET | `/admin/sessions` | All sessions + filters |
 | PATCH | `/admin/users/:id/status` | Block/unblock |
 
@@ -963,13 +964,12 @@ COMMIT;
 
 ── Teacher (ProtectedRoute role=teacher) ──
 /teach                     Dashboard: availability toggle · earnings · rating
-/teach/onboarding          Entrance exam + topics + tier
+/teach/onboarding          Topics + level + price
 /teach/session/:id         Active session
 /teach/earnings            Earnings breakdown
-/teach/profile             Edit + documents
+/teach/profile             Edit bio · price · level · topics
 
 ── Admin ──
-/admin/documents           Approval queue
 /admin/sessions            All sessions
 ```
 
@@ -981,11 +981,12 @@ This screen determines whether the product works. Worth more investment than any
 ┌──────────────────────────────────────────────────────┐
 │  📐 Integration by parts · 5 units      [edit topic]  │
 │  💰 Your balance: ₪96                                 │
+│  Price up to:  [ ₪9 ]  [ ₪14 ]  [ ₪20 ✓ ]            │
 ├──────────────────────────────────────────────────────┤
 │                                                      │
 │  ┌────────────────────────────────────────────────┐ │
-│  │ 🟣 Dana K.       ⭐ 4.8 (32)                    │ │
-│  │ Certified · solved 12 questions in Integrals    │ │
+│  │ ⭐ Dana K.       ⭐ 4.8 (32)                    │ │
+│  │ Top · solved 12 questions in Integrals          │ │
 │  │ ✅ 91% resolved · ⏱ responds in ~20s            │ │
 │  │ ₪16 / 5 min      Your credit = 30 minutes       │ │
 │  │                              [ Send request ]   │ │
@@ -993,7 +994,7 @@ This screen determines whether the product works. Worth more investment than any
 │                                                      │
 │  ┌────────────────────────────────────────────────┐ │
 │  │ 🔵 Yossi M.      ⭐ 4.6 (18)   💙 studied with   │ │
-│  │ Student · solved 7 questions in Integrals       │ │
+│  │ Active · solved 7 questions in Integrals        │ │
 │  │ ₪12 / 5 min      Your credit = 40 minutes       │ │
 │  │                              [ Send request ]   │ │
 │  └────────────────────────────────────────────────┘ │
@@ -1009,6 +1010,8 @@ This screen determines whether the product works. Worth more investment than any
 - Specialty shown **per topic**, not globally — this is what justifies the algorithm
 - 💙 "studied with" badge — continuity is the strongest selection signal
 - **No algorithm scores on screen.** The student sees an order, not grades
+- The price control is a **ceiling, expressed in money** — "up to ₪14", not "band B". The student is choosing a budget, and the band letters are an implementation detail they never need to learn
+- Badges say what the teacher has **done here** (§6.2), never what they claim to be. Anything self-reported sits in the bio on the profile screen, in the teacher's own words
 
 ### 14.3 Active session screen
 
@@ -1056,7 +1059,7 @@ Mobile-first. The student arrives from a phone while working from a notebook.
 | Client | React 18 + Vite · React Router v7 · **Zustand** · Mantine v7 · Socket.IO client · Axios |
 | Server | Node 24 + Express · MVC · Socket.IO · **Zod** · JWT + bcrypt · node-cron |
 | DB | PostgreSQL 16 + **Prisma** |
-| Storage | Cloudinary (question images and teacher documents) |
+| Storage | Cloudinary (question images) |
 | AI | Anthropic Claude API (Vision + JSON mode) |
 | Video | Zoom API (Server-to-Server OAuth) |
 | Email | Resend / Nodemailer |
@@ -1186,8 +1189,8 @@ bcrypt (12 rounds) · 15-minute access token + 7-day refresh in an httpOnly cook
 | Auth & Authorization | JWT + refresh · 3 roles · `authorize()` middleware · resource ownership checks |
 | Data Validation | Zod on every body/params/query, schemas in `validators/` |
 | Unified error handling | `AppError` + `asyncHandler` + single errorHandler + error codes |
-| SQL | PostgreSQL + Prisma · 18 tables · transactions · partial indexes |
-| External storage | Cloudinary — question images + teacher documents |
+| SQL | PostgreSQL + Prisma · 15 tables · transactions · partial indexes |
+| External storage | Cloudinary — question images |
 
 ### General
 
@@ -1195,7 +1198,7 @@ bcrypt (12 rounds) · 15-minute access token + 7-day refresh in an httpOnly cook
 |---|---|
 | Deployment | Vercel + Render + Neon |
 | External API | **Zoom API** (meeting creation) + **Cloudinary** + email service |
-| AI Integration | **Claude API** — question classification (Vision + JSON), teacher briefs, entrance exam generation |
+| AI Integration | **Claude API** — question classification (Vision + JSON) and teacher briefs |
 | Innovation | The algorithm: a closed LLM→rating→matching loop. Not CRUD |
 
 ---
@@ -1322,20 +1325,20 @@ Eleven epics. Each PR is sized **S** (< 2 hours), **M** (2–4 hours), or **L** 
 
 ---
 
-### E2 — Teacher Onboarding & Verification
+### E2 — Teacher Onboarding
 **Owner:** B · **Depends on:** E1
+
+Halved by the 8/11 revision: the exam, academic email and document queue are out of
+MVP (§6.1), so this epic is now profile, topics, price and standing.
 
 | # | PR | Size | Notes |
 |---|---|---|---|
-| 2.1 | Offline script: LLM generates 40 entrance questions → `entrance_questions` | M | Run once |
-| 2.2 | `GET/POST /teachers/entrance-exam` + scoring → `level_max` | M | |
-| 2.3 | Teacher profile CRUD + topic selection + price tier | M | |
-| 2.4 | Academic email verification (send code + verify) | M | Best cost/value item in the project |
-| 2.5 | Document upload → Cloudinary + admin queue record | M | |
-| 2.6 | Onboarding UI — Mantine Stepper: exam → topics → tier | L | Agent |
-| 2.7 | Teacher profile edit screen + document upload | M | Agent |
+| 2.1 | Teacher profile CRUD + topic selection + `price_per_block` (₪5–20) + `level_max` | M | |
+| 2.2 | Standing badge computed from `sessions_count` + rating (§6.2) | S | Pure function, easy to unit-test |
+| 2.3 | Onboarding UI — Mantine Stepper: topics → level → price | M | Agent |
+| 2.4 | Teacher profile edit screen | M | Agent |
 
-**Acceptance:** a new teacher registers, takes the exam, gets a `level_max`, selects topics, and appears in the online teacher list.
+**Acceptance:** a new teacher registers, picks topics, declares a level, sets a price, goes online, and appears in the teacher list carrying the `New` badge.
 
 ---
 
@@ -1449,11 +1452,10 @@ Eleven epics. Each PR is sized **S** (< 2 hours), **M** (2–4 hours), or **L** 
 
 | # | PR | Size | Notes |
 |---|---|---|---|
-| 9.1 | Admin endpoints — document queue, review, sessions, block user | M | |
-| 9.2 | Admin UI — approval queue with document preview | M | Agent |
-| 9.3 | Admin session table with filters | S | Agent |
+| 9.1 | Admin endpoints — sessions list, block/unblock user | S | |
+| 9.2 | Admin session table with filters | S | Agent |
 
-**Acceptance:** an admin approves a teaching certificate and the teacher's badge turns purple and the Pro tier unlocks.
+**Acceptance:** an admin blocks a user, and that user can no longer log in or be matched.
 
 ---
 
@@ -1509,7 +1511,7 @@ E0 ──┬── E1 ──┬── E2 ──┬── E4 ── E5 ── E6 
 |---|---|---|
 | **Sun 8/9** | E0.5 — React skeleton, Mantine theme, router | E0.1–0.4 — schema, migration, constants, AppError |
 | **Mon 8/10** | E1.4–1.5 — auth screens, authStore | E0.6–0.7, E1.1–1.3 — seed, deploy, auth |
-| **Tue 8/11** | E2.6 — onboarding stepper | E2.1–2.5 — entrance exam, verification |
+| **Tue 8/11** | E2.3–2.4 — onboarding stepper, profile edit | E2.1–2.2 — profile CRUD, standing badge |
 | **Wed 8/12** | E3.6–3.7 — question form, waiting screen | E3.1–3.5 — Cloudinary, LLM, questions |
 | **Thu 8/13** | **E4.5 — teacher selection screen** | E4.1–4.4 — matching engine |
 | **Fri–Sat** | Buffer / catch-up | Buffer / catch-up |
@@ -1521,7 +1523,7 @@ E0 ──┬── E1 ──┬── E2 ──┬── E4 ── E5 ── E6 
 
 ### Checkpoints
 
-- **8/13 EOD:** a student posts a question and sees 5 ranked teachers. If not → cut E2 (entrance exam) to a stub
+- **8/13 EOD:** a student posts a question and sees 5 ranked teachers. If not → cut E2 down to profile CRUD and seed the rest
 - **8/17 EOD:** a full session runs end to end with charging. If not → cut E9 (admin) and E6.6 (refunds)
 - **8/19 EOD:** production is live. No new code after this point
 
@@ -1558,6 +1560,14 @@ Documented explicitly — part of the value of this document is showing the deci
 
 ### Phase 3 — Safety & trust
 
+**The verification track — everything cut on 8/11, kept together because it is one feature, not three:**
+
+- **Credential verification** — document upload (teaching certificate / transcript) → admin queue → approve or reject with a reason. Surfaces as an additional badge *alongside* standing, never as a gate on signup and never as a price tier. A teacher without a certificate stays a first-class teacher
+- **Academic email verification** — 6-digit code to a known academic domain (`tau.ac.il`, `technion.ac.il`, `huji.ac.il`, `bgu.ac.il`, `openu.ac.il`, `biu.ac.il`, `ariel.ac.il`, `hit.ac.il`). Near-zero work, near-impossible to fake, and the cheapest trust signal available
+- **Entrance exam** — an LLM-generated bank sampled per attempt, scoring into a `level_max` cap rather than pass/fail. Worth revisiting only if self-declared levels turn out to be inflated in practice, which the rating data will show
+
+Why they were cut: each one is the platform deciding who may teach. The MVP bets that measuring outcomes beats checking paperwork. If that bet fails, this is the ordered list of what to add back — cheapest and least exclusionary first.
+
 7. **Minor safety program** — ID + selfie verification · criminal-record declaration · police clearance certificate · parental consent at registration · post-session summary email to parents · persistent report button · automatic suspension
 8. **Private channel blocking** — filter phone numbers and social handles in chat. Protects minors **and** prevents off-platform leakage of students
 
@@ -1589,11 +1599,27 @@ export const NO_SHOW_WINDOW_SEC   = 60;
 export const DEFAULT_BUDGET_CAP   = 40;
 export const MATCH_COUNT          = 5;
 
-export const PRICE_TIERS = {
-  BASE:    { pricePerBlock: 8,  badge: 'NEW' },
-  REGULAR: { pricePerBlock: 12, badge: 'STUDENT' },
-  PRO:     { pricePerBlock: 16, badge: 'CERTIFIED' },
+// §5.2 — the teacher picks any whole number in this range.
+export const MIN_PRICE_PER_BLOCK     = 5;
+export const MAX_PRICE_PER_BLOCK     = 20;
+export const DEFAULT_PRICE_PER_BLOCK = 10;
+
+// Student-side price filter. A band is a ceiling: picking B means A and B.
+// Derived from price_per_block at read time, never stored on the teacher.
+export const PRICE_BANDS = {
+  A: { maxPrice: 9 },
+  B: { maxPrice: 14 },
+  C: { maxPrice: 20 },
 };
+
+// §6.2 — standing, computed from sessions_count and the rating columns.
+// Ordered high to low: the first match wins. TOP needs volume AND satisfaction.
+export const STANDING_BANDS = [
+  { badge: 'TOP',         minSessions: 100, minRating: 4.5 },
+  { badge: 'EXPERIENCED', minSessions: 25,  minRating: 0 },
+  { badge: 'ACTIVE',      minSessions: 5,   minRating: 0 },
+  { badge: 'NEW',         minSessions: 0,   minRating: 0 },
+];
 
 export const PLATFORM_FEE_PCT     = 0.15;
 export const NEW_TEACHER_FEE_DAYS = 30;
@@ -1604,10 +1630,9 @@ export const LOW_DEMAND_HOURS     = [6, 14];   // 0% commission. [start, end) �
 export const MATCH_WEIGHTS = {
   topicFit:        0.35,
   globalRating:    0.20,
-  resolveRate:     0.15,
+  resolveRate:     0.20,   // was 0.15 — absorbed priceFit on the 8/11 revision
   acceptanceRate:  0.10,
   history:         0.10,
-  priceFit:        0.05,
   newTeacherBoost: 0.05,
 };
 

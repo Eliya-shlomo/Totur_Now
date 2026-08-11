@@ -35,8 +35,6 @@ model User {
   reviewsAsTeacher   Review[]            @relation("ReviewTeacher")
   walletTransactions WalletTransaction[]
   payouts            Payout[]
-  reviewedDocuments  TeacherDocument[]   @relation("DocumentReviewer")
-  entranceAttempts   EntranceAttempt[]
 
   @@map("users")
 }

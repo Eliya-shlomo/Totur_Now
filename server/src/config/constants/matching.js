@@ -9,14 +9,21 @@
 /** How many teachers the selection screen shows. */
 export const MATCH_COUNT = 5;
 
-/** Score weights. Must sum to 1.0 — asserted below. MVP.md §9.2. */
+/**
+ * Score weights. Must sum to 1.0 — asserted below. MVP.md §9.2.
+ *
+ * No `priceFit`. Price is a hard filter through the student's chosen band (§5.2),
+ * never a ranking component: the student already expressed their budget by picking
+ * the band, and scoring it again would charge them for that preference twice. Its
+ * old 0.05 sits on `resolveRate`, the component that measures whether the student
+ * actually got unstuck.
+ */
 export const MATCH_WEIGHTS = {
   topicFit: 0.35,
   globalRating: 0.2,
-  resolveRate: 0.15,
+  resolveRate: 0.2,
   acceptanceRate: 0.1,
   history: 0.1,
-  priceFit: 0.05,
   newTeacherBoost: 0.05,
 };
 
@@ -29,7 +36,7 @@ export const BAYES_C = 5;
 /** A rating updates its subtopic at 1.0 and the parent topic at this weight (§7). */
 export const PARENT_TOPIC_WEIGHT = 0.3;
 
-/** Teachers below this session count get the cold-start boost (§6.4). */
+/** Teachers below this session count get the cold-start boost (§6.2). */
 export const NEW_TEACHER_SESSIONS = 5;
 
 /** How long `getPlatformAverages()` stays cached (§9.4). */

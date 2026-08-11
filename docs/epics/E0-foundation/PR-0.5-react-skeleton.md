@@ -103,8 +103,8 @@ in a real browser before this PR is called done.
 **Decisions locked here:**
 
 - **UI language: English, LTR.** Prices still render in ₪. This was PR 0.1's open question.
-- **Brand colour: teal.** Purple, blue and green are reserved for teacher tier badges
-  (§6.4), so the primary colour must not compete with the tier signal.
+- **Brand colour: teal.** Purple, blue, green and yellow are reserved for teacher
+  standing badges (§6.2), so the primary colour must not compete with that signal.
 
 **One implementation trap worth recording.** The obvious AppShell config —
 `breakpoint: 'md'` with `collapsed.mobile` — produces a *full-width overlay* between

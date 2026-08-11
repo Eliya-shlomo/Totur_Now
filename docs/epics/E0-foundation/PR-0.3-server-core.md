@@ -42,7 +42,7 @@ server/src/config/constants/index.js      barrel, append-only from here on
 server/src/config/constants/session.js    BLOCK_MINUTES, OPENING_BLOCKS, EXTENSION_BLOCKS,
                                           WARNING_SECONDS, GRACE_SECONDS, OFFER_TTL_SECONDS,
                                           AUTO_AWAY_MINUTES, NO_SHOW_WINDOW_SEC
-server/src/config/constants/money.js      PRICE_TIERS, PLATFORM_FEE_PCT, NEW_TEACHER_FEE_DAYS,
+server/src/config/constants/money.js      price bounds + bands, PLATFORM_FEE_PCT, NEW_TEACHER_FEE_DAYS,
                                           LOW_DEMAND_HOURS, TOPUP_PACKAGES, DEFAULT_BUDGET_CAP
 server/src/config/constants/matching.js   MATCH_COUNT, MATCH_WEIGHTS, BAYES_C,
                                           PARENT_TOPIC_WEIGHT, NEW_TEACHER_SESSIONS

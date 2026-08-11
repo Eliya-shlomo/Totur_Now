@@ -52,7 +52,7 @@ infrastructure files. Sections 2–4 exist to pay that cost.
 | `server/src/services/wallet.service.js` | DEV-B | Human-written, no agent. Per `MVP.md` §17.5. |
 | `client/src/router/routes.*.jsx` | split by area — see §3 | Edit only your area file. |
 | `client/src/router/index.jsx` | DEV-A | **Frozen** as of PR 0.5. |
-| `client/src/theme.js` | DEV-A | **Frozen** as of PR 0.5. Component-level styling lives in components. Shared values (tier badge colours, timer colours, layout sizes) live in `theme.other` — read from there, never hardcode. |
+| `client/src/theme.js` | DEV-A | **Frozen** as of PR 0.5. Component-level styling lives in components. Shared values (standing badge colours, timer colours, layout sizes) live in `theme.other` — read from there, never hardcode. |
 | `client/src/layouts/AppLayout.jsx` | DEV-A | The shell behind the student, teacher and admin layouts. Changing it changes all three. |
 | `client/src/api/client.js` (axios) | DEV-A | Interceptors are one file, one owner. |
 | `client/src/stores/` | one store, one owner | A store file is owned by whoever created it. |
@@ -76,11 +76,10 @@ prisma/
 │   ├── schema.prisma      # datasource + generator ONLY. Frozen after PR 0.2.
 │   ├── users.prisma       # users, student_profiles
 │   ├── teachers.prisma    # teacher_profiles, teacher_topics, teacher_topic_stats,
-│   │                      #   teacher_documents, topics
+│   │                      #   topics
 │   ├── questions.prisma   # questions, question_attachments
 │   ├── sessions.prisma    # sessions, session_blocks, offers, reviews
-│   ├── wallet.prisma      # wallets, wallet_transactions, payouts
-│   └── exam.prisma        # entrance_questions, entrance_attempts
+│   └── wallet.prisma      # wallets, wallet_transactions, payouts
 └── migrations/
 ```
 

@@ -27,7 +27,8 @@ English names. This is production data, not demo data — E11's production seed 
 what makes the matching algorithm demonstrable, so the distribution matters more
 than the volume:
 
-- A spread across all three badges and tiers (`MVP.md` §6.4)
+- A spread of `price_per_block` across the ₪5–20 range and all three price bands (`MVP.md` §5.2),
+  and enough variation in `sessions_count` + ratings to produce every standing badge (§6.2)
 - Varied `level_max` — some 3-only, some 3–5
 - Overlapping but distinct topic sets, with at least four specializing in integrals
   (subtopic 94), since that is the demo question
@@ -68,7 +69,7 @@ server/src/**  client/**
 - [ ] `npm run db:seed` succeeds on an empty database
 - [ ] Running it a second time does not duplicate or crash (upsert on stable keys)
 - [ ] Every parent topic and subtopic from `MVP.md` §7 exists, plus topic `0`
-- [ ] 15 teachers exist, spanning all badges, tiers, and level caps
+- [ ] 15 teachers exist, spanning every standing badge, all three price bands, and every level cap
 - [ ] At least 4 teachers have integrals stats, and the 1×5.0 vs 40×4.6 pair exists
 - [ ] All demo users share one documented password so the demo never stalls on a login
 - [ ] `wallets.balance` equals the sum of that user's `wallet_transactions` for every seeded user

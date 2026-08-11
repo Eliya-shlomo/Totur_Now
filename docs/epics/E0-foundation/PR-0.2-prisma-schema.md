@@ -51,13 +51,12 @@ against this schema.
 prisma/schema/schema.prisma      datasource + generator only
 prisma/schema/users.prisma       users, student_profiles, enum user_role
 prisma/schema/teachers.prisma    topics, teacher_profiles, teacher_topics,
-                                 teacher_topic_stats, teacher_documents,
-                                 enums teacher_status, teacher_badge, price_tier
+                                 teacher_topic_stats,
+                                 enum teacher_status
 prisma/schema/questions.prisma   questions, question_attachments
 prisma/schema/sessions.prisma    sessions, session_blocks, offers, reviews,
                                  enum session_status
 prisma/schema/wallet.prisma      wallets, wallet_transactions, payouts, enum tx_type
-prisma/schema/exam.prisma        entrance_questions, entrance_attempts
 prisma/migrations/**             new folder only
 server/src/config/db.js          PrismaClient singleton
 package.json                     prisma scripts only (db:migrate, db:studio)
