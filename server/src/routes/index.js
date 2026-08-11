@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { authRoutes } from '#routes/auth.routes.js';
 import { publicRoutes } from '#routes/public.routes.js';
 import { teacherRoutes } from '#routes/teacher.routes.js';
+import { videoRoutes } from '#routes/video.routes.js';
 
 /**
  * The route registry — the only router `app.js` mounts, at `/api/v1`.
@@ -15,8 +16,8 @@ import { teacherRoutes } from '#routes/teacher.routes.js';
  * This indirection is the point of PR 0.4. `app.js` is frozen from here on, so
  * adding an endpoint is one line below and nothing else:
  *
- *   import { authRoutes } from '#routes/auth.routes.js';
- *   apiRoutes.use('/auth', authRoutes);
+ * import { authRoutes } from '#routes/auth.routes.js';
+ * apiRoutes.use('/auth', authRoutes);
  *
  * An unmatched path under `/api/v1` falls through to `notFound` in `app.js` and
  * comes back as a `NOT_FOUND` in the standard error shape.
@@ -29,7 +30,6 @@ export const apiRoutes = Router();
 // ── domain routers ──────────────────────────────────────────────────────────
 // Append below, alphabetically. One line each.
 apiRoutes.use('/auth', authRoutes);
-
 apiRoutes.use('/public', publicRoutes);
-
 apiRoutes.use('/teachers', teacherRoutes);
+apiRoutes.use('/video', videoRoutes);
