@@ -130,6 +130,9 @@ export interface MeResponse extends AuthUser {
   teacherProfile?: TeacherProfileData;
   /** Students only. Credits, always an integer. */
   walletBalance?: number;
+}
+
+/**
  * Endpoint payload shapes, shared by client and server.
  *
  * APPEND-ONLY, one clearly-marked section per epic (docs/OWNERSHIP.md §2). Never
