@@ -102,7 +102,13 @@ to the Render service and nowhere else. One prefix rename is all that separates 
 in this list from a key in the browser.
 
 Include `/api/v1` in the value. `client/src/api/client.js` appends only the route, so
-`api.get('/health')` becomes `<VITE_API_URL>/health`.
+`api.get('/auth/login')` becomes `<VITE_API_URL>/auth/login`.
+
+`/health` is the exception and does not go through that client at all: `app.js` mounts
+it at the **root**, above the versioned API, because Render polls it as infrastructure
+and that contract must not move when the API version does. `api.get('/health')` would
+resolve to `/api/v1/health`, which is a 404. Check it against the origin —
+`https://<render-url>/health`.
 
 Changing a variable does **not** rebuild. Vite inlines these at build time, so the old
 value stays in the deployed bundle until the next deploy — redeploy after editing one.
