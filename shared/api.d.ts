@@ -130,30 +130,12 @@ export interface MeResponse extends AuthUser {
   teacherProfile?: TeacherProfileData;
   /** Students only. Credits, always an integer. */
   walletBalance?: number;
- * Endpoint payload shapes, shared by client and server.
- *
- * APPEND-ONLY, one clearly-marked section per epic (docs/OWNERSHIP.md §2). Never
- * reorder and never edit another epic's section: this file is written by both
- * developers in the same week, and appended blocks merge where moved ones do not.
- *
- * Types only — no runtime export. This is the written contract between the two
- * halves of a vertical slice, so that "what does this endpoint return" has an
- * answer that does not require reading the controller.
- *
- * Every response travels inside the standard envelope, so `data` below is what
- * the client's axios interceptor hands back after unwrapping:
- *
- *   success  { success: true,  data: T }              →  caller receives T
- *   failure  { success: false, error: ErrorEnvelope } →  caller receives ApiError
- */
-
-export interface ErrorEnvelope {
-  code: string;
-  message: string;
-  details: unknown | null;
 }
 
-// ─── E1 · Public surface (PR 1.6) ─────────────────────────────────────────────
+// ── E1 — public surface (PR 1.6) ─────────────────────────────────────────────
+// Unauthenticated, MVP.md §12 "Public". No type here may reference a user: these
+// responses are cacheable by any proxy, so anything in them is served to
+// strangers.
 
 /**
  * A node of the topic taxonomy (MVP.md §7). Two levels only: `children` is
