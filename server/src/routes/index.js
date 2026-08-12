@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { authRoutes } from '#routes/auth.routes.js';
+import { publicRoutes } from '#routes/public.routes.js';
 
 /**
  * The route registry — the only router `app.js` mounts, at `/api/v1`.
@@ -16,10 +17,8 @@ import { authRoutes } from '#routes/auth.routes.js';
  *   import { authRoutes } from '#routes/auth.routes.js';
  *   apiRoutes.use('/auth', authRoutes);
  *
- * Empty on purpose right now — no feature routers exist yet. An unmatched path
- * under `/api/v1` falls through to `notFound` in `app.js` and comes back as a
- * `NOT_FOUND` in the standard error shape, which is the correct answer today and
- * stays correct once routers arrive.
+ * An unmatched path under `/api/v1` falls through to `notFound` in `app.js` and
+ * comes back as a `NOT_FOUND` in the standard error shape.
  *
  * `/health` is not here. It is mounted at the root in `app.js`, because it is an
  * infrastructure endpoint rather than a versioned API one.
@@ -29,3 +28,5 @@ export const apiRoutes = Router();
 // ── domain routers ──────────────────────────────────────────────────────────
 // Append below, alphabetically. One line each.
 apiRoutes.use('/auth', authRoutes);
+
+apiRoutes.use('/public', publicRoutes);

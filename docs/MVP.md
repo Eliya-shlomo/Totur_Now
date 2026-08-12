@@ -1411,6 +1411,12 @@ MVP (§6.1), so this epic is now profile, topics, price and standing.
 
 **Fallback if 6.1 slips past half a day:** drop to a static personal Zoom room link stored on the teacher profile. 3 days → 2 hours, with almost no demo impact.
 
+**Amendment — the video half of E6 is DEV-C's (amit).** The provider is Daily, not
+Zoom: 6.1 becomes `video.service` (room create + join tokens) and 6.3's "create Zoom"
+becomes "create room". C owns the provider and the room endpoints; B keeps the state
+machine, the timer, the charging, and both session screens. The seam between them is
+written down in `OWNERSHIP.md` §2.1. Work in progress on `feature/daily-video`.
+
 ---
 
 ### E7 — Wallet & Billing
