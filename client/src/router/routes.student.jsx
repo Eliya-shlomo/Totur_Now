@@ -1,17 +1,23 @@
 import StudentLayout from '@/layouts/StudentLayout';
 import Placeholder from '@/components/Placeholder';
+import ProtectedRoute from '@/router/ProtectedRoute';
 
 /**
  * Student routes — MVP.md §14.1.
  *
- * PR 1.5 wraps this whole subtree in <ProtectedRoute role="student"> — that is the
- * one edit this file expects from outside its owner. Everything else here is added
- * one entry at a time by the PR that builds the screen.
+ * PR 1.5 wrapped this whole subtree in <ProtectedRoute role="student"> — that was
+ * the one edit this file expects from outside its owner. Everything else here is
+ * added one entry at a time by the PR that builds the screen, and every such entry
+ * is protected by that wrapper without doing anything.
  */
 export const studentRoutes = [
   {
     path: 'app',
-    element: <StudentLayout />,
+    element: (
+      <ProtectedRoute role="student">
+        <StudentLayout />
+      </ProtectedRoute>
+    ),
     children: [
       { index: true, element: <Placeholder title="Student dashboard" pr="E1/E7" /> },
       { path: 'ask', element: <Placeholder title="Ask a question" pr="3.6" /> },
