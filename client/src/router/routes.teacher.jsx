@@ -1,15 +1,21 @@
 import TeacherLayout from '@/layouts/TeacherLayout';
 import Placeholder from '@/components/Placeholder';
+import ProtectedRoute from '@/router/ProtectedRoute';
 
 /**
  * Teacher routes — MVP.md §14.1.
  *
- * PR 1.5 wraps this subtree in <ProtectedRoute role="teacher">.
+ * PR 1.5 wrapped this subtree in <ProtectedRoute role="teacher">. A student who
+ * reaches /teach is sent to /app — the epic's stated acceptance criterion.
  */
 export const teacherRoutes = [
   {
     path: 'teach',
-    element: <TeacherLayout />,
+    element: (
+      <ProtectedRoute role="teacher">
+        <TeacherLayout />
+      </ProtectedRoute>
+    ),
     children: [
       { index: true, element: <Placeholder title="Teacher dashboard" pr="5.7" /> },
       { path: 'onboarding', element: <Placeholder title="Onboarding" pr="2.6" /> },
