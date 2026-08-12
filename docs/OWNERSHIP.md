@@ -1,17 +1,23 @@
 # Ownership & Conflict Avoidance
 
-Two developers, both writing frontend and backend, both driving AI agents. That
+Three developers, all writing frontend and backend, all driving AI agents. That
 combination produces merge conflicts unless ownership is written down. This file
 is the written-down version.
 
 ## 0. The developers
 
-| ID | Name | Fill in |
+| ID | Name | Scope |
 |---|---|---|
-| `DEV-A` | eliya| |
-| `DEV-B` | rotem | |
+| `DEV-A` | eliya | Full-stack feature slices |
+| `DEV-B` | rotem | Full-stack feature slices |
+| `DEV-C` | amit | Video integration — the call itself and everything that reaches it |
 
 Assign these once and never swap them mid-epic. Every PR brief names an owner by ID.
+
+**DEV-C is scoped, not vertical.** A and B own feature slices across the whole
+product; C owns one technical surface — the video provider, room lifecycle, and the
+endpoints that hand a room to a session. That surface is narrow and deep, so it does
+not get split by epic. Every video file below is C's, in every epic.
 
 ---
 
@@ -50,6 +56,10 @@ infrastructure files. Sections 2–4 exist to pay that cost.
 | `server/src/utils/` | DEV-A | `AppError`, `asyncHandler`, `logger`, `password` — created in 0.3, imported by everything. |
 | `server/src/middlewares/` | DEV-A for `errorHandler`/`validate` (0.3); DEV-B for auth middleware (1.1) | Security-critical. Human-written per `MVP.md` §17.5. |
 | `server/src/services/wallet.service.js` | DEV-B | Human-written, no agent. Per `MVP.md` §17.5. |
+| `server/src/services/video.*.service.js` | DEV-C | The provider SDK lives here and nowhere else. |
+| `server/src/routes/video.routes.js`, `controllers/video.*` | DEV-C | Room access endpoints. |
+| `server/src/config/video.js`, video env vars | DEV-C | Provider credentials. Add to `.env.example` with the rest. |
+| `client/src/components/session/VideoRoom*` | DEV-C | The embedded call surface. The screen around it belongs to the session epic's owner. |
 | `client/src/router/routes.*.jsx` | split by area — see §3 | Edit only your area file. |
 | `client/src/router/index.jsx` | DEV-A | **Frozen** as of PR 0.5. |
 | `client/src/theme.js` | DEV-A | **Frozen** as of PR 0.5. Component-level styling lives in components. Shared values (standing badge colours, timer colours, layout sizes) live in `theme.other` — read from there, never hardcode. |
@@ -59,6 +69,23 @@ infrastructure files. Sections 2–4 exist to pay that cost.
 | `shared/api.d.ts` | shared | Append-only, one clearly-marked section per epic. |
 | `package.json` (either) | shared | See §4. |
 | `.env.example` | shared | Append-only, grouped by service. |
+
+### 2.1 The video seam
+
+Video is the one place where an owner's code is called by another owner's code in
+every epic that uses it. So the seam is a written contract, not a convention:
+
+**DEV-C provides** a service function that takes a session id and returns the room
+access a client needs to join. **The session owner calls it** and stores whatever it
+returns. Nobody outside `services/video.*` imports the provider SDK, and DEV-C does
+not read or write the `sessions` table — the session owner passes in what the room
+needs and persists the result.
+
+If the shape of that return value changes, it is a chat message before the code, the
+same rule as the E1 contract freeze.
+
+Branches are `dev-c/*`. The one-PR-in-flight rule counts per developer, so three PRs
+may be open at once — one each.
 
 ---
 
