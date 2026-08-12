@@ -1,5 +1,7 @@
 import { Router } from 'express';
 
+import { authRoutes } from '#routes/auth.routes.js';
+
 /**
  * The route registry — the only router `app.js` mounts, at `/api/v1`.
  *
@@ -26,3 +28,4 @@ export const apiRoutes = Router();
 
 // ── domain routers ──────────────────────────────────────────────────────────
 // Append below, alphabetically. One line each.
+apiRoutes.use('/auth', authRoutes);

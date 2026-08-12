@@ -20,6 +20,18 @@ export const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 export const REFRESH_COOKIE_NAME = 'tn_refresh';
 
+/**
+ * The cookie is scoped to the auth router rather than to `/`, so it is not
+ * attached to every API call — only `POST /auth/refresh` and `POST /auth/logout`
+ * ever need it, and a cookie that is not sent cannot be stolen from a request
+ * that had no business carrying it.
+ *
+ * The path is part of a cookie's identity: `clearCookie` only removes the cookie
+ * if the path (and `sameSite` / `secure`) match what `res.cookie` set. That is why
+ * both helpers in `auth.token.service.js` build their options from one function.
+ */
+export const REFRESH_COOKIE_PATH = '/api/v1/auth';
+
 /** Minimum password length enforced by the Zod schemas in E1. */
 export const PASSWORD_MIN_LENGTH = 8;
 
