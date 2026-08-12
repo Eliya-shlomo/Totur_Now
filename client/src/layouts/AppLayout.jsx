@@ -4,6 +4,7 @@ import { Outlet, Link } from 'react-router-dom';
 
 import SidebarNav from '@/components/nav/SidebarNav';
 import BottomNav from '@/components/nav/BottomNav';
+import UserMenu from '@/components/nav/UserMenu';
 
 /**
  * The shared shell behind the student, teacher and admin layouts.
@@ -47,21 +48,31 @@ export default function AppLayout({ navItems, brandLabel, brandHref }) {
       padding="md"
     >
       <AppShell.Header>
-        <Group h="100%" px="md" gap="sm">
-          {isTablet && (
-            <Burger
-              opened={opened}
-              onClick={toggle}
-              size="sm"
-              aria-label={opened ? 'Close navigation' : 'Open navigation'}
-            />
-          )}
-          <Text component={Link} to={brandHref} fw={700} size="lg" td="none" c="inherit">
-            TutorNow
-          </Text>
-          <Text size="sm" c="dimmed">
-            {brandLabel}
-          </Text>
+        {/*
+          Brand on the left, account on the right. The header is the only chrome
+          present in all three layouts at every width — the sidebar is gone below
+          768px and the bottom nav is four fixed icons — so it is where the account
+          menu, and with it the way to log out, has to live.
+        */}
+        <Group h="100%" px="md" gap="sm" justify="space-between" wrap="nowrap">
+          <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+            {isTablet && (
+              <Burger
+                opened={opened}
+                onClick={toggle}
+                size="sm"
+                aria-label={opened ? 'Close navigation' : 'Open navigation'}
+              />
+            )}
+            <Text component={Link} to={brandHref} fw={700} size="lg" td="none" c="inherit">
+              TutorNow
+            </Text>
+            <Text size="sm" c="dimmed" visibleFrom="xs">
+              {brandLabel}
+            </Text>
+          </Group>
+
+          <UserMenu />
         </Group>
       </AppShell.Header>
 
