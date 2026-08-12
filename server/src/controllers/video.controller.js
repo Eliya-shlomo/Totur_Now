@@ -1,27 +1,27 @@
-import { createDailyRoom, createDailyMeetingToken } from '#services/daily.service.js';
+import { createSessionVideo, createSessionVideoAccess } from '#services/video.service.js';
 
 export async function createRoom(req, res) {
-  const room = await createDailyRoom();
+  const { sessionId } = req.body;
+
+  const room = await createSessionVideo(sessionId);
 
   res.status(201).json({
     success: true,
-    data: {
-      name: room.name,
-      url: room.url,
-      privacy: room.privacy,
-    },
+    data: room,
   });
 }
 
 export async function createAccess(req, res) {
   const { roomName, userName } = req.body;
 
-  const result = await createDailyMeetingToken(roomName, userName);
+  const access = await createSessionVideoAccess({
+    roomName,
+    userId: req.user.id,
+    userName,
+  });
 
   res.json({
     success: true,
-    data: {
-      token: result.token,
-    },
+    data: access,
   });
 }
