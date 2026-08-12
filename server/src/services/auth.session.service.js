@@ -52,6 +52,7 @@ function invalidCredentials() {
  * typing it here.
  */
 function toAuthUser(user) {
+  //this runs after a user is found and verified, and returns an object with only the necessary fields for authentication
   return {
     id: user.id,
     email: user.email,
