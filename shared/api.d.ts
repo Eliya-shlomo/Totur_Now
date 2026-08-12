@@ -156,7 +156,10 @@ export interface ErrorEnvelope {
   details: unknown | null;
 }
 
-// ─── E1 · Public surface (PR 1.6) ─────────────────────────────────────────────
+// ── E1 — public surface (PR 1.6) ─────────────────────────────────────────────
+// Unauthenticated, MVP.md §12 "Public". No type here may reference a user: these
+// responses are cacheable by any proxy, so anything in them is served to
+// strangers.
 
 /**
  * A node of the topic taxonomy (MVP.md §7). Two levels only: `children` is
