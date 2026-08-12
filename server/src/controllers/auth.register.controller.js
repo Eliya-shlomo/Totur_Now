@@ -1,23 +1,29 @@
-import { AppError } from '#utils/AppError.js';
+import { registerUser } from '#services/auth.register.service.js';
+import { setRefreshCookie } from '#services/auth.token.service.js';
 
 /**
- * `POST /auth/register`. **Stub — DEV-A replaces this file in PR 1.2.**
+ * `POST /auth/register`. PR 1.2, replacing 1.1's 501 stub.
  *
- * The route is wired and reachable now, so the endpoint answers `501
- * NOT_IMPLEMENTED` in the standard error shape instead of `404 NOT_FOUND`. The
- * difference matters to whoever calls it first: a 501 says "this exists and is not
- * finished", a 404 says "you got the path wrong", and 1.3's screens will be written
- * against this URL before 1.2 lands.
+ * The export name is the contract with the frozen `auth.routes.js` — the body
+ * changes, the name does not.
  *
- * The export name is the contract with the frozen `auth.routes.js`. Replace the
- * body, keep the name.
+ * Everything this function knows is HTTP: which status code a creation gets, that
+ * one of the two tokens travels as a cookie and the other in the body. The
+ * transaction, the hashing and the duplicate-email translation are all in the
+ * service, where nothing knows what a response is (CONVENTIONS.md → Server
+ * layering).
  *
- * Layering, for whoever fills this in (CONVENTIONS.md): the controller reads `req`,
- * calls `auth.register.service.js`, and answers. It does not touch Prisma, and the
- * transaction lives in the service.
+ * `201`, not `200`: three rows were created. The refresh token is deliberately not
+ * in the body — it is set as an httpOnly cookie by the token service, which is what
+ * makes it unreadable to any script on the page (§15.5).
  */
+export async function register(req, res) {
+  const { user, accessToken, refreshToken } = await registerUser(req.body);
 
-/** Takes no parameters until 1.2 gives it a body — `asyncHandler` passes `(req, res, next)`. */
-export function register() {
-  throw AppError.notImplemented('POST /auth/register');
+  setRefreshCookie(res, refreshToken);
+
+  // Field-identical to what `POST /auth/login` returns in 1.4 — the epic's stated
+  // risk, and the reason both read their user object out of the same repository
+  // selection rather than each building one.
+  res.status(201).json({ success: true, data: { user, accessToken } });
 }
