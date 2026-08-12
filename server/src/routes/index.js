@@ -1,5 +1,6 @@
 import { Router } from 'express';
 
+import { authRoutes } from '#routes/auth.routes.js';
 import { publicRoutes } from '#routes/public.routes.js';
 
 /**
@@ -26,5 +27,6 @@ export const apiRoutes = Router();
 
 // ── domain routers ──────────────────────────────────────────────────────────
 // Append below, alphabetically. One line each.
+apiRoutes.use('/auth', authRoutes);
 
 apiRoutes.use('/public', publicRoutes);
