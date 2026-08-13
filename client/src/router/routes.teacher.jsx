@@ -1,5 +1,6 @@
 import TeacherLayout from '@/layouts/TeacherLayout';
 import Onboarding from '@/pages/teacher/Onboarding';
+import Profile from '@/pages/teacher/Profile';
 import Placeholder from '@/components/Placeholder';
 import ProtectedRoute from '@/router/ProtectedRoute';
 
@@ -22,7 +23,7 @@ export const teacherRoutes = [
       { path: 'onboarding', element: <Onboarding /> },
       { path: 'session/:id', element: <Placeholder title="Active session" pr="6.8" /> },
       { path: 'earnings', element: <Placeholder title="Earnings" pr="7.8" /> },
-      { path: 'profile', element: <Placeholder title="Profile + documents" pr="2.7" /> },
+      { path: 'profile', element: <Profile /> },
     ],
   },
 ];
