@@ -63,7 +63,7 @@ Splitting them across two people creates conflict for no benefit.
 
 | # | PR | Owner | Size | Depends on | Status |
 |---|---|---|---|---|---|
-| 2.1 | [Teacher core: frozen router, repository, serializer](PR-2.1-teacher-core.md) | DEV-B · **human** | M | E1 | ☐ |
+| 2.1 | [Teacher core: frozen router, repository, serializer](PR-2.1-teacher-core.md) | DEV-B · **human** | M | E1 | ☑ |
 | 2.2 | [`GET` / `PATCH /teachers/me` — profile, topics, price, level, status](PR-2.2-teacher-me-endpoints.md) | DEV-B | M | 2.1 | ☐ |
 | 2.3 | [Standing badge + public teacher endpoints](PR-2.3-public-teacher-endpoints.md) | DEV-A | M | 2.1 | ☐ |
 | 2.4 | [Onboarding stepper — topics → level → price](PR-2.4-onboarding-stepper.md) | DEV-B | M | 2.2 | ☐ |
