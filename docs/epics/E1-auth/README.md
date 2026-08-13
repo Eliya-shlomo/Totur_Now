@@ -46,13 +46,13 @@ touch entirely different files.
 
 | # | PR | Owner | Size | Depends on | Status |
 |---|---|---|---|---|---|
-| 1.1 | [Auth core: tokens, middlewares, route skeleton](PR-1.1-auth-core.md) | DEV-B · **human** | M | 0.3, 0.4 | ☐ |
-| 1.2 | [`POST /auth/register` + wallet + profile transaction](PR-1.2-register-endpoint.md) | DEV-A | M | 1.1, 0.2 | ☐ |
-| 1.3 | [Auth screens: login + register with role selection](PR-1.3-auth-screens.md) | DEV-A | M | 1.5 | ☐ |
-| 1.4 | [`login` / `refresh` / `logout` / `me`](PR-1.4-session-endpoints.md) | DEV-B · **human** | M | 1.1 | ☐ |
-| 1.5 | [`authStore`, `ProtectedRoute`, axios 401 refresh](PR-1.5-auth-client-core.md) | DEV-B | M | 1.1, 0.6 | ☐ |
-| 1.6 | [Guest surface: public endpoints + landing + pricing](PR-1.6-guest-surface.md) | DEV-A | M | 0.5, 0.7 | ☐ |
-| 1.7 | [Auth hardening + end-to-end verification](PR-1.7-auth-hardening.md) | DEV-B | S | 1.2–1.5 | ☐ |
+| 1.1 | [Auth core: tokens, middlewares, route skeleton](PR-1.1-auth-core.md) | DEV-B · **human** | M | 0.3, 0.4 | ☑ |
+| 1.2 | [`POST /auth/register` + wallet + profile transaction](PR-1.2-register-endpoint.md) | DEV-A | M | 1.1, 0.2 | ☑ |
+| 1.3 | [Auth screens: login + register with role selection](PR-1.3-auth-screens.md) | DEV-A | M | 1.5 | ☑ |
+| 1.4 | [`login` / `refresh` / `logout` / `me`](PR-1.4-session-endpoints.md) | DEV-B · **human** | M | 1.1 | ☑ |
+| 1.5 | [`authStore`, `ProtectedRoute`, axios 401 refresh](PR-1.5-auth-client-core.md) | DEV-B | M | 1.1, 0.6 | ☑ |
+| 1.6 | [Guest surface: public endpoints + landing + pricing](PR-1.6-guest-surface.md) | DEV-A | M | 0.5, 0.7 | ☑ |
+| 1.7 | [Auth hardening + end-to-end verification](PR-1.7-auth-hardening.md) | DEV-B | S | 1.2–1.5 | ☑ |
 
 ## Parallelism map
 

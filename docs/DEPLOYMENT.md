@@ -3,10 +3,21 @@
 Both halves of the deployment are live from E0 on purpose (`MVP.md` §18/E0.7). After
 this, shipping is `git push` — everything below happens on its own.
 
-| Half | Platform | PR | Owner |
-|---|---|---|---|
-| Client | Vercel | 0.8 | DEV-A |
-| Server + database | Render + Neon | 0.9 | DEV-B |
+| Half | Platform | PR | Owner | Live URL |
+|---|---|---|---|---|
+| Client | Vercel | 0.8 | DEV-A | https://totur-now-client-vnxx.vercel.app |
+| Server + database | Render + Neon | 0.9 | DEV-B | https://tutor-now-api.onrender.com |
+
+> **Both halves were verified reachable from each other on 2026-08-12, during PR 1.7.**
+> Until that day they were not. The Render service did not exist, `VITE_API_URL` on
+> Vercel held the literal placeholder `https://<render-url>/api/v1` copied out of this
+> file, and `CORS_ORIGINS` was still the development default. Nothing in the repo could
+> have caught any of the three — they live in dashboards. If you are reading this at the
+> start of an epic, spend thirty seconds on it now:
+>
+> ```bash
+> curl https://tutor-now-api.onrender.com/health
+> ```
 
 ```
         browser
@@ -92,7 +103,7 @@ would let an unreviewed branch write to real data.
 
 | Variable | Production | Preview | Source |
 |---|---|---|---|
-| `VITE_API_URL` | `https://<render-url>/api/v1` | the Render URL, or a scratch instance | PR 0.9 produces the Render URL |
+| `VITE_API_URL` | `https://tutor-now-api.onrender.com/api/v1` | the Render URL, or a scratch instance | PR 0.9 produces the Render URL |
 
 That is the whole list, and it is the whole list on purpose. Only `VITE_`-prefixed
 variables reach the bundle, and everything with that prefix is readable by anyone who
@@ -108,7 +119,7 @@ Include `/api/v1` in the value. `client/src/api/client.js` appends only the rout
 it at the **root**, above the versioned API, because Render polls it as infrastructure
 and that contract must not move when the API version does. `api.get('/health')` would
 resolve to `/api/v1/health`, which is a 404. Check it against the origin —
-`https://<render-url>/health`.
+`https://tutor-now-api.onrender.com/health`.
 
 Changing a variable does **not** rebuild. Vite inlines these at build time, so the old
 value stays in the deployed bundle until the next deploy — redeploy after editing one.
@@ -332,6 +343,31 @@ Set the variable **inline for that one command**. Putting the production URL in 
 `.env` and forgetting it there is how a local `prisma migrate reset` ends up pointed at
 production, and `reset` does not ask twice.
 
+#### The demo accounts
+
+Written down here, per PR 1.7, so a demo never stalls on a forgotten password. Every
+seeded account shares one password, defined in
+[`prisma/seed/helpers.js`](../prisma/seed/helpers.js):
+
+```
+TutorNow!2026
+```
+
+| Role | Email | Count |
+|---|---|---|
+| Student | `avi.student@demo.tutornow.il`, `noya.student@demo.tutornow.il`, `ido.student@demo.tutornow.il` | 3 |
+| Teacher | `dana.k@demo.tutornow.il`, `yossi.m@demo.tutornow.il`, … `adi.f@demo.tutornow.il` | 15 |
+| Admin | `admin@demo.tutornow.il` | 1 |
+
+The full teacher list is in [`prisma/seed/teachers.js`](../prisma/seed/teachers.js). The
+admin account is the only way into `/admin` — there is no route that mints an admin, the
+role is set in the database, and `POST /auth/register` rejects `role: 'admin'` outright.
+
+This password is **demo data, not a secret**. It only ever unlocks accounts on
+`@demo.tutornow.il`, all of which are created by the seed and none of which belong to a
+person. Treat any real account's password the way §"Environment variables" treats the
+JWT secrets: never in a file, never in a commit.
+
 ### 5. Connecting to the production database
 
 ```bash
@@ -375,7 +411,7 @@ Nothing is broken when this happens. Handle it by hitting the health endpoint a 
 before anyone looks at the app:
 
 ```bash
-curl https://<render-url>/health
+curl https://tutor-now-api.onrender.com/health
 ```
 
 Do it before the demo on 8/19. A second request confirms it is warm — it should return
@@ -417,7 +453,7 @@ Two log lines are worth recognising:
 ### 10. Verifying a deploy
 
 ```bash
-curl https://<render-url>/health
+curl https://tutor-now-api.onrender.com/health
 ```
 
 Expect `{"success":true,"data":{"status":"ok","db":"ok","uptime":N}}`. `db: "down"`
@@ -426,7 +462,7 @@ means the instance is fine and `DATABASE_URL` is not — wrong string, or the po
 From the deployed client's origin, in the browser console:
 
 ```js
-await fetch('https://<render-url>/health').then((r) => r.json());
+await fetch('https://tutor-now-api.onrender.com/health').then((r) => r.json());
 ```
 
 No CORS error. Then the same call from any other origin — this page, for instance —
