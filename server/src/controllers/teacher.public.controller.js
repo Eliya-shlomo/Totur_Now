@@ -1,46 +1,39 @@
-import { AppError } from '#utils/AppError.js';
+import { getTeacherCard, getTeacherList } from '#services/teacher.public.service.js';
 
 /**
  * What a student sees about a teacher — `GET /teachers` and `GET /teachers/:id`.
- *
- * **Stubs. Filled in by PR 2.3 (DEV-A), which owns this file.** The routes are
- * already wired in the frozen `teacher.routes.js` against these two names, so 2.3
- * replaces two function bodies and a validator and opens nothing DEV-B has open.
  *
  * No authentication on either route, deliberately: a stranger reads a teacher's
  * profile before deciding whether to register. That is also why the payload is
  * `toTeacherCard` and not `toTeacherMe` — no email, no `status`, no counter beyond
  * the rating pair.
  *
- * Both handlers reach 2.3's `teacher.public.service.js`, which resolves a price band
- * through `utils/pricing.js`, calls `findTeacherPage` or `findTeacherById`, and maps
- * the rows through the serializer. The service does not re-sort or re-fetch: the
- * repository already orders the page and already brings topics with it, and undoing
- * either reintroduces the epic's one N+1.
+ * Controllers read the request and write the response (CONVENTIONS.md → Server
+ * layering), so both handlers below are a call and a send. The filter translation,
+ * the band ceiling and the `NOT_FOUND` all live in `teacher.public.service.js`.
  *
- * Neither stub takes parameters. Express passes `(req, res, next)` regardless, and
- * arguments nothing reads are a lint error rather than documentation — the
- * signatures arrive with the bodies in 2.3.
+ * **No `Cache-Control` here**, unlike `public.controller.js`. That surface is
+ * taxonomy and money — data that changes on a deploy — and is cached at the edge for
+ * `PUBLIC_CACHE_SECONDS`. A teacher list changes every time somebody goes online,
+ * and caching it would serve a stale roster for the rest of the day.
  */
 
 /**
  * `GET /teachers` — the filtered, paged public list.
  *
- * 2.3 returns `{ teachers, total }`: `total` is the unpaged count of everything the
- * filters match, so a client asking for `pageSize=1000` gets the cap in `teachers`
- * and the true size in `total`.
+ * `req.query` is already coerced, defaulted and capped by `teacherListSchema`, so it
+ * is handed to the service whole rather than picked apart here.
  */
-export async function listTeachers() {
-  throw AppError.notImplemented('GET /teachers');
+export async function listTeachers(req, res) {
+  res.json({ success: true, data: await getTeacherList(req.query) });
 }
 
 /**
- * `GET /teachers/:id` — one card, or `NOT_FOUND`.
+ * `GET /teachers/:id` — one card.
  *
- * A user id that exists but belongs to a student has no teacher profile: the
- * repository answers `null` and 2.3 turns that into `NOT_FOUND`, not a 500 and not
- * an empty card.
+ * The card is `data` itself, not `{ teacher }`, matching `GET /teachers/me` and
+ * `GET /auth/me`: a single-resource read returns the resource.
  */
-export async function getTeacherById() {
-  throw AppError.notImplemented('GET /teachers/:id');
+export async function getTeacherById(req, res) {
+  res.json({ success: true, data: await getTeacherCard(req.params.id) });
 }
