@@ -68,24 +68,35 @@ Splitting them across two people creates conflict for no benefit.
 | 2.3 | [Standing badge + public teacher endpoints](PR-2.3-public-teacher-endpoints.md) | DEV-A | M | 2.1 | ☑ |
 | 2.4 | [Onboarding stepper — topics → level → price](PR-2.4-onboarding-stepper.md) | DEV-B | M | 2.2 | ☑ |
 | 2.5 | [Public teacher list + profile screens](PR-2.5-public-teacher-screens.md) | DEV-A | M | 2.3 | ☑ |
-| 2.6 | [Teacher profile edit screen](PR-2.6-profile-edit-screen.md) | DEV-A | M | 2.2, 2.5 | ☐ |
+| 2.6 | [Teacher profile edit screen](PR-2.6-profile-edit-screen.md) | DEV-A | M | 2.2, 2.4, 2.5 | ☐ |
 | 2.7 | [E2 close: verification + retro](PR-2.7-e2-close.md) | DEV-A | S | 2.2–2.6 | ☐ |
 
 ## Parallelism map
 
 ```
-                     ┌─ 2.2 ── 2.4 ────────────┐        (B)
-2.1 (B, blocking) ───┤                         ├─ 2.7 (A)
-                     └─ 2.3 ── 2.5 ── 2.6 ─────┘        (A)
+                     ┌─ 2.2 ─── 2.4 ───────────┬─┐       (B)
+2.1 (B, blocking) ───┤          │              │ ├─ 2.7 (A)
+                     └─ 2.3 ─── 2.5 ─── 2.6 ───┘ ┘       (A)
+                                 ▲      ▲
+                                 └──────┴─ 2.6 also needs 2.4's form controls
 ```
 
-2.1 is the only thing either developer waits on, and it is one sitting. After it merges
-the two tracks touch no shared file until 2.7.
+2.1 is the only thing either developer waits on, and it is one sitting. After it merges the
+two tracks touch no shared file until 2.6.
 
-**2.6 depends on 2.2**, which is the one cross-track edge. It is a client screen against a
-merged endpoint, so DEV-A is never blocked on unmerged work — if 2.2 is not in yet, 2.6
-waits and DEV-A picks up the filler. Do not stub the endpoint locally to get ahead; that is
-how the two shapes drift apart.
+**2.6 is the one cross-track edge, and it has two ends, not one.** It needs `PATCH
+/teachers/me` from 2.2, and it needs the three form controls 2.4 builds — a profile edit
+screen and an onboarding stepper set the same four fields, and building the pickers twice is
+the duplication this split exists to avoid.
+
+The table said "2.2, 2.5" until 2.5 shipped and 2.6 turned out to be blocked anyway.
+Corrected here rather than left as a plan the repo disagrees with — the same lesson as E1's
+ownership drift (docs/epics/E1-auth/RETRO.md).
+
+Neither developer is ever blocked on unmerged work: if 2.6's inputs are not in yet, 2.6
+waits and DEV-A picks up filler. **Do not stub 2.2's endpoint or reimplement 2.4's controls
+to get ahead** — a stubbed endpoint is how two shapes drift apart, and a second picker is
+what the epic was cut to prevent.
 
 ## Contract freeze
 
