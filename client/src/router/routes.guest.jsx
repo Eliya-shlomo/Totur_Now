@@ -1,11 +1,12 @@
 import AuthLayout from '@/layouts/AuthLayout';
 import GuestLayout from '@/layouts/GuestLayout';
 import Login from '@/pages/auth/Login';
-import Placeholder from '@/components/Placeholder';
 import Landing from '@/pages/guest/Landing';
 import NotFound from '@/pages/NotFound';
 import Pricing from '@/pages/guest/Pricing';
 import Register from '@/pages/auth/Register';
+import TeacherProfile from '@/pages/guest/TeacherProfile';
+import Teachers from '@/pages/guest/Teachers';
 
 /**
  * Public routes — MVP.md §14.1. No authentication.
@@ -28,8 +29,8 @@ export const guestRoutes = [
     element: <GuestLayout />,
     children: [
       { index: true, element: <Landing /> },
-      { path: 'teachers', element: <Placeholder title="Available teachers" pr="1.6" /> },
-      { path: 'teachers/:id', element: <Placeholder title="Teacher profile + reviews" pr="8.5" /> },
+      { path: 'teachers', element: <Teachers /> },
+      { path: 'teachers/:id', element: <TeacherProfile /> },
       { path: 'pricing', element: <Pricing /> },
 
       // Catch-all. Renders inside the guest layout so the user keeps a way out.
