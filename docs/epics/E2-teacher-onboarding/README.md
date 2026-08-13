@@ -69,7 +69,13 @@ Splitting them across two people creates conflict for no benefit.
 | 2.4 | [Onboarding stepper — topics → level → price](PR-2.4-onboarding-stepper.md) | DEV-B | M | 2.2 | ☑ |
 | 2.5 | [Public teacher list + profile screens](PR-2.5-public-teacher-screens.md) | DEV-A | M | 2.3 | ☑ |
 | 2.6 | [Teacher profile edit screen](PR-2.6-profile-edit-screen.md) | DEV-A | M | 2.2, 2.4, 2.5 | ☑ |
-| 2.7 | [E2 close: verification + retro](PR-2.7-e2-close.md) | DEV-A | S | 2.2–2.6 | ☐ |
+| 2.7 | [E2 close: verification + retro](PR-2.7-e2-close.md) | DEV-A | S | 2.2–2.6 | ◐ |
+
+**2.7 is provisional.** 17 of its 21 checklist items pass on the deployed pair and are
+recorded in [RETRO.md](RETRO.md). Four are outstanding: three registration-flow items that
+write to the database, held until local development stops sharing production's, and the
+two-machine test, which needs DEV-B. **E4 does not start until all four are ticked** — the
+matching engine ranks on exactly these fields.
 
 ## Parallelism map
 
