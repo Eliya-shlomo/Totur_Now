@@ -64,9 +64,9 @@ Splitting them across two people creates conflict for no benefit.
 | # | PR | Owner | Size | Depends on | Status |
 |---|---|---|---|---|---|
 | 2.1 | [Teacher core: frozen router, repository, serializer](PR-2.1-teacher-core.md) | DEV-B · **human** | M | E1 | ☑ |
-| 2.2 | [`GET` / `PATCH /teachers/me` — profile, topics, price, level, status](PR-2.2-teacher-me-endpoints.md) | DEV-B | M | 2.1 | ☐ |
+| 2.2 | [`GET` / `PATCH /teachers/me` — profile, topics, price, level, status](PR-2.2-teacher-me-endpoints.md) | DEV-B | M | 2.1 | ☑ |
 | 2.3 | [Standing badge + public teacher endpoints](PR-2.3-public-teacher-endpoints.md) | DEV-A | M | 2.1 | ☑ |
-| 2.4 | [Onboarding stepper — topics → level → price](PR-2.4-onboarding-stepper.md) | DEV-B | M | 2.2 | ☐ |
+| 2.4 | [Onboarding stepper — topics → level → price](PR-2.4-onboarding-stepper.md) | DEV-B | M | 2.2 | ☑ |
 | 2.5 | [Public teacher list + profile screens](PR-2.5-public-teacher-screens.md) | DEV-A | M | 2.3 | ☑ |
 | 2.6 | [Teacher profile edit screen](PR-2.6-profile-edit-screen.md) | DEV-A | M | 2.2, 2.5 | ☐ |
 | 2.7 | [E2 close: verification + retro](PR-2.7-e2-close.md) | DEV-A | S | 2.2–2.6 | ☐ |
