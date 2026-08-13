@@ -30,3 +30,14 @@ export const TEACHER_BADGES = STANDING_BANDS.map((band) => band.badge);
  */
 export const TEACHING_LEVELS = [3, 4, 5];
 export const DEFAULT_LEVEL_MAX = 3;
+
+/**
+ * How long a teacher's self-description may be (§6.1, the bio is the one place
+ * anything self-reported lives).
+ *
+ * `teacher_profiles.bio` is `TEXT`, so this is a product ceiling rather than a
+ * column width — long enough for a paragraph a student will actually read, short
+ * enough that a card can render it without a truncation rule of its own. Appended
+ * in PR 2.2, which is the first code that needs a bound and had nowhere to cite.
+ */
+export const BIO_MAX_LENGTH = 500;

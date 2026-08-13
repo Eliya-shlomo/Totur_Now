@@ -1,48 +1,47 @@
-import { AppError } from '#utils/AppError.js';
+import { getTeacherMe, updateTeacherMe } from '#services/teacher.me.service.js';
 
 /**
  * The teacher's own record — `GET` and `PATCH /teachers/me`.
  *
- * **Stubs. Filled in by PR 2.2 (DEV-B), which owns this file.** The route,
- * the middleware chain and the validator are already wired in the frozen
- * `teacher.routes.js`, so 2.2 replaces two function bodies and opens nothing
- * shared. That is the whole trick this PR is buying.
+ * The two export names are the contract with the frozen `teacher.routes.js` (PR 2.1);
+ * 2.2 replaced the stub bodies and left the names alone, which is the whole trick that
+ * PR was buying — the route, the middleware chain and the validator were already wired,
+ * so this landed without opening a shared file.
  *
- * `NOT_IMPLEMENTED` (501) rather than a missing route: a 404 says the endpoint does
- * not exist, and the client work in 2.4 needs the difference between "not built
- * yet" and "you called the wrong URL" while both are true at once.
+ * No database access and no decisions (CONVENTIONS.md → Server layering): each handler
+ * calls one service function and writes the envelope.
  *
- * Both handlers reach 2.2's `teacher.me.service.js`, which reaches
- * `teacher.repository.js` and serializes through `toTeacherMe`. Neither ever imports
- * Prisma — controllers do not touch the database (CONVENTIONS.md → Server layering).
- *
- * There is no ownership parameter and there will not be one. The teacher being read
- * or written is always `req.user.id`; `authorize('teacher')` in the router is what
- * makes that safe, and `PATCH /teachers/:id` does not exist.
- *
- * Both stubs take no parameters. Express passes `(req, res, next)` regardless, and
- * declaring arguments nothing reads is a lint error rather than documentation — the
- * signature arrives with the body in 2.2.
+ * **There is no ownership parameter and there will not be one.** The teacher being read
+ * or written is always `req.user.id` — never an id from the path, the body or the query.
+ * `authenticate` + `authorize('teacher')` in the router is what makes that safe, and
+ * `PATCH /teachers/:id` does not exist.
  */
 
 /**
- * `GET /teachers/me` — the authenticated teacher's own record.
+ * `GET /teachers/me` — 200 `TeacherMeResponse`.
  *
- * 2.2 returns `toTeacherMe` of `findTeacherById(req.user.id)`. It is the stepper's
- * source of truth for which steps are done, so it has to be right on a brand-new
- * teacher whose row is registration defaults and nothing else.
+ * The stepper's source of truth for which steps are already done, so it has to be right
+ * on a brand-new teacher whose row is registration defaults and nothing else.
+ * `onboardingComplete` is computed in 2.1's serializer, here and in no second place.
  */
-export async function getMe() {
-  throw AppError.notImplemented('GET /teachers/me');
+export async function getMe(req, res) {
+  const teacher = await getTeacherMe(req.user.id);
+
+  res.status(200).json({ success: true, data: teacher });
 }
 
 /**
- * `PATCH /teachers/me` — bio, price, level, topics, status. Always a partial.
+ * `PATCH /teachers/me` — 200, the updated record in the shape `GET` returns.
  *
- * 2.2 validates, then calls `updateTeacherProfile(req.user.id, { data, topicIds })`
- * — one transaction, with `topicIds` replacing the whole set — and returns the
- * updated record in the same shape `GET` returns.
+ * The full record rather than 204, so 2.4's stepper can re-render from the response
+ * instead of following every step with a `GET` — including `onboardingComplete`, which
+ * is the value the last step is waiting on.
+ *
+ * `req.body` is what `validate(teacherUpdateSchema)` wrote back: coerced, stripped, and
+ * guaranteed non-empty. An empty body never reaches here.
  */
-export async function patchMe() {
-  throw AppError.notImplemented('PATCH /teachers/me');
+export async function patchMe(req, res) {
+  const teacher = await updateTeacherMe(req.user.id, req.body);
+
+  res.status(200).json({ success: true, data: teacher });
 }

@@ -39,7 +39,7 @@ one that broke `main`. So this list is exhaustive, and every file on it has a ru
 | `shared/api.d.ts` | Append-only, one `// ── E2` block | 2.1 |
 | `client/src/router/routes.teacher.jsx` | One line per PR: replace a `Placeholder`, never reorder | 2.4, 2.6 |
 | `client/src/router/routes.guest.jsx` | One line per PR: replace a `Placeholder`, never reorder | 2.5 |
-| `server/src/config/constants/teacher.js` | Read-only for this epic. It is already complete. | — |
+| `server/src/config/constants/teacher.js` | Append-only. 2.2 added `BIO_MAX_LENGTH`, the one bound the epic needed and the file did not have. Nothing existing is edited. | 2.2 |
 
 Everything else is suffixed by audience: `teacher.me.controller.js` and
 `teacher.public.controller.js`, `teacher.me.service.js` and `teacher.public.service.js`.
