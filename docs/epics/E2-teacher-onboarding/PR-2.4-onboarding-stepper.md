@@ -23,7 +23,9 @@ to step three, not to step one.
 
 **Step 1 — topics.** The two-level tree from `GET /public/topics`, which 1.6 already
 built. Parents are group headings, not selectable; only leaves are. At least one required.
-Hebrew names are the primary label.
+`nameEn` is the label, not `nameHe` — `client/index.html` fixed the UI as English and LTR
+at PR 0.5, and a Hebrew topic list would be the only Hebrew on the screen. (This line said
+the opposite until 2.5 hit the same question and checked; corrected there.)
 
 **Step 2 — level.** The values in `TEACHING_LEVELS`, labelled for a human rather than shown
 as bare integers. Self-declared, and the screen should say so plainly — nobody verifies it,
