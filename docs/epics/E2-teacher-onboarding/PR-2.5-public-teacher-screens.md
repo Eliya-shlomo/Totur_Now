@@ -35,8 +35,10 @@ on rejection.
 as `TeacherCard.jsx` — 2.6 reuses it, and this is the shared-component decision the epic
 README cites as the reason you own both screens.
 
-The badge is a public claim about a person, so render all four values distinctly and label
-them in Hebrew. Import the values from `TEACHER_BADGES`; do not retype the four strings.
+The badge is a public claim about a person, so render all four values distinctly, in
+English like every other label on the site (`client/index.html` fixed the UI language at PR
+0.5). Colours come from `theme.other.badgeColors`, which is frozen — do not invent a
+mapping.
 
 **The profile.** One teacher: bio, topics, price with its band, level, badge, rating and
 rating count. An unrated teacher shows "no ratings yet", not "0 ★" — `rating` is `null` and
@@ -105,4 +107,17 @@ the ordering, and do not touch the `*` catch-all — it must stay last.
 
 `TeacherCard.jsx` is deliberately built here and reused in 2.6 rather than being built
 twice. That reuse is the reason the epic gives you the teacher's own profile edit screen
-even though DEV-B owns the endpoint behind it.
+even though DEV-B owns the endpoint behind it. It takes `linkTo` so 2.6 can render the same
+card as a live preview without wrapping it in a link to itself.
+
+**Two brief corrections, both made in this PR.** The badge labels were specified as Hebrew;
+`client/index.html` fixed the UI as English and LTR at PR 0.5, so a Hebrew label would have
+been the only one on the site. 2.4's brief carried the same mistake about topic names and is
+corrected too — `nameEn` is the label, `nameHe` rides along in the payload for the day that
+changes and for E3's classifier.
+
+**One thing this PR could not do cleanly.** `TEACHING_LEVELS` lives in the server's
+`constants/teacher.js` and is published through no endpoint and not through `@tutor/shared`,
+so the level filter's three options are the one literal list in `TeacherFilters.jsx`.
+Publishing it is a change to a shared contract — a chat message before code, not something
+to slip into a screen PR. Raised for 2.7.
