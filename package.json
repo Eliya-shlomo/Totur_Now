@@ -48,6 +48,10 @@
     "globals": "^16.0.0",
     "husky": "^9.1.0",
     "lint-staged": "^16.0.0",
-    "prettier": "^3.3.0"
+    "prettier": "^3.3.0",
+    "prisma": "^6.19.3"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3"
   }
 }
