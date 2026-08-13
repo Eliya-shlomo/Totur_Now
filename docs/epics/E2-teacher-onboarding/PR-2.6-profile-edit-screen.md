@@ -46,9 +46,15 @@ confirmation before navigating away with unsaved edits.
 
 ```
 client/src/pages/teacher/Profile.jsx              new
-client/src/router/routes.teacher.jsx              ONE line — replace the profile Placeholder
+client/src/router/routes.teacher.jsx              the profile Placeholder line, plus its import
 docs/epics/E2-teacher-onboarding/README.md        tick the status box
 ```
+
+The routes file takes **two** lines, not one: replacing a `Placeholder` element also needs
+the `import` for the page that replaces it. 2.4 landed the same pair for `Onboarding` and
+merged cleanly — the imports are alphabetical and the route lines are in different places,
+so neither half collides. Corrected here rather than left as a rule the repo disagrees
+with.
 
 ## Files you must NOT touch
 
@@ -90,7 +96,7 @@ server/                                           nothing server-side in this PR
 ## Review checklist additions
 
 - The three pickers are imported unchanged. Any diff inside DEV-B's component files means the PR is out of bounds — file a follow-up instead.
-- The `routes.teacher.jsx` change is exactly one line, and it must merge cleanly on top of 2.4's one line. If 2.4 has not merged yet, wait — do not rebase around it by editing the whole file.
+- The `routes.teacher.jsx` change is the route line and its import, and both must merge cleanly on top of 2.4's pair. If 2.4 has not merged yet, wait — do not rebase around it by editing the whole file.
 
 ## Notes
 
