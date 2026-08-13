@@ -39,7 +39,7 @@ one that broke `main`. So this list is exhaustive, and every file on it has a ru
 | `shared/api.d.ts` | Append-only, one `// ── E2` block | 2.1 |
 | `client/src/router/routes.teacher.jsx` | One line per PR: replace a `Placeholder`, never reorder | 2.4, 2.6 |
 | `client/src/router/routes.guest.jsx` | One line per PR: replace a `Placeholder`, never reorder | 2.5 |
-| `server/src/config/constants/teacher.js` | Read-only for this epic. It is already complete. | — |
+| `server/src/config/constants/teacher.js` | Append-only. 2.2 added `BIO_MAX_LENGTH`, the one bound the epic needed and the file did not have. Nothing existing is edited. | 2.2 |
 
 Everything else is suffixed by audience: `teacher.me.controller.js` and
 `teacher.public.controller.js`, `teacher.me.service.js` and `teacher.public.service.js`.
@@ -64,7 +64,7 @@ Splitting them across two people creates conflict for no benefit.
 | # | PR | Owner | Size | Depends on | Status |
 |---|---|---|---|---|---|
 | 2.1 | [Teacher core: frozen router, repository, serializer](PR-2.1-teacher-core.md) | DEV-B · **human** | M | E1 | ☑ |
-| 2.2 | [`GET` / `PATCH /teachers/me` — profile, topics, price, level, status](PR-2.2-teacher-me-endpoints.md) | DEV-B | M | 2.1 | ☐ |
+| 2.2 | [`GET` / `PATCH /teachers/me` — profile, topics, price, level, status](PR-2.2-teacher-me-endpoints.md) | DEV-B | M | 2.1 | ☑ |
 | 2.3 | [Standing badge + public teacher endpoints](PR-2.3-public-teacher-endpoints.md) | DEV-A | M | 2.1 | ☐ |
 | 2.4 | [Onboarding stepper — topics → level → price](PR-2.4-onboarding-stepper.md) | DEV-B | M | 2.2 | ☐ |
 | 2.5 | [Public teacher list + profile screens](PR-2.5-public-teacher-screens.md) | DEV-A | M | 2.3 | ☐ |
