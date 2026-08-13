@@ -17,6 +17,7 @@
     "dev:server": "npm run dev -w server",
     "build": "npm run build -w client",
     "lint": "eslint .",
+    "test": "node --test \"server/tests/**/*.test.js\"",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

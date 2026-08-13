@@ -25,7 +25,7 @@ The read path a student sees, with no authentication anywhere.
 |---|---|
 | `topicId` | leaf topic; a teacher matches if they teach it |
 | `level` | `levelMax >= level` |
-| `band` | `A` \| `B` \| `C` — resolved to a price range through `priceBandRanges` in `utils/pricing.js` |
+| `band` | `A` \| `B` \| `C` — a **ceiling**, resolved through `bandCeiling` in `utils/pricing.js` |
 | `onlineOnly` | boolean, default `false` |
 | `page`, `pageSize` | `pageSize` capped server-side; a client asking for 1000 gets the cap, not an error |
 
@@ -54,6 +54,7 @@ server/src/controllers/teacher.public.controller.js
 server/src/services/teacher.public.service.js     new
 server/src/validators/teacher.public.schema.js
 server/tests/standing.test.js                     new
+package.json                                      one appended script — see Notes
 docs/epics/E2-teacher-onboarding/README.md        tick the status box
 ```
 
@@ -75,7 +76,7 @@ shared/api.d.ts                                   the E2 block is closed
 - [ ] `GET /teachers` with no token returns the seeded teachers
 - [ ] No response contains an email, a `status`, `offersReceived`, or `noShowCount`
 - [ ] `?topicId=` a leaf id narrows the list correctly
-- [ ] `?band=A` returns only teachers priced 5–9, per `priceBandRanges` — no literal `5` or `9` in the diff
+- [ ] `?band=B` returns every teacher priced at or below the B ceiling, **including band A** — a band is a ceiling, not a bracket (§5.2). No literal `9`, `14` or `20` in the diff
 - [ ] `?level=5` excludes teachers whose `levelMax` is 3
 - [ ] `?onlineOnly=true` returns only `status === 'ONLINE'` teachers, and still never exposes the enum
 - [ ] Two filters together narrow, not widen
@@ -103,6 +104,20 @@ shared/api.d.ts                                   the E2 block is closed
 You own `routes.guest.jsx` from 1.6, so the screens in 2.5 sit naturally on top of these
 endpoints. Build the endpoints to the contract, not to the screen you are picturing — 2.5
 is a separate PR precisely so the payload is not shaped by one page's layout.
+
+**The brief was wrong about bands and this PR corrects it.** It said `?band=A` resolves
+through `priceBandRanges()` to the range 5–9. `priceBandRanges()` is the helper for
+*displaying* the filter — 2.5 uses it — and a bracket is not what a band means. MVP.md §5.2
+and the matching hard filter in §9.1 both define a band as a **ceiling**: a student picking
+B sees bands A and B, so a cheaper teacher is never hidden from someone willing to pay
+more. `bandCeiling()` is the helper, and it is the one the matching engine already calls.
+The two readings happen to agree on band A, which is exactly how a wrong rule survives a
+test.
+
+**`package.json` gains a `test` script.** The project had no test runner and no test
+script, and this PR is the one asked to prove `standingOf`. `node --test` is built into
+Node 24, so nothing is installed — one appended line, no dependency, no config file. Not in
+the original allowlist; called out here rather than slipped in.
 
 These routes are **not** under `/public`. `/public` is taxonomy and money — data that
 changes only on a deploy and is cached accordingly (`constants/public.js`). A teacher list
