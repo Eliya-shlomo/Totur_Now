@@ -236,3 +236,51 @@ export interface PublicPricingResponse {
   /** Top-up amounts, in credits. */
   topupPackages: number[];
 }
+
+// ── E2 ──────────────────────────────────────────────────────────────────────
+// Frozen in docs/epics/E2-teacher-onboarding/README.md § "Contract freeze", and
+// copied here verbatim in PR 2.1. Two audiences read the same table — the teacher
+// their own record, a stranger a card — so the difference between them is the
+// contract, not an implementation detail of whichever controller answers.
+// Changing anything below is a chat message before the code.
+
+/** A teacher as a stranger sees them. No email, no status, no counters. */
+export interface TeacherCard {
+  id: string;
+  fullName: string;
+  bio: string | null;
+  pricePerBlock: number;
+  levelMax: number;
+  /** Computed by `utils/standing.js`, never stored. */
+  badge: 'NEW' | 'ACTIVE' | 'EXPERIENCED' | 'TOP';
+  /** null until the teacher has been rated at least once. Not 0. */
+  rating: number | null;
+  ratingCount: number;
+  /** Leaf topics only, in the taxonomy's own order. */
+  topics: Array<{ id: number; slug: string; nameHe: string; nameEn: string }>;
+  isOnline: boolean;
+}
+
+/** `GET /teachers` — the public list. */
+export interface TeacherListResponse {
+  teachers: TeacherCard[];
+  total: number;
+}
+
+/** `GET /teachers/me` — the teacher's own record. Superset of TeacherCard. */
+export interface TeacherMeResponse extends TeacherCard {
+  status: 'OFFLINE' | 'ONLINE' | 'OFFER_LOCKED' | 'IN_SESSION';
+  sessionsCount: number;
+  resolvedCount: number;
+  /** True until topics, levelMax and pricePerBlock have all been set once. */
+  onboardingComplete: boolean;
+}
+
+/** `PATCH /teachers/me`. Every field optional — the stepper sends one step at a time. */
+export interface TeacherUpdateRequest {
+  bio?: string | null;
+  pricePerBlock?: number; // 5–20, §5.2
+  levelMax?: number; // 3 | 4 | 5, §6.1
+  topicIds?: number[]; // leaf topics only, replaces the whole set
+  status?: 'OFFLINE' | 'ONLINE';
+}
