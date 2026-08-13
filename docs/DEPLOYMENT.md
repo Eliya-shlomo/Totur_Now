@@ -343,6 +343,23 @@ Set the variable **inline for that one command**. Putting the production URL in 
 `.env` and forgetting it there is how a local `prisma migrate reset` ends up pointed at
 production, and `reset` does not ask twice.
 
+> **This has already happened once, and not through `reset`.** During E2's verification
+> (PR 2.6) `server/.env` held the Neon URL, so `npm run dev` served `localhost:5173`
+> against production. Ordinary QA — typing in the profile form and pressing Save — changed
+> the live demo teacher `dana.k@demo.tutornow.il`. Nothing warned, because from the
+> application's point of view nothing was wrong.
+>
+> Check before you test anything that writes:
+>
+> ```bash
+> grep DATABASE_URL server/.env
+> ```
+>
+> A local URL contains `localhost`. Anything with `neon.tech` in it means every form you
+> submit changes production. `npm run db:up` starts the Postgres container that
+> `docker-compose.yml` already defines, and `npm run db:seed` fills it with the same demo
+> accounts.
+
 #### The demo accounts
 
 Written down here, per PR 1.7, so a demo never stalls on a forgotten password. Every
@@ -471,6 +488,69 @@ matter: a whitelist that accepts everything passes the first test too.
 
 Finally, push a commit to `main` and watch Events: build, migrate, health check, traffic
 swap, with no manual step anywhere.
+
+#### The teacher walkthrough
+
+`/health` proves the process is up. This proves the product works, and it is the smoke
+test to run after any deploy that touched teachers — written for someone who did not build
+E2. Ten minutes, all on the deployed pair.
+
+**Read-only, safe on production.** Nothing here writes:
+
+```bash
+API=https://tutor-now-api.onrender.com/api/v1
+
+curl -s "$API/teachers" | head -c 200                     # a list, with topics inline
+curl -s "$API/teachers?level=5&band=B&onlineOnly=true"     # filters compose and narrow
+curl -s "$API/teachers?level=6"                            # VALIDATION_ERROR naming `level`
+curl -s "$API/public/pricing"                              # the slider's bounds come from here
+```
+
+The list payload must contain **no** `email`, no `status`, and no counter except the rating
+pair. That is the one assertion worth making by eye every time: `status` is a
+matching-engine internal, and the serializer omits it by construction rather than by a
+filter a refactor could drop.
+
+Then, logged out, in a private window:
+
+1. <https://totur-now-client-vnxx.vercel.app/teachers> renders without a session.
+2. Apply topic, level, price and "online now". Each narrows; combined they narrow further.
+3. Copy the filtered URL into a new tab — the controls come back set. The filters live in
+   the query string, so a filtered list is shareable.
+4. Open a teacher. `/teachers/:id` matches its list entry field for field.
+5. A teacher with no ratings shows `NEW` and "No ratings yet", never `0.0 ★`.
+
+**Writes — run these against a local database unless you mean to change production.**
+See the warning in §4: `server/.env` is the only thing that decides which database
+`npm run dev` talks to.
+
+1. Register a teacher at `/register`, choose **Teacher**. You land in `/teach`.
+2. `/teach/onboarding`: pick topics → level → price. Each step saves on its own, so close
+   the tab after step 2 and reopen the URL — the stepper resumes at step 3.
+3. Finish, then "Go online". The teacher appears in `/teachers` on the next refresh, and in
+   `?onlineOnly=true`.
+4. `/teach/profile`: change the bio and the price, save once. The preview card and
+   `/teachers/:id` in a private window agree.
+5. Untick a topic, save, reload. It is gone rather than merged back — `topicIds` replaces
+   the whole set.
+6. Switch availability off. The teacher disappears from `?onlineOnly=true` immediately.
+7. Repeat step 4 at 375px. No horizontal scrolling on either screen.
+
+Authorisation, with a student's token — all three must fail:
+
+```bash
+ST=$(curl -s -X POST $API/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"avi.student@demo.tutornow.il","password":"TutorNow!2026"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['accessToken'])")
+
+curl -s $API/teachers/me -H "Authorization: Bearer $ST"                    # FORBIDDEN
+curl -s -X PATCH $API/teachers/me -H "Authorization: Bearer $ST" \
+  -H 'Content-Type: application/json' -d '{"bio":"x"}'                     # FORBIDDEN
+```
+
+And with a teacher's token, three rejections that protect the matching engine and the
+wallet — `{"status":"IN_SESSION"}`, `{"pricePerBlock":21}`, `{}` — each a
+`VALIDATION_ERROR` naming the field.
 
 ### Troubleshooting
 
