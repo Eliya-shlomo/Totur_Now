@@ -352,3 +352,69 @@ export interface ClassificationOverrideRequest {
   topicId: number;
   estimatedLevel?: number;
 }
+
+// ── E4 ──────────────────────────────────────────────────────────────────────
+// Frozen in docs/epics/E4-matching/README.md § "Contract freeze", and copied here
+// verbatim in PR 4.1. Two tracks meet at one endpoint — DEV-A decides who is
+// eligible and what the student can afford, DEV-B decides what order they come back
+// in — so the shapes below are agreed before either side is built rather than
+// discovered at the merge. Changing anything here is a chat message before the code.
+
+/**
+ * Why a match list came back empty. `null` when it did not.
+ *
+ * Both are string values, not thrown errors — see "Two empty pools" below.
+ */
+export type MatchEmptyReason = 'NO_AVAILABLE_TEACHERS' | 'INSUFFICIENT_CREDIT';
+
+/**
+ * One ranked teacher: E2's card, plus the three things §14.2 shows that a card
+ * does not carry.
+ *
+ * **No score, and no rank number.** §14.2 is explicit — the student sees an order,
+ * not grades. Nothing in this shape lets a client reconstruct one.
+ */
+export interface TeacherMatch {
+  /** Field-for-field the same shape `GET /teachers` returns. */
+  teacher: TeacherCard;
+  /**
+   * Sessions this teacher has completed in the question's *subtopic* — §14.2's
+   * "solved 12 questions in Integrals". A whole number; `teacher_topic_stats`
+   * stores it as NUMERIC(8,2) because of the 0.3 parent propagation, and this is
+   * that value rounded for display. `0` when they have never taught it.
+   */
+  subtopicSessions: number;
+  /**
+   * Their resolve rate in that subtopic, 0–1 — §14.2's "91% resolved".
+   * `null`, never `0`, when they have no history there: the same distinction
+   * `TeacherCard.rating` already makes.
+   */
+  subtopicResolveRate: number | null;
+  /**
+   * §14.2's 💙 "studied with" badge: this student rated this teacher at least
+   * `HISTORY_MIN_STARS` before. The same fact §9.2 scores as `history_bonus`.
+   */
+  studiedWith: boolean;
+}
+
+/**
+ * `GET /questions/:id/matches?priceBand=A|B|C`.
+ *
+ * Always 200 when the caller owns a `PENDING` question, even with no teachers.
+ */
+export interface MatchesResponse {
+  /** At most `MATCH_COUNT` (5), best first. Empty iff `reason` is set. */
+  teachers: TeacherMatch[];
+  reason: MatchEmptyReason | null;
+  /**
+   * The ceiling actually applied, in credits per block — the lower of the band's
+   * ceiling and what the balance affords. The screen shows it so that "why is
+   * Dana missing" has an answer on the page.
+   */
+  priceCeiling: number;
+  /**
+   * The student's balance at match time. Returned because the server has already
+   * read it to compute `priceCeiling`, and because `GET /wallet` is E7.
+   */
+  walletBalance: number;
+}

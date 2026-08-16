@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { authRoutes } from '#routes/auth.routes.js';
+import { matchingRoutes } from '#routes/matching.routes.js';
 import { publicRoutes } from '#routes/public.routes.js';
 import { questionRoutes } from '#routes/question.routes.js';
 import { teacherRoutes } from '#routes/teacher.routes.js';
@@ -34,5 +35,10 @@ apiRoutes.use('/auth', authRoutes);
 apiRoutes.use('/public', publicRoutes);
 
 apiRoutes.use('/questions', questionRoutes);
+// Two routers share this mount, and both are live. Express walks them in order and
+// `GET /:id` in the first matches a single segment, so `/questions/<uuid>/matches`
+// falls through it into the second. `question.routes.js` is frozen after 3.1 and E4
+// does not unfreeze it (PR 4.1). Neither line is dead — do not delete either.
+apiRoutes.use('/questions', matchingRoutes);
 
 apiRoutes.use('/teachers', teacherRoutes);
