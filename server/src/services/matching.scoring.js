@@ -28,10 +28,9 @@
  * **4.3 changed this header and nothing else in the file.** It finished the other half
  * of §9.3 — `getPlatformAverages()` in `matching.averages.service.js`, the prior every
  * smoothed component in 4.6 is measured against — and pinned the arithmetic here with
- * `server/tests/matching.bayes.test.js`. `rankCandidates` still scores everyone at
- * zero, which is how you know 4.3 changed no ranking: if a match list starts coming
- * back in a different order after it merges, something imported the averages into the
- * wrong place.
+ * `server/tests/matching.bayes.test.js`. It left `rankCandidates` scoring everyone at
+ * zero, which is how you knew 4.3 changed no ranking. **4.6 is where the order starts
+ * being real**, and `server/tests/matching.scoring.test.js` is where it is pinned.
  *
  * The averages service is deliberately *not* imported here, and this file is why. It
  * reads a database and it holds a five-minute cache; importing it would put both
@@ -45,7 +44,22 @@
  * endpoint returns the right teachers in an arbitrary but stable order, and that is
  * correct behaviour for that week. **Do not stub the scorer a second time inside
  * 4.5.**
+ *
+ * **Nothing in the running product moves the numbers this function reads.**
+ * `teacher_topic_stats` has one writer — the seed — until E8's review service exists,
+ * `reviews` is empty so `hasPositiveHistory` is false for every real pair, and the two
+ * offer counters are E5's. Everything here is correct and verifiable today, and none
+ * of it will *change* until those epics land: a session finished this afternoon moves
+ * no ranking. Worth knowing before someone re-runs a match after a demo session and
+ * files the unchanged order as a bug.
  */
+
+import {
+  BAYES_C,
+  MATCH_WEIGHTS,
+  MAX_STARS,
+  NEW_TEACHER_SESSIONS,
+} from '#config/constants/index.js';
 
 /**
  * @typedef {{ ratingSum: number, ratingCount: number,
@@ -88,17 +102,126 @@ export function bayesian({ sum, count }, prior, c) {
 }
 
 /**
- * The order the selection screen renders — best first.
+ * The rating pair `topic_fit` is smoothed from, and §9.2's fallback: the question's
+ * leaf topic, then its parent, then nothing at all.
  *
- * **This is the stub.** Every candidate scores `0` and the list comes back sorted by
- * `teacherId` ascending: the real signature, the real return type, a deterministic
- * order, and no scoring. 4.6 replaces this body with §9.2's six weighted components
- * and changes nothing else about the file.
+ * **The parent row is read and never re-weighted.** `PARENT_TOPIC_WEIGHT` describes
+ * how a session *writes* into the parent's stats — the seed's `deriveTopicStats` does
+ * exactly that, and E8's review service will do the same — so by the time this
+ * function reads the row, the discount is already in the numbers. Applying it a second
+ * time would be invisible: everything still ranks in a plausible order, just wrong.
+ * This file deliberately does not import that constant, so it cannot.
+ *
+ * That the specialist still outranks the generalist is a consequence rather than a
+ * knob. The parent row carries a fraction of its children's rating count, so `bayesian`
+ * pulls it further toward the platform prior than a leaf row of the same quality.
+ *
+ * Both null answers `{sum: 0, count: 0}`, which `bayesian` turns into the prior
+ * exactly — "we know nothing about them here", neither promoted nor punished. The
+ * fallback is structural: it picks a *row*, so a leaf that exists but carries no
+ * ratings stops the chain and smooths to the prior rather than reaching past itself
+ * for its parent's history.
+ *
+ * @param {MatchCandidate} candidate
+ * @returns {{sum: number, count: number}} the pair `bayesian` takes, never a ratio
+ */
+function topicRatingPair({ subtopicStats, topicStats }) {
+  const stats = subtopicStats ?? topicStats;
+
+  return stats ? { sum: stats.ratingSum, count: stats.ratingCount } : { sum: 0, count: 0 };
+}
+
+/**
+ * §9.2's six components for one candidate, each in `[0, 1]` before any weight touches
+ * it.
+ *
+ * **Keyed by `MATCH_WEIGHTS`'s own keys**, because `rankCandidates` reduces over that
+ * object rather than adding six terms. A seventh component is then a change in
+ * `constants/matching.js` and one line here, and a mistyped weight cannot produce a
+ * total that nobody notices for three epics.
+ *
+ * The two things most likely to be got wrong, stated rather than left in the
+ * arithmetic:
+ *
+ * - `topicFit` is a rating and is divided by `MAX_STARS`. The two rates are already
+ *   fractions and are divided by nothing. Five components in the unit interval and one
+ *   on the star scale presents as "the algorithm really likes topical teachers", which
+ *   is also what it is supposed to do — which is why it gets its own test.
+ * - smoothing takes a numerator and a denominator, never a pre-divided ratio:
+ *   `{sum: resolvedCount, count: sessionsCount}`. §9.3 says the two rates are "smoothed
+ *   identically", and that is what identically means.
+ *
+ * `globalRating` is the one component §9.2 leaves unsmoothed — it is already an average
+ * over the teacher's whole history, so §9.3's small-sample problem is much weaker there
+ * than inside a single subtopic. Unrated scores zero rather than the prior, which is
+ * §9.2's own wording, and such a teacher recovers far more on `topicFit`.
+ *
+ * Every field is defaulted, so a row arriving without a column scores instead of
+ * answering `NaN` — a `NaN` score sorts unpredictably and silently, which is the worst
+ * failure this function has.
+ *
+ * @param {MatchCandidate} candidate
+ * @param {PlatformAverages} averages
+ * @returns {Record<keyof MATCH_WEIGHTS, number>}
+ */
+function componentsOf(candidate, averages) {
+  const {
+    ratingSum = 0,
+    ratingCount = 0,
+    resolvedCount = 0,
+    sessionsCount = 0,
+    offersAccepted = 0,
+    offersReceived = 0,
+    hasPositiveHistory = false,
+  } = candidate;
+
+  return {
+    topicFit: bayesian(topicRatingPair(candidate), averages.rating, BAYES_C) / MAX_STARS,
+    globalRating: ratingCount > 0 ? ratingSum / ratingCount / MAX_STARS : 0,
+    resolveRate: bayesian(
+      { sum: resolvedCount, count: sessionsCount },
+      averages.resolveRate,
+      BAYES_C,
+    ),
+    acceptanceRate: bayesian(
+      { sum: offersAccepted, count: offersReceived },
+      averages.acceptRate,
+      BAYES_C,
+    ),
+    history: hasPositiveHistory ? 1 : 0,
+    newTeacherBoost: sessionsCount < NEW_TEACHER_SESSIONS ? 1 : 0,
+  };
+}
+
+/**
+ * One candidate's §9.2 score: the weighted sum, written as a reduction over
+ * `MATCH_WEIGHTS` rather than as six additions.
+ *
+ * No weight appears in this file as a literal, so retyping one here is not a mistake
+ * that can be made. The weights sum to 1 — `constants/matching.js` asserts it at boot —
+ * and every component is in `[0, 1]`, so the result is too.
+ *
+ * @param {MatchCandidate} candidate
+ * @param {PlatformAverages} averages
+ * @returns {number} in `[0, 1]`
+ */
+function scoreOf(candidate, averages) {
+  const components = componentsOf(candidate, averages);
+
+  return Object.entries(MATCH_WEIGHTS).reduce(
+    (total, [component, weight]) => total + weight * components[component],
+    0,
+  );
+}
+
+/**
+ * The order the selection screen renders — best first. MVP.md §9.2.
  *
  * **It returns `{teacherId, score}` pairs and not the candidate rows**, so that it
  * cannot quietly become the serializer. The caller already holds the rows; it joins
  * this order back onto them and hands them to `toTeacherCard`. A scoring function
- * that returned cards would be a scoring function two people edit.
+ * that returned cards would be a scoring function two people edit. The score itself
+ * reaches no client — §14.2 says the student sees an order, not grades.
  *
  * **Total, and deterministic.** It answers for an empty array, for a candidate with
  * every stat at zero, and for a platform with no history at all. Ties break on
@@ -107,12 +230,14 @@ export function bayesian({ sum, count }, prior, c) {
  * the price control and "show me more teachers" both look broken.
  *
  * @param {MatchCandidate[]} candidates
- * @param {PlatformAverages} averages  unused by the stub; 4.6's smoothing prior
+ * @param {PlatformAverages} averages  the smoothing prior, fetched by the caller
  * @returns {Array<{teacherId: string, score: number}>} sorted, best first
  */
-// eslint-disable-next-line no-unused-vars -- the signature is frozen; 4.6 reads `averages`
 export function rankCandidates(candidates, averages) {
   return candidates
-    .map((candidate) => ({ teacherId: candidate.teacherId, score: 0 }))
-    .sort((a, b) => a.teacherId.localeCompare(b.teacherId));
+    .map((candidate) => ({
+      teacherId: candidate.teacherId,
+      score: scoreOf(candidate, averages),
+    }))
+    .sort((a, b) => b.score - a.score || a.teacherId.localeCompare(b.teacherId));
 }
