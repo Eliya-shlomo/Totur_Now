@@ -42,7 +42,16 @@ disagree about what a band means), `MIN_PRICE_PER_BLOCK` and `TEACHING_LEVELS` c
 barrel.
 
 **The repository fills in `findCandidates`.** Prisma `where`, not raw SQL — see the epic's
-deviations table. Every predicate:
+deviations table.
+
+**What 4.1 left you, precisely.** The signature, the select list and the `Decimal` → `number`
+conversion are written, frozen and merged. What is *not* written is the `where`: 4.1 ships
+the function accepting all five parameters and using none of them, so it currently returns
+every teacher in the table. **This PR adds a `where` clause and changes nothing else in that
+file.** If you find yourself editing the select list, the return mapping or the signature,
+stop — that is a frozen shape and a chat message before the code.
+
+Every predicate:
 
 | §9.1 | Implementation |
 |---|---|
@@ -79,11 +88,17 @@ from the query rather than present and empty. Check what Prisma actually emits f
 with `DEBUG=prisma:query` before deciding you do not care.
 
 **The select list is 4.1's and does not change.** `...TEACHER_VIEW` plus `offersReceived`,
-`offersAccepted`, and `teacherTopicStats` narrowed to the question's subtopic and parent. Two
-things to get right: the stats relation is loaded **with** the candidates rather than per
-candidate (E2's N+1 lesson, and 4.1 already asserted the statement count), and the four
-`Decimal` columns are converted to `number` on the way out. The seam says `number`, and
-`Prisma.Decimal * 0.35` does not do what it looks like it does.
+`offersAccepted`, and `topicStats` narrowed to the question's subtopic and parent — the
+relation field on `TeacherProfile` is `topicStats`, not `teacherTopicStats`, which is what an
+earlier draft of this brief called it. Two things 4.1 has already done that this PR must not
+undo: the stats relation is loaded **with** the candidates rather than per candidate (E2's
+N+1 lesson), and the four `Decimal` columns are converted to `number` on the way out, because
+the seam says `number` and `Prisma.Decimal * 0.35` does not do what it looks like it does.
+
+**The statement-count measurement is this PR's, and it moved here from 4.1.** 4.1 could not
+run it: with no `where`, a 3-candidate run and a 30-candidate run are the same query over the
+same table and the check has nothing to vary. Now that the filters exist it is a real
+measurement, and it is an acceptance criterion below.
 
 **No index is added on faith.** Run `EXPLAIN (ANALYZE, BUFFERS)` on the generated query
 against the seeded local database and paste the plan into the PR description. `idx_teacher_available`
@@ -101,8 +116,9 @@ and F5 are queued on the same rule (`OWNERSHIP.md` §2 — never two migrations 
 
 ```
 server/src/services/matching.candidates.service.js  new
-server/src/repositories/matching.repository.js      findCandidates body only — the signature and
-                                                    the select list are 4.1's and are frozen
+server/src/repositories/matching.repository.js      the `where` clause of findCandidates and
+                                                    nothing else — the signature, the select list
+                                                    and the Decimal conversion are 4.1's and frozen
 server/tests/matching.pool.test.js                  new
 prisma/migrations/                                  ONLY if EXPLAIN justifies it, announced first
 docs/epics/E4-matching/README.md                    tick the status box
@@ -135,8 +151,9 @@ client/**                                           nothing client-side in this 
 - [ ] A teacher who declares a *sibling* leaf under the same parent is a candidate; a teacher who declares only an unrelated leaf is not
 - [ ] Deleting the seed's legacy parent rows from `teacher_topics` by hand changes **no** result (this is the F1-independence check — restore them, or re-seed, afterwards)
 - [ ] Putting a candidate's id into the question's `rejected_by` removes exactly that candidate; emptying it restores them
-- [ ] Every numeric field reaching the service is `typeof === 'number'` — no `Prisma.Decimal` escapes the repository
-- [ ] `findCandidates` costs a constant number of statements at 3 and at 30 candidates
+- [ ] Every numeric field reaching the service is `typeof === 'number'` — no `Prisma.Decimal` escapes the repository (4.1 wrote the conversion; this criterion is that the `where` did not break it)
+- [ ] `findCandidates` costs a constant number of statements at 3 and at 30 candidates (`DEBUG=prisma:query`) — **carried from 4.1, which had no filter to vary**
+- [ ] The diff to `matching.repository.js` touches the `where` and nothing else: no line of the select list, the signature or the return mapping moves
 - [ ] The PR description contains the `EXPLAIN` output and a sentence on whether an index is warranted
 - [ ] `npm run lint`, `npx prettier --check .`, `npm test` pass
 
