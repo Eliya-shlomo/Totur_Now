@@ -2,6 +2,7 @@ import { Badge, Card, Group, Stack, Text, Title } from '@mantine/core';
 import { IconStar } from '@tabler/icons-react';
 import { Link } from 'react-router-dom';
 
+import CreditMinutes from '@/components/match/CreditMinutes';
 import TeacherBadge from '@/components/teacher/TeacherBadge';
 
 /**
@@ -16,13 +17,31 @@ import TeacherBadge from '@/components/teacher/TeacherBadge';
  * (`utils/teacherView.js`) rather than by a filter here. This component could not
  * leak them if it tried.
  *
+ * §5.4 says a balance is always displayed in minutes, and §18 says that happens
+ * "across all teacher cards" — the browse list included, because that is where a
+ * student first sees a price. So the card can show it, and shows nothing when it
+ * cannot: `walletBalance` and `block` both default to `null`, and a guest, a
+ * logged-out profile and 2.6's preview all render the tree this file rendered
+ * before E4 existed. The pair is deliberate — `walletBalance` alone cannot be
+ * turned into minutes without the block length, and a card that fetched
+ * `/public/pricing` for itself would fetch it once per card in a grid.
+ *
  * @param {import('@tutor/shared').TeacherCard} teacher
  * @param {boolean} [linkTo]  render as a link to the profile — off for 2.6's preview
+ * @param {number|null} [walletBalance]  the signed-in student's credits, if any
+ * @param {object|null} [block]  `block` from `/public/pricing`, needed with the above
  */
-export default function TeacherCard({ teacher, linkTo = true }) {
+export default function TeacherCard({
+  teacher,
+  linkTo = true,
+  walletBalance = null,
+  block = null,
+}) {
   const cardProps = linkTo
     ? { component: Link, to: `/teachers/${teacher.id}`, style: { textDecoration: 'none' } }
     : {};
+
+  const showsMinutes = walletBalance !== null && block !== null;
 
   return (
     <Card withBorder radius="md" padding="lg" h="100%" {...cardProps}>
@@ -58,6 +77,15 @@ export default function TeacherCard({ teacher, linkTo = true }) {
             <OnlineDot isOnline={teacher.isOnline} />
           </Group>
         </Group>
+
+        {showsMinutes && (
+          <CreditMinutes
+            balance={walletBalance}
+            pricePerBlock={teacher.pricePerBlock}
+            blockMinutes={block.minutes}
+            openingMinutes={block.openingMinutes}
+          />
+        )}
       </Stack>
     </Card>
   );
