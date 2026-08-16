@@ -52,11 +52,10 @@ left on that function explains where it moves later; do not expand its scope now
 ## Files you may touch
 
 ```
-server/src/controllers/question.intake.controller.js   the create handler
+server/src/controllers/question.intake.controller.js   the create handler — stub from 3.1
 server/src/services/question.intake.service.js         orchestration: commit → classify → update
-server/src/validators/question.intake.schema.js        createQuestionSchema
-server/src/utils/questionView.js                       new — row + attachments → QuestionResponse
-server/tests/question.intake.test.js                   new — the serializer and the ownership rule
+server/src/validators/question.intake.schema.js        createQuestionSchema — stub from 3.1
+server/tests/question.intake.test.js                   new — the create flow and the ownership rule
 docs/epics/E3-question-intake/README.md                tick the status box
 ```
 
@@ -68,7 +67,8 @@ server/src/repositories/question.repository.js      frozen by 3.1 — if a query
 server/src/services/classification.service.js       DEV-B's — call it, never edit it, never wrap it in a second stub
 server/src/services/llm.prompt.js                   DEV-B's
 server/src/controllers/question.classify.controller.js   3.5, DEV-B's
-prisma/schema/*.prisma                              no migration in this epic
+server/src/utils/questionView.js                    frozen by 3.1 — 3.5 answers with it too; import, do not fork
+prisma/schema/*.prisma                              3.1's three migrations are the epic's only ones
 shared/api.d.ts                                     the E3 block is closed
 client/**                                           3.6's job
 ```

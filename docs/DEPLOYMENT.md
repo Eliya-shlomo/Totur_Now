@@ -344,21 +344,64 @@ Set the variable **inline for that one command**. Putting the production URL in 
 production, and `reset` does not ask twice.
 
 > **This has already happened once, and not through `reset`.** During E2's verification
-> (PR 2.6) `server/.env` held the Neon URL, so `npm run dev` served `localhost:5173`
+> (PR 2.6) the `.env` in use held the Neon URL, so `npm run dev` served `localhost:5173`
 > against production. Ordinary QA — typing in the profile form and pressing Save — changed
 > the live demo teacher `dana.k@demo.tutornow.il`. Nothing warned, because from the
 > application's point of view nothing was wrong.
 >
+> **There is exactly one `.env` and it is at the repo root.** `server/src/config/env.js`
+> resolves it explicitly (`dotenv.config({ path: resolve(REPO_ROOT, '.env') })`) because the
+> server's working directory is `server/`. A `server/.env` is not read by anything — if one
+> exists on your machine, it is a leftover, and editing it will not change where the server
+> connects.
+>
 > Check before you test anything that writes:
 >
 > ```bash
-> grep DATABASE_URL server/.env
+> grep DATABASE_URL .env
 > ```
 >
-> A local URL contains `localhost`. Anything with `neon.tech` in it means every form you
-> submit changes production. `npm run db:up` starts the Postgres container that
-> `docker-compose.yml` already defines, and `npm run db:seed` fills it with the same demo
-> accounts.
+> A local URL contains `localhost:5433`. Anything with `neon.tech` in it means every form
+> you submit changes production.
+
+#### Setting up the local database, once
+
+Do this before the first verification pass of any epic that writes rows — which is every
+epic from E3 on: the question intake flow creates a question, a session and attachment
+rows on **every** manual run, and there is no read-only way to exercise it.
+
+```bash
+npm run db:up
+```
+
+That starts the Postgres 16 container `docker-compose.yml` already defines, on host port
+**5433** — not 5432, which is commonly taken by another Postgres. Then point the root
+`.env` at it:
+
+```bash
+DATABASE_URL="postgresql://tutor:tutor@localhost:5433/tutor_now?schema=public"
+```
+
+and fill it:
+
+```bash
+npm run db:migrate && npm run db:seed
+```
+
+The seeded accounts are the ones in the table below, with the same password. From then on
+`npm run dev`, `npm test` and every form you submit stay on your machine.
+
+**When you genuinely mean production, say so per command** — inline, never by editing
+`.env`:
+
+```bash
+DATABASE_URL="<neon-direct-url>" npm run db:seed
+```
+
+The variable is set for that one process and is gone afterwards. A production URL that
+lives in a file is a production URL you will forget is there, which is exactly how E2's
+incident happened. `npm run db:migrate` and `prisma migrate reset` are **never** run this
+way — see §"Migrations" for how production migrations are actually applied.
 
 #### The demo accounts
 

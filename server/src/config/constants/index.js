@@ -13,6 +13,7 @@ export * from './matching.js';
 export * from './money.js';
 export * from './pagination.js';
 export * from './public.js';
+export * from './question.js';
 export * from './session.js';
 export * from './teacher.js';
 export * from './user.js';

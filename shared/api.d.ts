@@ -284,3 +284,71 @@ export interface TeacherUpdateRequest {
   topicIds?: number[]; // leaf topics only, replaces the whole set
   status?: 'OFFLINE' | 'ONLINE';
 }
+
+// ── E3 ──────────────────────────────────────────────────────────────────────
+// Frozen in docs/epics/E3-question-intake/README.md § "Contract freeze", and copied
+// here verbatim in PR 3.1. Two tracks meet at one endpoint — DEV-A captures the
+// student's words and pixels, DEV-B decides what they are about — so the shapes
+// below are agreed before either side is built rather than discovered at the merge.
+// Changing anything here is a chat message before the code.
+
+/** One uploaded image. `questionId` is null until `POST /questions` binds it. */
+export interface Attachment {
+  id: string;
+  fileUrl: string;
+  mimeType: string;
+}
+
+/**
+ * What the LLM decided, or what the fallback decided for it (MVP.md §8.1).
+ * Every field here is also a column on `questions` — this is the write shape.
+ */
+export interface Classification {
+  /** Short human title. Null when the fallback ran. */
+  title: string | null;
+  /** Parent topic. `0` = General / Unclassified, the seeded sentinel. */
+  topicId: number;
+  /** Leaf topic. Null on the fallback path, and null is legal on the override too. */
+  subtopicId: number | null;
+  /** 1–5. Null on the fallback path. */
+  difficulty: number | null;
+  /** 3 | 4 | 5 — what the LLM thinks the exercise is, not what the student declared. */
+  estimatedLevel: number | null;
+  /** What the teacher reads before accepting. On the fallback path this is the student's raw text. */
+  teacherBrief: string;
+  /** One sentence shown to the student on the confirmation screen. */
+  studentConfirmation: string;
+  /** 0–1. `0` when the fallback ran. */
+  confidence: number;
+  /** False = the LLM failed, timed out, or came back under MIN_CONFIDENCE. The flow continued anyway. */
+  classificationOk: boolean;
+}
+
+/** `POST /questions` request. */
+export interface CreateQuestionRequest {
+  rawText: string;
+  /** 3 | 4 | 5, what the student says they study. Optional — the form asks, it does not insist. */
+  declaredLevel?: number;
+  /** Ids from `POST /questions/attachments`, uploaded before the question existed. */
+  attachmentIds?: string[];
+}
+
+/** `POST /questions` and `GET /questions/:id` both return this. */
+export interface QuestionResponse {
+  id: string;
+  rawText: string;
+  declaredLevel: number | null;
+  classification: Classification;
+  attachments: Attachment[];
+  /** The `PENDING` session created alongside the question. E4 matches against it. */
+  sessionId: string;
+  createdAt: string;
+}
+
+/** `PATCH /questions/:id/classification` — the student's correction (§8.1). */
+export interface ClassificationOverrideRequest {
+  /** Leaf topic id, or `0` to say "none of these". */
+  subtopicId: number | null;
+  topicId: number;
+  estimatedLevel?: number;
+}
