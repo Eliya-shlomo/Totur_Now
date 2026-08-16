@@ -184,3 +184,31 @@ is empty, and the offer counters are E5's. Everything here is correct and verifi
 and none of it will *move* until those epics land. That belongs in the file's header comment,
 not only in this brief, because the person who notices will be someone re-running a match after
 a demo session and wondering why the order did not change.
+
+## Mathematical Boundaries & Prior Notes
+
+**Recorded by 4.3, which measured it.** §18's acceptance criterion — Gil's `{sum: 5, count: 1}`
+must rank below Dana's `{sum: 184, count: 40}` — is not a property of smoothing in general. It
+is a property of smoothing *at this platform's prior*, and the margin is thinner than the
+criterion's wording suggests.
+
+With `BAYES_C = 5`, the ordering holds only while the prior rating is **below ≈ 4.5077**. Above
+that the pair inverts, and correctly so: smoothing pulls both teachers toward the prior, Gil's
+raw 5.0 has almost nowhere to be pulled from once the prior approaches it, and Dana's 4.60 is
+pulled *up* past him. The seeded database sits at **4.4835** (`sum(rating_sum) /
+sum(rating_count)` over `teacher_profiles`), so the criterion passes with about **0.024 stars**
+of headroom.
+
+Two ways to break it without touching a line of scoring code:
+
+- **Tuning `BAYES_C` downwards.** At `c = 2` the criterion already fails. Less smoothing means
+  Gil keeps more of his single 5.0, which is what the constant means and why §9.3 calls it the
+  critical piece. Raising it is safe in this direction; lowering it is not.
+- **Evaluating against a synthetic prior above the threshold.** A fixture platform where every
+  teacher averages 4.6+ will invert the pair, and the failure will look like a scoring bug
+  rather than like the fixture it is. `matching.bayes.test.js` sweeps priors from 1 to one star
+  below `MAX_STARS` for this reason, and pins the inversion at a perfect-score prior as its own
+  test so nobody widens the sweep and spends an afternoon on it.
+
+Neither is a defect today. Both are worth knowing before 4.6 reads a real platform average into
+`rankCandidates` for the first time, and before 4.8 concludes anything from one seeded run.
