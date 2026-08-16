@@ -130,6 +130,53 @@ export async function findWalletBalance(userId) {
 }
 
 /**
+ * §9.1's topic predicate, which is the one that needs care.
+ *
+ * A candidate passes if they declare the question's **subtopic**, or **any leaf under
+ * the question's parent topic**. Not `teacher_topics.topic_id = question.topic_id`,
+ * which is what §9.1 literally says: `teacher_topics` holds leaves — 2.2 rejects a
+ * parent id on every write, and filler F1 finishes the job in the seed — so a
+ * predicate on the parent id would match nobody once F1 lands, and only the fourteen
+ * seeded teachers with legacy parent rows before it. The rule here preserves
+ * §9.1's *intent*, a parent-level pool narrowed by ranking, in the rows the schema
+ * actually has — and it is why `PARENT_TOPIC_WEIGHT` exists: the filter is generous,
+ * and the score is what separates "has taught this exact leaf" from "has taught its
+ * sibling".
+ *
+ * It is also **inert with respect to a declared parent row**, which is what makes this
+ * query behave identically whether or not F1 has merged: a parent is neither the
+ * question's subtopic nor a leaf under it, so it matches neither arm. That is proved
+ * in `matching.pool.test.js` and by re-running the pool with those rows deleted rather
+ * than asserted in a comment.
+ *
+ * **No subtopic means no topic filter at all.** `undefined` here drops the key and
+ * everyone passes, which is §9.1's `topic_id == 0 → everyone passes` arriving by a
+ * shorter road: a question on the sentinel always has a null subtopic, and so does the
+ * override where the student picked "none of these".
+ *
+ * The sibling arm is dropped when there is no parent id, rather than left to Prisma.
+ * `{ topic: { parentId: undefined } }` collapses to `{ topic: {} }`, which matches
+ * every leaf a teacher declares — the filter would silently pass everybody on a row
+ * the schema permits (`topic_id` is nullable) instead of narrowing to the subtopic.
+ *
+ * @param {object} question
+ * @param {number} [question.topicId]         the question's parent topic
+ * @param {number|null} [question.subtopicId] the question's leaf, or null
+ * @returns {object|undefined} a `topics` relation filter, or `undefined` to skip it
+ */
+function buildTopicFilter({ topicId, subtopicId }) {
+  if (subtopicId === undefined || subtopicId === null) return undefined;
+
+  const declares = [{ topicId: subtopicId }];
+
+  if (topicId !== undefined && topicId !== null) {
+    declares.push({ topic: { parentId: topicId } });
+  }
+
+  return { some: { OR: declares } };
+}
+
+/**
  * §9.1's candidate pool — every teacher who could take this question.
  *
  * **The `where` clause is 4.2's and is deliberately absent.** Today this returns
@@ -172,14 +219,29 @@ export async function findWalletBalance(userId) {
  * @returns {Promise<object[]>} rows shaped by `TEACHER_VIEW` plus the ranking inputs
  */
 export async function findCandidates(filters = {}) {
-  // Only the two the select list needs are destructured. The other three —
-  // `requiredLevel`, `maxPrice`, `excludeTeacherIds` — are part of the frozen
-  // signature above and are read by 4.2's `where`, not here; naming them now would
-  // be three unused bindings and a lint suppression to go with them.
-  const { topicId, subtopicId } = filters;
+  const { requiredLevel, topicId, subtopicId, maxPrice, excludeTeacherIds } = filters;
   const statsTopicIds = [topicId, subtopicId].filter((id) => id !== undefined && id !== null);
 
   const candidates = await prisma.teacherProfile.findMany({
+    where: {
+      // §9.1's first predicate, and `isActive` beside it because `findTeacherPage`
+      // already refuses blocked accounts and a matching pool must not be laxer than a
+      // public list. Both are literal here for the same reason they are literal there:
+      // `TeacherStatus` is a Prisma enum and `users.is_active` is a boolean, so
+      // neither has a constant to drift from.
+      status: 'ONLINE',
+      user: { isActive: true },
+      // Every filter below is optional and they compose — Prisma drops a `where` key
+      // whose value is `undefined`, so an absent filter is absent from the SQL rather
+      // than widened to a tautology. The convention, and the guard, are
+      // `findTeacherPage`'s.
+      levelMax: requiredLevel === undefined ? undefined : { gte: requiredLevel },
+      pricePerBlock: maxPrice === undefined ? undefined : { lte: maxPrice },
+      // §9.1's `teacher_id ∉ question.rejected_by`. `undefined` and never `[]` — the
+      // caller resolves that, and the JSDoc above says so.
+      userId: excludeTeacherIds === undefined ? undefined : { notIn: excludeTeacherIds },
+      topics: buildTopicFilter({ topicId, subtopicId }),
+    },
     select: {
       ...TEACHER_VIEW,
       offersReceived: true,
