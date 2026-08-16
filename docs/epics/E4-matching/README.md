@@ -64,7 +64,8 @@ row E3 did not need: **the files E4 reads that belong to a closed epic.**
 | File | Rule | Set by |
 |---|---|---|
 | `server/src/routes/matching.routes.js` | **New, and frozen after 4.1.** One route, fully wired — `authenticate`, `authorize('student')`, `validate` — against a controller that throws `NOT_IMPLEMENTED`. | 4.1 |
-| `server/src/repositories/matching.repository.js` | **New, and frozen after 4.1.** All five queries either track needs, written finished before either track opens. | 4.1 |
+| `server/src/repositories/matching.repository.js` | **New, and frozen after 4.1.** All five queries either track needs, written before either track opens — signatures, select lists and `Decimal` → `number` conversion final. The one deliberate gap is `findCandidates`' `where`, which is 4.2's and is the only thing 4.2 may add to this file. | 4.1 |
+| `server/src/validators/matching.schema.js` | **New in 4.1, and finished there rather than stubbed.** `:id` and one optional `priceBand` is the whole input; two of 4.1's acceptance criteria assert it. 4.5 does not open it. | 4.1 |
 | `server/src/services/matching.scoring.js` | Created in 4.1 with the frozen signatures and a deterministic stub. **Ownership transfers to DEV-B at 4.3.** DEV-A does not open it again. | 4.1 → 4.3 |
 | `server/src/config/constants/matching.js` | **E4 owns this file, and only 4.1 opens it.** Three appended values (`MAX_STARS`, `HISTORY_MIN_STARS`, `NEUTRAL_PLATFORM_AVERAGES`); the seven that are already there are not edited. No PR in this epic writes any of those numbers as a literal anywhere else. | 4.1 |
 | `server/src/repositories/teacher.repository.js` | **E2's, frozen since 2.1. E4 changes exactly one line, in 4.1: `TEACHER_VIEW` becomes an export.** Announced in chat first (`OWNERSHIP.md` §1, rule 2). Nothing else in E4 opens it — see the note below on why one line beats a second copy. | 4.1 |

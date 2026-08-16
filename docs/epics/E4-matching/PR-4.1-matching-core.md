@@ -62,8 +62,14 @@ once, finished:
 - `findWalletBalance(userId)` — one integer, or `null` if the row is missing.
 - `findCandidates({ requiredLevel, topicId, subtopicId, maxPrice, excludeTeacherIds })` —
   §9.1's pool. Selects `...TEACHER_VIEW` plus `offersReceived`, `offersAccepted`, and the
-  `teacherTopicStats` rows for the question's subtopic and parent only. Filters are 4.2's
-  business to *decide*; the function signature and the select list are this PR's to freeze.
+  `topicStats` rows for the question's subtopic and parent only. **The relation field is
+  `topicStats`** — `TeacherProfile.topicStats` in `prisma/schema/teachers.prisma`, mapped to
+  the `teacher_topic_stats` table. An earlier draft of this brief and of 4.2's called it
+  `teacherTopicStats`, which is neither the model field nor the table and would not compile.
+  **This PR writes the select list and no `where` predicates at all.** The five parameters
+  are accepted, documented and unused; 4.2 fills the `where` in and nothing else. The
+  signature, the select list and the `Decimal` → `number` conversion below are this PR's to
+  freeze; which rows come back is 4.2's to decide.
 - `findPositiveHistoryTeacherIds(studentId)` — `reviews` where `student_id = :studentId` and
   `stars >= HISTORY_MIN_STARS`, distinct teacher ids. One query for the whole set, not one
   per candidate.
@@ -76,10 +82,20 @@ The last one is DEV-B's caller and DEV-A's file, which is the entire point of a 
 a query missing here is not a small omission, it is an unfrozen file. If a later PR needs
 something that is not in the list, that is a chat message and a small PR from DEV-A.
 
-**Two rules, copied from the two repositories that have already proved them.** One shared
-select spread into every read, and relations fetched *with* the row rather than per row —
-E2's `GET /teachers` N+1 lesson. `findCandidates` must cost the same number of statements
-for 3 candidates and for 30. Check it with `DEBUG=prisma:query` in this PR, not in 4.2.
+**Three rules, two of them copied from the repositories that have already proved them.** One
+shared select spread into every read, and relations fetched *with* the row rather than per
+row — E2's `GET /teachers` N+1 lesson. The third is E4's own: **no `Prisma.Decimal` leaves
+this file.** `teacher_topic_stats` has four `Decimal @db.Decimal(8, 2)` columns, the seam in
+the epic README says `number`, and `Decimal * 0.35` produces neither a number nor an error.
+The conversion is written here, in the PR that freezes the shape, rather than in 4.2 — 4.2's
+review checklist then *confirms* something that already exists instead of adding it.
+
+**The N+1 measurement moves to 4.2.** `findCandidates` must cost the same number of
+statements for 3 candidates and for 30, and it must be checked with `DEBUG=prisma:query` —
+but a query with no `where` returns every seeded teacher on both runs, so the check has
+nothing to vary until the filters land. It is an acceptance criterion in 4.2 and not in this
+PR. What this PR owes it is the shape that makes it pass: the stats relation nested in the
+select rather than fetched per row.
 
 **3. `TEACHER_VIEW` becomes an export.** One line in `server/src/repositories/teacher.repository.js`
 — `const TEACHER_VIEW` → `export const TEACHER_VIEW` — announced in chat before the commit
@@ -135,9 +151,11 @@ server/src/routes/index.js                          one appended line
 shared/api.d.ts                                     one appended `// ── E4` block
 docs/epics/E4-matching/README.md                    tick the status box
 
+server/tests/matching.core.test.js                  new  the seam's unit tests
+
 # added while implementing — a frozen router cannot import files that do not exist
 server/src/controllers/matching.controller.js       new  stub, filled by 4.5
-server/src/validators/matching.schema.js            new  stub, filled by 4.5
+server/src/validators/matching.schema.js            new  **finished**, not a stub — see below
 ```
 
 **Why the two extra source files.** A frozen router imports a controller and a validator.
@@ -145,6 +163,23 @@ Writing it against files that do not exist means either the server does not boot
 creates them — and a file created by the PR that fills it in is a file the frozen router had
 to be edited to reach. 2.1 and 3.1 both made this call; 3.1's stat list shows four such
 files, two of them the other developer's.
+
+**Why the validator ships finished and the controller ships stubbed.** Two of this PR's
+acceptance criteria — `?priceBand=D` is a `VALIDATION_ERROR`, a malformed uuid names the
+parameter — are assertions about the validator, and a stub cannot satisfy them. It is also
+the smaller of the two files by a wide margin: `params.id` is a uuid and `query.priceBand`
+is `z.enum(PRICE_BAND_KEYS)` optional, which is the whole input and does not grow. This is
+3.1's split verbatim: `questionByIdSchema` shipped finished in the blocking PR while
+`classificationOverrideSchema` shipped rejecting every body, because the first one was
+already decided and the second was not. **4.5 does not open this file** — its own allowlist
+has been corrected to say so.
+
+**Why a test file, when the allowlist of a freeze PR is normally source only.** `bayesian`
+ships with a real body, and four of the criteria below are arithmetic about it and about
+`rankCandidates`'s determinism. Those are unit assertions, and a node one-liner run once by
+hand is not a regression test. It stays small on purpose — the seam's two functions and
+nothing else. 4.3 owns `matching.bayes.test.js` and the property-based work; this file is
+the freeze, not the coverage.
 
 Both are DEV-A's here, because DEV-B ships no controller in this epic. That is not an
 oversight in the split — DEV-B's server work is a pure function and a cached aggregate, both
@@ -175,11 +210,13 @@ client/**                                           nothing client-side in this 
 - [ ] `?priceBand=D` returns `VALIDATION_ERROR`; `?priceBand=B` and no query string both reach the stub
 - [ ] `bayesian({sum: 184, count: 40}, 4.4, 5) ` is between the platform prior and 4.6, and `bayesian({sum: 0, count: 0}, p, 5) === p` exactly
 - [ ] `rankCandidates([], averages)` returns `[]`; the same input twice returns the same order
+- [ ] `rankCandidates` returns `{teacherId, score}` pairs and **not** the candidate rows — the seam's return type, so that it cannot quietly become the serializer
 - [ ] `grep -c prisma server/src/services/matching.scoring.js` is `0`, and the file contains no `req`, no `res` and no import from `#repositories/`
-- [ ] `findCandidates` costs the **same** number of statements for 3 and for 30 candidates (`DEBUG=prisma:query`)
+- [ ] `findCandidates` returns rows whose four `topicStats` numbers are `typeof === 'number'`, on a candidate that has stats and on one that does not
 - [ ] `routes/index.js` gained exactly one line and nothing was reordered
 - [ ] `teacher.repository.js` shows a one-word diff
-- [ ] No literal `5`, `4`, `0.35` or `0.3` outside `constants/matching.js`
+- [ ] No literal `5`, `4`, `0.35` or `0.3` **in the files this PR writes** outside `constants/matching.js` — `MIN_PRICE_PER_BLOCK` and `BLOCK_MINUTES` are both `5` in files this PR does not open, and the rule is about new literals, not about a repo-wide grep
+- [ ] `matching.core.test.js` reads `BAYES_C` from the barrel and types no smoothing constant of its own
 - [ ] `npm run lint`, `npx prettier --check .`, `npm test` all pass; `npm run build -w client` still builds
 
 ## Manual test
@@ -188,12 +225,14 @@ client/**                                           nothing client-side in this 
 2. `npm run dev`, log in as `avi.student@demo.tutornow.il`, call the route four ways: valid uuid, malformed uuid, no token, teacher token
 3. Create a real question through `/app/ask` and call `/questions/<that id>/matches` — still `NOT_IMPLEMENTED`, and `GET /questions/<that id>` still returns its `QuestionResponse` unchanged
 4. `node --input-type=module -e "import('./server/src/services/matching.scoring.js').then(m => console.log(m.bayesian({sum:5,count:1}, 4.4, 5), m.bayesian({sum:184,count:40}, 4.4, 5)))"` — the one-rating teacher must come out lower
-5. `DEBUG=prisma:query` on a `findCandidates` call from a node one-liner, at two candidate counts, and count the statements
+5. `findCandidates({})` from a node one-liner against the seeded database: every teacher comes back, each carries `topicStats`, and `typeof row.topicStats[0].ratingSum === 'number'`. The statement count is 4.2's measurement, once there is a filter to vary
 
 ## Review checklist additions
 
 - The route must be in its **final** shape. A middleware added in 4.5 is an edit to a frozen file, which is the failure this PR exists to prevent.
 - Read the repository's function list against the epic README's list of five. A missing one is discovered by a blocked developer three days from now — and one of the five (`aggregatePlatformAverages`) has no caller in DEV-A's track at all, which is exactly why it has to be written here.
+- Confirm `findCandidates` has **no `where` clause**. A predicate written here is a decision 4.2 then has to either honour or unpick in a frozen file, and it is the one thing in this repository that is deliberately unfinished.
+- Confirm the four `topicStats` numbers are converted in the repository and that the conversion survives a candidate with no stats row at all — `Number(undefined)` is `NaN`, which no test notices until it is a ranking.
 - Confirm `matching.scoring.js` imports nothing from `#repositories/`, `#config/db.js` or `express`.
 - Confirm the `E4` block in `api.d.ts` is appended and the `E3` block is byte-identical to what was there before.
 - Confirm the two-routers-on-one-path line in `routes/index.js` carries the comment explaining why. Without it, the next reader deletes one.
