@@ -14,16 +14,30 @@
  * produces `candidates` and the endpoint that consumes the order, DEV-B decides what
  * the order is, and neither waits on the other.
  *
- * **Created in 4.1 by DEV-A. Ownership transfers to DEV-B at 4.3**, the same handover
- * `classification.service.js` records for its 3.1 → 3.3 move. After this PR DEV-A
- * does not open this file.
+ * **Created in 4.1 by DEV-A. Ownership transferred to DEV-B (rotem) at 4.3**, the same
+ * handover `classification.service.js` records for its 3.1 → 3.3 move. That move has
+ * happened: from here this file is DEV-B's and DEV-A does not open it again.
  *
- * `bayesian` ships finished and `rankCandidates` ships stubbed, and they are
- * different kinds of unwritten. §9.3 gives the smoothing formula in one line and
- * there is nothing left to decide, so a stub would only be a second thing to
+ * `bayesian` shipped finished in 4.1 and `rankCandidates` shipped stubbed, and they
+ * are different kinds of unwritten. §9.3 gives the smoothing formula in one line and
+ * there was nothing left to decide, so a stub would only have been a second thing to
  * remember. §9.2 has six weighted components, three of which need smoothing against
- * a platform average that does not exist until 4.3 — that is real work, it is
- * DEV-B's, and it belongs in the file that will hold it and in no other.
+ * a platform average that did not exist until 4.3 — that is real work, it is DEV-B's,
+ * and it belongs in the file that will hold it and in no other.
+ *
+ * **4.3 changed this header and nothing else in the file.** It finished the other half
+ * of §9.3 — `getPlatformAverages()` in `matching.averages.service.js`, the prior every
+ * smoothed component in 4.6 is measured against — and pinned the arithmetic here with
+ * `server/tests/matching.bayes.test.js`. `rankCandidates` still scores everyone at
+ * zero, which is how you know 4.3 changed no ranking: if a match list starts coming
+ * back in a different order after it merges, something imported the averages into the
+ * wrong place.
+ *
+ * The averages service is deliberately *not* imported here, and this file is why. It
+ * reads a database and it holds a five-minute cache; importing it would put both
+ * behind a function whose whole contract is that it has neither. `rankCandidates`
+ * takes its `averages` as an argument, 4.5's endpoint fetches them, and the purity
+ * rule survives 4.6 unchanged.
  *
  * **4.5 is built and merged against the stub, and its diff does not change when 4.6
  * fills this in** — exactly as 3.4 was built against the fallback classifier. The
