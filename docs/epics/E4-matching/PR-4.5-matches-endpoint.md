@@ -69,10 +69,17 @@ service's header so nobody "fixes" it.
 `priceCeiling` is populated in the `INSUFFICIENT_CREDIT` case too — the student's affordable
 ceiling, which is what makes the empty state able to say *how short* they are.
 
-**The validator (`matching.schema.js`, filled in from 4.1's stub).** `.strict()` on all three
-parts, the posture `teacher.public.schema.js` takes and for the reason it gives: a client that
-invents `?sort=price` should get a `VALIDATION_ERROR` naming the parameter rather than a
-silently ignored filter and a bug report about a list "not sorting".
+**The validator is already written. 4.1 shipped `matching.schema.js` finished, not stubbed,
+and this PR does not open it** — two of 4.1's own acceptance criteria are assertions about it
+(`?priceBand=D` is a `VALIDATION_ERROR`, a malformed uuid names the parameter) and a stub
+cannot satisfy them. It is 3.1's `questionByIdSchema` again: the input is `:id` and one
+optional query parameter, which is the whole of it and does not grow.
+
+What is in it, so this PR can check the criteria below against something rather than write it
+— `.strict()` on all three parts, the posture `teacher.public.schema.js` takes and for the
+reason it gives: a client that invents `?sort=price` should get a `VALIDATION_ERROR` naming
+the parameter rather than a silently ignored filter and a bug report about a list "not
+sorting".
 
 - `params.id` — `z.string().uuid()`
 - `query.priceBand` — `z.enum(PRICE_BAND_KEYS)`, **optional**, no default. Absent means no
@@ -104,7 +111,6 @@ wrong, that is 4.6's file, not this one. The only ordering operation permitted h
 server/src/services/matching.service.js             new
 server/src/utils/matchView.js                       new
 server/src/controllers/matching.controller.js       fill in 4.1's stub
-server/src/validators/matching.schema.js            fill in 4.1's stub
 server/tests/matching.service.test.js               new
 docs/epics/E4-matching/README.md                    tick the status box
 ```
@@ -113,6 +119,8 @@ docs/epics/E4-matching/README.md                    tick the status box
 
 ```
 server/src/routes/matching.routes.js                frozen since 4.1 — the route is final
+server/src/validators/matching.schema.js            frozen since 4.1 — it shipped finished, and
+                                                    the criteria below verify it, not rewrite it
 server/src/repositories/matching.repository.js      frozen since 4.1 — all five queries exist
 server/src/services/matching.candidates.service.js  4.2's; call it, do not inline it
 server/src/services/matching.scoring.js             DEV-B's since 4.3. Call rankCandidates; do not
