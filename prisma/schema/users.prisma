@@ -36,6 +36,10 @@ model User {
   walletTransactions WalletTransaction[]
   payouts            Payout[]
 
+  // PR 3.1 — an attachment is uploaded before its question exists, so it carries
+  // its uploader until POST /questions binds it. Appended, nothing reordered.
+  questionAttachments QuestionAttachment[]
+
   @@map("users")
 }
 

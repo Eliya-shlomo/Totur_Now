@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { authRoutes } from '#routes/auth.routes.js';
 import { publicRoutes } from '#routes/public.routes.js';
+import { questionRoutes } from '#routes/question.routes.js';
 import { teacherRoutes } from '#routes/teacher.routes.js';
 
 /**
@@ -31,5 +32,7 @@ export const apiRoutes = Router();
 apiRoutes.use('/auth', authRoutes);
 
 apiRoutes.use('/public', publicRoutes);
+
+apiRoutes.use('/questions', questionRoutes);
 
 apiRoutes.use('/teachers', teacherRoutes);

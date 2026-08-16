@@ -8,12 +8,35 @@ model Question {
   topicId    Int?    @map("topic_id")
   subtopicId Int?    @map("subtopic_id")
 
+  // What the student says they study — 3, 4 or 5 units. An input to the
+  // classifier (MVP.md §8.1, "student's text + image + declared level"), not an
+  // output of it: `estimated_level` below is the model's own judgement, and the
+  // matching engine filters on that one (§9.1).
+  //
+  // Not in MVP.md §11.2, which assumed this could be read from
+  // `student_profiles.math_level` on demand. It is stored per question because
+  // the profile is editable and optional at registration, and because a
+  // classification that disagrees with the student is only debuggable if the
+  // input it disagreed with is still on the row. Defaulted from the profile by
+  // the caller (PR 3.4) when the request does not carry it.
+  declaredLevel Int? @map("declared_level") @db.SmallInt
+
   // Filled by the LLM classifier (MVP.md §8.1). Null until call 1 returns.
   difficulty       Int?     @db.SmallInt
   estimatedLevel   Int?     @map("estimated_level") @db.SmallInt
   teacherBrief     String?  @map("teacher_brief")
   llmConfidence    Decimal? @map("llm_confidence") @db.Decimal(3, 2)
   classificationOk Boolean  @default(true) @map("classification_ok")
+
+  // The one sentence the student is asked to confirm (§8.1: "Looks like you're
+  // working on integration by parts at the 5-unit level. Correct?").
+  //
+  // §11.2 lists `teacher_brief` and not this one, which works only if the sentence
+  // is never read twice — but the confirmation screen has to survive a reload, and
+  // regenerating it would mean a second LLM call to re-say something already said.
+  // Stored beside the brief it belongs to: same producer, same failure mode, and on
+  // the fallback path both are written from the student's own words.
+  studentConfirmation String? @map("student_confirmation")
 
   // Teachers who declined this question, so matching can exclude them on the
   // next pass. A UUID[] rather than a join table: it is read on every matching
@@ -37,7 +60,22 @@ model QuestionAttachment {
   fileUrl    String  @map("file_url")
   mimeType   String? @map("mime_type") @db.VarChar(60)
 
+  // Who uploaded this, and therefore who is allowed to attach it to a question.
+  //
+  // Not in MVP.md §11.2. Added in PR 3.1 because E3 uploads an image *before* the
+  // question exists (the classifier is a Vision call inside POST /questions, so an
+  // image bound afterwards is one the model never saw) — which leaves a window
+  // where a row belongs to nobody. Without this column "you cannot attach another
+  // student's photo" is a rule with nothing to check it against.
+  //
+  // Nullable because the row it points at may be gone and because nothing outside
+  // the intake path writes attachments; `question_id` stays null until
+  // POST /questions binds it, and the pair (question_id IS NULL, uploaded_by = me)
+  // is exactly "mine, and not yet used".
+  uploadedBy String? @map("uploaded_by") @db.Uuid
+
   question Question? @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  uploader User?     @relation(fields: [uploadedBy], references: [id], onDelete: Cascade)
 
   @@map("question_attachments")
 }

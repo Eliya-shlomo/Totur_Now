@@ -51,9 +51,9 @@ The rules, all of which exist because E4 reads these columns:
 ## Files you may touch
 
 ```
-server/src/controllers/question.classify.controller.js   new
+server/src/controllers/question.classify.controller.js   stubs from 3.1 — replace the two bodies
 server/src/services/question.classify.service.js         new
-server/src/validators/question.classify.schema.js        new
+server/src/validators/question.classify.schema.js        stub from 3.1 — questionByIdSchema is finished
 server/tests/question.classify.test.js                   new
 docs/epics/E3-question-intake/README.md                  tick the status box
 ```
@@ -65,9 +65,9 @@ server/src/routes/question.routes.js                frozen by 3.1 — both route
 server/src/repositories/question.repository.js      frozen by 3.1 — the find and update queries exist
 server/src/controllers/question.intake.controller.js     DEV-A's, 3.2/3.4
 server/src/services/question.intake.service.js           DEV-A's, 3.4
-server/src/utils/questionView.js                    DEV-A's serializer from 3.4 — import it, do not fork it
+server/src/utils/questionView.js                    frozen by 3.1 — import it, do not fork it
 server/src/services/classification.service.js       yours, but this PR does not call the model
-prisma/schema/*.prisma                              no migration in this epic
+prisma/schema/*.prisma                              3.1's three migrations are the epic's only ones
 shared/api.d.ts                                     the E3 block is closed
 ```
 

@@ -51,6 +51,8 @@ Prisma schema, not only application source. It does.
 | `server/src/routes/question.routes.js` | **Frozen** after 3.1. Every route wired against a `NOT_IMPLEMENTED` stub, rate limiter included. | 3.1 |
 | `server/src/repositories/question.repository.js` | **Frozen** after 3.1. Every query both tracks need is written there first. | 3.1 |
 | `server/src/services/classification.service.js` | Created in 3.1 with the fallback-only body. **Ownership transfers to DEV-B at 3.3.** DEV-A does not open it again. | 3.1 → 3.3 |
+| `server/src/utils/questionView.js` | **Frozen** after 3.1. `toQuestionResponse` is what `POST /questions` (3.4, DEV-A) and `GET /questions/:id` (3.5, DEV-B) both answer with — moved out of 3.4 while writing 3.1, because a promise that two payloads are identical cannot depend on a file one track writes mid-epic. | 3.1 |
+| `server/src/middlewares/upload.js` | Created in 3.1 as a pass-through with the interface it keeps. 3.2 replaces the body with Multer; `upload.single(...)` on the frozen route does not move. | 3.1 → 3.2 |
 | `server/src/routes/index.js` | Append-only, one line, alphabetical | 3.1 |
 | `server/src/config/constants/index.js` | Append-only, one line (`question.js`) | 3.1 |
 | `server/src/config/constants/llm.js` | Append-only. DEV-B appends the model id and prompt bounds; the two existing values are not edited. | 3.3 |
@@ -59,7 +61,7 @@ Prisma schema, not only application source. It does.
 | `client/src/components/question/` | Shared directory, disjoint files. DEV-A: `ImagePicker.jsx`, `QuestionTextField.jsx`. DEV-B: `ClassificationCard.jsx`, `TopicOverride.jsx`. | 3.6, 3.7 |
 | `package.json` (root + `server/`) | **One dependency change in this epic, and it is 3.2's.** Announce in chat, land it inside 3.2, and let DEV-B rebase before continuing. Anything else is its own one-line PR. | 3.2 |
 | `package-lock.json` | Never hand-merge. `git checkout --theirs package-lock.json && npm install` (`OWNERSHIP.md` §4). | 3.2 |
-| `prisma/schema/*.prisma` | **E3's feature needs no migration** — `questions`, `question_attachments` and `sessions` are all in the 0.2 schema and `question_id` on an attachment is already nullable, which is what 3.2 depends on. The only migrations in this epic are the two carried-over filler items below, both DEV-B's, run one at a time. | filler |
+| `prisma/schema/*.prisma` | **Corrected in 3.1: the feature needed three migrations, not none.** The tables were all in the 0.2 schema and `question_id` on an attachment is nullable, which is what 3.2 depends on — but `questions.declared_level`, `questions.student_confirmation` and `question_attachments.uploaded_by` are all in the contract freeze below and none of them had a column. All three are additive and nullable, and they landed in 3.1 one at a time. After 3.1 nothing in E3 opens `prisma/` except the two filler items, both DEV-B's, also one at a time. | 3.1, filler |
 | `.env.example` | Untouched. `CLOUDINARY_*` and `ANTHROPIC_API_KEY` were added in 0.7 and are already `requiredInProduction` in `config/env.js`. | — |
 
 Everything else is suffixed by track: `question.intake.{controller,service,schema}.js` and
@@ -98,7 +100,7 @@ endpoint the confirmation screen patches. Neither opens the other's controller.
 
 | # | PR | Owner | Size | Depends on | Status |
 |---|---|---|---|---|---|
-| 3.1 | [Question core: frozen router, repository, classification seam](PR-3.1-question-core.md) | DEV-A · **human** | M | E2 | ☐ |
+| 3.1 | [Question core: frozen router, repository, classification seam](PR-3.1-question-core.md) | DEV-A · **human** | M | E2 | ☑ |
 | 3.2 | [Cloudinary + image upload endpoint](PR-3.2-image-upload.md) | DEV-A | M | 3.1 | ☐ |
 | 3.3 | [`classification.service` — prompt, schema, timeout, fallback](PR-3.3-llm-classification.md) | DEV-B · **human prompt** | L | 3.1 | ☐ |
 | 3.4 | [`POST /questions` — create, classify, session in `PENDING`](PR-3.4-create-question.md) | DEV-A | M | 3.1 (3.3 for the real classifier) | ☐ |
@@ -284,8 +286,13 @@ commit, same rule as the E1 and E2 contract freezes.
   this out; the fix is per request, not in `client.js`.
 - **`topic_id = 0` is a seeded sentinel and the only hardcoded id in the codebase.** `CONVENTIONS.md`
   names it as the one carve-out to "the database assigns ids", precisely because this epic's fallback
-  has to know it in advance. It lives in `constants/question.js` as `UNCLASSIFIED_TOPIC_ID`, cited
-  everywhere, typed nowhere else.
+  has to know it in advance. It is cited as `UNCLASSIFIED_TOPIC_ID` and typed once — but **the
+  declaration is in `constants/matching.js`, not `constants/question.js`** (0.5 got there first, and
+  E4 owns that file). 3.1 re-exports it from `constants/question.js` rather than declaring a second
+  one: `constants/index.js` re-exports both files with `export *`, and one name resolving to two
+  bindings is a hard `SyntaxError` on the first import through the barrel, not a lint warning. Import
+  it from the barrel and do not add a second `0` anywhere. The same applies to `MATH_LEVELS`, which
+  `constants/user.js` already defines.
 - **An LLM call costs money and `POST /questions` is unauthenticated-adjacent.** It is behind
   `authenticate` + `authorize('student')`, but a logged-in student can still loop it. `strictLimiter`
   is already exported from `middlewares/rateLimit.js` and left deliberately unwired for exactly this
