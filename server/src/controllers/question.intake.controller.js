@@ -1,14 +1,16 @@
-import { createQuestionAttachment } from '#services/question.intake.service.js';
-import { AppError } from '#utils/AppError.js';
+import {
+  createAndClassifyQuestion,
+  createQuestionAttachment,
+} from '#services/question.intake.service.js';
 
 /**
  * Capture — the student's words and pixels reaching the database. DEV-A's half of
  * E3 (docs/epics/E3-question-intake/README.md → "The split").
  *
- * **`uploadAttachment` landed in 3.2; `createQuestion` is still a stub for 3.4.** The
- * routes, their middleware chains and their validators were wired in the frozen
- * `question.routes.js`, so each of those PRs replaces one function body and opens
- * nothing shared. 3.2 did exactly that and did not touch the router.
+ * **`uploadAttachment` landed in 3.2 and `createQuestion` in 3.4.** The routes, their
+ * middleware chains and their validators were wired in the frozen
+ * `question.routes.js`, so each of those PRs replaced one function body and opened
+ * nothing shared. Neither touched the router.
  *
  * `NOT_IMPLEMENTED` (501) rather than a missing route: a 404 says the endpoint does
  * not exist, and both tracks need the difference between "not built yet" and "you
@@ -22,10 +24,6 @@ import { AppError } from '#utils/AppError.js';
  * Neither handler imports the database client. A controller calls one service
  * function and writes the envelope (CONVENTIONS.md → Server layering); the reads and
  * writes are in `question.repository.js`, frozen since 3.1.
- *
- * The remaining stub takes no parameters. Express passes `(req, res, next)`
- * regardless, and an argument nothing reads is a lint error rather than
- * documentation — the signature arrives with the body.
  */
 
 /**
@@ -78,7 +76,17 @@ export async function uploadAttachment(req, res) {
  * anything missing from that answer is one `VALIDATION_ERROR` — an id that does not
  * exist, one belonging to another student and one already bound to another question
  * are deliberately indistinguishable.
+ *
+ * The body arrives parsed and bounded by `createQuestionSchema`; `req.user.id` is the
+ * owner and comes from the token, never from the payload. Spreading the validated body
+ * rather than naming its three fields twice is safe precisely because the schema is
+ * `.strict()` — an unknown key never reaches here.
  */
-export async function createQuestion() {
-  throw AppError.notImplemented('POST /questions');
+export async function createQuestion(req, res) {
+  const question = await createAndClassifyQuestion({
+    studentId: req.user.id,
+    ...req.body,
+  });
+
+  res.status(201).json({ success: true, data: question });
 }

@@ -1,19 +1,21 @@
 import { z } from 'zod';
 
+import {
+  MATH_LEVELS,
+  MAX_ATTACHMENTS,
+  RAW_TEXT_MAX_LENGTH,
+  RAW_TEXT_MIN_LENGTH,
+} from '#config/constants/index.js';
+
 /**
- * Zod schema for the capture surface — `POST /questions`.
+ * Zod schema for the capture surface — `POST /questions`. PR 3.4, replacing 3.1's stub.
  *
- * **A stub. Filled in by PR 3.4 (DEV-A), which owns this file.**
- * `question.routes.js` is frozen after this PR and already imports the name below,
- * so the export is a contract the way 2.1's four were: the body changes, the name
- * does not.
+ * `question.routes.js` is frozen and already imports the name below, so the export is
+ * a contract the way 2.1's four were: the body changed in this PR, the name did not.
  *
- * What 3.4 replaces it with, from the epic's contract freeze (`CreateQuestionRequest`)
- * — every bound read from `constants/question.js`, none of them written as a literal:
- *
- *   rawText        trimmed, RAW_TEXT_MIN_LENGTH–RAW_TEXT_MAX_LENGTH, required
- *   declaredLevel  optional, one of MATH_LEVELS (3 | 4 | 5)
- *   attachmentIds  optional, uuids, at most MAX_ATTACHMENTS
+ * Every bound is read from `constants/question.js` and none is written as a literal.
+ * The same numbers are enforced by 3.2's Multer configuration and by 3.3's prompt, and
+ * a bound retyped in any of those places is the class of defect E2 shipped three of.
  *
  * `attachmentIds` is validated for **shape** here and for **ownership** in the
  * service, through `findBindableAttachmentIds`. A uuid that parses is not a uuid the
@@ -27,17 +29,53 @@ import { z } from 'zod';
  */
 
 /**
- * `POST /questions`. A placeholder shape, not the contract.
+ * `POST /questions` — the `CreateQuestionRequest` half of the contract freeze.
  *
- * `.strict()` on an empty body means every request carrying a payload fails
- * validation before reaching the stub controller. That is the honest answer while the
- * endpoint does nothing — accepting a question and then throwing `NOT_IMPLEMENTED`
- * would tell a client its payload was fine when nothing has ever read it. An empty
- * `POST` still reaches the controller and answers `NOT_IMPLEMENTED`, which is what
- * this PR's manual test checks.
+ * `.strict()` on all three halves, the posture E1's validators set and E2's query
+ * schemas kept: an unknown key is a client that believes it is sending something this
+ * endpoint reads, and a `201` is how that typo survives to production.
  */
 export const createQuestionSchema = z.object({
-  body: z.object({}).strict(),
+  body: z
+    .object({
+      /**
+       * Trimmed before it is measured, so a body of four spaces is the empty string
+       * it actually is rather than a question of length 4. The trimmed value is what
+       * reaches the column, and on the fallback path §8.1 copies `raw_text` into
+       * `teacher_brief` — a teacher should not be reading padding.
+       */
+      rawText: z
+        .string({ required_error: 'Write something about the question.' })
+        .trim()
+        .min(RAW_TEXT_MIN_LENGTH, 'Write something about the question.')
+        .max(RAW_TEXT_MAX_LENGTH, `Keep it under ${RAW_TEXT_MAX_LENGTH} characters.`),
+
+      /**
+       * Optional, because §4.1's form asks for the level and does not insist. Absent
+       * means the classifier guesses, which is what `estimatedLevel` answers.
+       */
+      declaredLevel: z
+        .number()
+        .int()
+        .refine((value) => MATH_LEVELS.includes(value), {
+          message: `Level must be one of ${MATH_LEVELS.join(', ')}.`,
+        })
+        .optional(),
+
+      /**
+       * Ids from `POST /questions/attachments`, uploaded before the question existed.
+       *
+       * `uuid()` because `question_attachments.id` is `@db.Uuid` and Postgres raises
+       * `22P02` on a malformed one rather than returning no rows. Caught here, a typo
+       * is a `VALIDATION_ERROR` naming the field; uncaught, it is a 500 for what is
+       * plainly a bad request — the same reason `questionByIdSchema` parses `:id`.
+       */
+      attachmentIds: z
+        .array(z.string().uuid('That is not a valid attachment id.'))
+        .max(MAX_ATTACHMENTS, `At most ${MAX_ATTACHMENTS} images per question.`)
+        .optional(),
+    })
+    .strict(),
   params: z.object({}).strict(),
   query: z.object({}).strict(),
 });

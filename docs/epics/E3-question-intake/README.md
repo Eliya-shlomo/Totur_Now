@@ -103,7 +103,7 @@ endpoint the confirmation screen patches. Neither opens the other's controller.
 | 3.1 | [Question core: frozen router, repository, classification seam](PR-3.1-question-core.md) | DEV-A · **human** | M | E2 | ☑ |
 | 3.2 | [Cloudinary + image upload endpoint](PR-3.2-image-upload.md) | DEV-A | M | 3.1 | ☑ |
 | 3.3 | [`classification.service` — prompt, schema, timeout, fallback](PR-3.3-llm-classification.md) | DEV-B · **human prompt** | L | 3.1 | ☑ |
-| 3.4 | [`POST /questions` — create, classify, session in `PENDING`](PR-3.4-create-question.md) | DEV-A | M | 3.1 (3.3 for the real classifier) | ☐ |
+| 3.4 | [`POST /questions` — create, classify, session in `PENDING`](PR-3.4-create-question.md) | DEV-A | M | 3.1 (3.3 for the real classifier) | ☑ |
 | 3.5 | [`GET /questions/:id` + `PATCH /questions/:id/classification`](PR-3.5-classification-override.md) | DEV-B | S | 3.4 | ☐ |
 | 3.6 | [Question form screen — text + image, camera-first](PR-3.6-question-form-screen.md) | DEV-A | M | 3.2, 3.4 | ☐ |
 | 3.7 | [Classification confirmation screen](PR-3.7-classification-screen.md) | DEV-B | M | 3.5, 3.6 | ☐ |
