@@ -53,15 +53,49 @@ and is already in `server/package.json`.
 
 ```
 server/src/config/cloudinary.js                     new
-server/src/middlewares/upload.js                    new  (multer instance + error translation)
+server/src/middlewares/upload.js                    3.1's pass-through → multer + error translation
 server/src/services/media.service.js                new  (upload_stream, returns { fileUrl, mimeType })
-server/src/controllers/question.intake.controller.js new (the attachment handler only)
+server/src/controllers/question.intake.controller.js 3.1's stub → the attachment handler only
 server/src/services/question.intake.service.js      new  (records the attachment row)
-server/src/validators/question.intake.schema.js     new
 server/package.json                                 multer only
 package-lock.json                                   generated
 docs/epics/E3-question-intake/README.md             tick the status box
+
+# added while implementing
+server/src/utils/imageType.js                       new  magic-byte MIME detection
+server/tests/imageType.test.js                      new  the detector, seven cases
+server/src/config/constants/question.js             one appended constant (upload timeout)
 ```
+
+**Corrections to the list above.** `upload.js`, `question.intake.controller.js` and
+`question.intake.schema.js` were written as "new" here, but 3.1 created all three — a
+frozen router cannot import files that do not exist. This PR replaces two bodies and
+does not open the schema at all: the attachment route deliberately carries no
+validator, because its body is a multipart file and the rules that apply to it are
+Multer's `limits` and `fileFilter`, reading the same constants a schema would have.
+
+**`utils/imageType.js` is not optional and is the reason an acceptance criterion
+passes.** "The MIME check reads the parsed type, not the filename" cannot be satisfied
+by Multer's `file.mimetype`: that value comes from the multipart part's `Content-Type`
+header, which the *uploader* writes. `curl -F image=@notes.txt` and every browser
+derive it from the file extension, so a `.txt` renamed to `.jpg` arrives announced as
+`image/jpeg` and passes a `fileFilter` check. The bytes are the only thing that cannot
+lie, so three signatures are read from the buffer after Multer finishes, and
+`req.file.mimetype` is overwritten with what was actually found. A pure function over a
+buffer, so it gets a test rather than a manual pass.
+
+**Why three MIME strings appear outside `constants/question.js`.** They are the keys of
+the signature table, and a table that maps a type to its bytes has to name the type. The
+split is still one-way and still honest: `ALLOWED_IMAGE_MIME_TYPES` decides **what is
+permitted** and is the only list either check iterates; `imageType.js` only knows **how
+to recognise** each one. A type added to the allowlist without a signature would be
+refused by every upload, so the file asserts at boot that it can describe everything the
+allowlist permits — the same posture `constants/matching.js` takes with `MATCH_WEIGHTS`.
+
+**`CLOUDINARY_UPLOAD_TIMEOUT_MS`.** The failure table below names "times out" as an
+`EXTERNAL_SERVICE_ERROR`, which requires a timeout to exist. The SDK's default is 60
+seconds — longer than the client's own axios timeout, so without this the student's
+request dies first and the server keeps uploading into a connection nobody is reading.
 
 ## Files you must NOT touch
 
@@ -85,8 +119,8 @@ client/**                                           3.6's job
 - [ ] With `CLOUDINARY_API_SECRET` deliberately wrong, the answer is `EXTERNAL_SERVICE_ERROR` and the server stays up
 - [ ] No Multer message reaches the client verbatim — every failure is in the standard error shape
 - [ ] `grep -rn "cloudinary" server/src --include=*.js` matches only `config/cloudinary.js` and `services/media.service.js`
-- [ ] No literal byte count, MIME string or folder name in the diff outside `constants/question.js`
-- [ ] Server logs contain no API secret and no signed upload URL
+- [ ] No literal byte count or folder name outside `constants/question.js`, and no MIME string except as the **keys** of the signature table in `utils/imageType.js` — see below
+- [ ] Server logs contain no API secret and no signed upload URL — but see the note on what Cloudinary's own error text does contain
 
 ## Manual test
 
@@ -114,6 +148,18 @@ by the same request that stored the bytes.
 **Why `EXTERNAL_SERVICE_ERROR` rather than `INTERNAL_ERROR`.** The code exists in
 `shared/errorCodes.js` at 502 for exactly this: our code is fine, the third party is not. The client
 can say "couldn't save the photo, try again" instead of "something went wrong".
+
+**What a failed upload logs, exactly.** `media.service.js` logs `error.message` and the
+folder, never the error object — the object carries the signed request that produced it,
+and a signed request in a log is a credential in a log. Verified with a deliberately
+wrong secret: neither `CLOUDINARY_API_KEY` nor `CLOUDINARY_API_SECRET` appears anywhere
+in the output. What the message *does* carry on that one path is Cloudinary's own text,
+which quotes the rejected signature digest and the string it was computed over
+(`folder=…&timestamp=…`). That is a single-use SHA-1 over two public values, not the
+secret and not a usable URL, and it only appears when the credentials are already
+broken. Judged worth keeping, because it is also the only line that says *why* an upload
+failed. If a future review disagrees, the fix is to map known vendor messages to our own
+in `media.service.js` and log a code — not to stop logging the reason.
 
 **The client will have to override the axios `Content-Type`.** `client/src/api/client.js` sets
 `application/json` for every request and is DEV-A's single-owner frozen file. 3.6 deletes the header

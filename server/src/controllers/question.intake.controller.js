@@ -1,13 +1,14 @@
+import { createQuestionAttachment } from '#services/question.intake.service.js';
 import { AppError } from '#utils/AppError.js';
 
 /**
  * Capture — the student's words and pixels reaching the database. DEV-A's half of
  * E3 (docs/epics/E3-question-intake/README.md → "The split").
  *
- * **Stubs. Filled in by PR 3.2 (`uploadAttachment`) and PR 3.4 (`createQuestion`),
- * both DEV-A's.** The routes, their middleware chains and their validators are
- * already wired in the frozen `question.routes.js`, so each of those PRs replaces
- * one function body and opens nothing shared. That is what this PR is buying.
+ * **`uploadAttachment` landed in 3.2; `createQuestion` is still a stub for 3.4.** The
+ * routes, their middleware chains and their validators were wired in the frozen
+ * `question.routes.js`, so each of those PRs replaces one function body and opens
+ * nothing shared. 3.2 did exactly that and did not touch the router.
  *
  * `NOT_IMPLEMENTED` (501) rather than a missing route: a 404 says the endpoint does
  * not exist, and both tracks need the difference between "not built yet" and "you
@@ -18,30 +19,39 @@ import { AppError } from '#utils/AppError.js';
  * edited by both developers in the same week, which is exactly the shape E1's
  * `user.repository.js` merge failure had.
  *
- * Neither handler will import the database client. A controller calls one service
+ * Neither handler imports the database client. A controller calls one service
  * function and writes the envelope (CONVENTIONS.md → Server layering); the reads and
- * writes are in `question.repository.js`, frozen after this PR.
+ * writes are in `question.repository.js`, frozen since 3.1.
  *
- * Both stubs take no parameters. Express passes `(req, res, next)` regardless, and
- * an argument nothing reads is a lint error rather than documentation — the
- * signature arrives with the body.
+ * The remaining stub takes no parameters. Express passes `(req, res, next)`
+ * regardless, and an argument nothing reads is a lint error rather than
+ * documentation — the signature arrives with the body.
  */
 
 /**
  * `POST /questions/attachments` — 201 `Attachment`. One image, before the question
  * it belongs to exists.
  *
- * 3.2 reads the file Multer parsed onto the request, hands the buffer to a
- * `media.service` that uploads it to `CLOUDINARY_QUESTION_FOLDER`, and stores the
- * returned URL through `createAttachment({ uploadedBy: <caller>, fileUrl, mimeType })`.
- * The row lands with `question_id = NULL`; `POST /questions` binds it later.
+ * `req.file` is Multer's, and `middlewares/upload.js` has already proved it is an
+ * allowed image within the size cap and rewritten its `mimetype` to what the bytes
+ * actually are. Nothing is re-checked here: a controller that validated its own input
+ * would be a second copy of the allowlist.
+ *
+ * The row lands with `question_id = NULL`; `POST /questions` binds it later, scoped to
+ * the same `uploaded_by` this request writes.
  *
  * Upload is the hard failure of the two external services in this epic: Cloudinary
- * either stored the image or it did not, and the student is told immediately. That
- * is the opposite of the classifier, whose failure §8.1 forbids surfacing.
+ * either stored the image or it did not, and the student is told immediately —
+ * `EXTERNAL_SERVICE_ERROR`, from `media.service`. That is the opposite of the
+ * classifier, whose failure §8.1 forbids surfacing.
  */
-export async function uploadAttachment() {
-  throw AppError.notImplemented('POST /questions/attachments');
+export async function uploadAttachment(req, res) {
+  const attachment = await createQuestionAttachment({
+    studentId: req.user.id,
+    file: req.file,
+  });
+
+  res.status(201).json({ success: true, data: attachment });
 }
 
 /**

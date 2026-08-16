@@ -88,6 +88,20 @@ export const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'
 export const CLOUDINARY_QUESTION_FOLDER = 'tutor-now/questions';
 
 /**
+ * How long one image may take to reach Cloudinary before the upload is abandoned.
+ *
+ * The SDK's own default is 60 seconds, which is not a timeout so much as a promise
+ * that the student stares at a spinner for a minute and then meets the client's own
+ * 15-second axios timeout anyway. Twenty seconds is a slow phone photo on a slow
+ * connection and still leaves the request answerable.
+ *
+ * Exceeding it is an `EXTERNAL_SERVICE_ERROR` (502), not a validation error: the
+ * student's file was fine, the third party was not. Added in PR 3.2 alongside the
+ * two caps above so the whole upload budget reads in one place.
+ */
+export const CLOUDINARY_UPLOAD_TIMEOUT_MS = 20 * 1000;
+
+/**
  * The multipart field one image arrives under, on `POST /questions/attachments`.
  *
  * Three files have to agree on this string and none of them may retype it: the
