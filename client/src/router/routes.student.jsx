@@ -1,5 +1,6 @@
 import StudentLayout from '@/layouts/StudentLayout';
 import Placeholder from '@/components/Placeholder';
+import Ask from '@/pages/student/Ask';
 import ProtectedRoute from '@/router/ProtectedRoute';
 
 /**
@@ -20,7 +21,7 @@ export const studentRoutes = [
     ),
     children: [
       { index: true, element: <Placeholder title="Student dashboard" pr="E1/E7" /> },
-      { path: 'ask', element: <Placeholder title="Ask a question" pr="3.6" /> },
+      { path: 'ask', element: <Ask /> },
       { path: 'ask/:id/matching', element: <Placeholder title="Classifying…" pr="3.7" /> },
       { path: 'ask/:id/teachers', element: <Placeholder title="Choose a teacher" pr="4.5" /> },
       { path: 'session/:id', element: <Placeholder title="Active session" pr="6.7" /> },
