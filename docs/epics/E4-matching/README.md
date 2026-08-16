@@ -168,7 +168,7 @@ owns the screen. Neither opens the other's service.
 
 | # | PR | Owner | Size | Depends on | Status |
 |---|---|---|---|---|---|
-| 4.1 | [Matching core: frozen router, repository, scoring seam](PR-4.1-matching-core.md) | DEV-A · **human** | M | E3 (3.1–3.7) | ☐ |
+| 4.1 | [Matching core: frozen router, repository, scoring seam](PR-4.1-matching-core.md) | DEV-A · **human** | M | E3 (3.1–3.7) | ☑ |
 | 4.2 | [Candidate pool — §9.1 hard filters](PR-4.2-candidate-pool.md) | DEV-A | M | 4.1 | ☐ |
 | 4.3 | [`bayesian()` + `getPlatformAverages()`](PR-4.3-bayesian-averages.md) | DEV-B | S | 4.1 | ☐ |
 | 4.4 | [Credit-to-minutes and the price ceiling control](PR-4.4-credit-minutes.md) | DEV-A | M | 4.1 | ☐ |

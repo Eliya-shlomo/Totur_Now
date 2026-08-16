@@ -51,7 +51,7 @@ import { prisma } from '#config/db.js';
  * pedagogical order (`prisma/seed/topics.js`, and the same reasoning as
  * `topic.repository.js`). The serializer does not re-sort them.
  */
-const TEACHER_VIEW = {
+export const TEACHER_VIEW = {
   userId: true,
   bio: true,
   pricePerBlock: true,

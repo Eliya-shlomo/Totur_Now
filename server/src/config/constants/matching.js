@@ -45,6 +45,38 @@ export const PLATFORM_AVERAGES_CACHE_MS = 5 * 60 * 1000;
 /** Fallback topic when the LLM cannot classify. MVP.md §7. */
 export const UNCLASSIFIED_TOPIC_ID = 0;
 
+/**
+ * The top of the rating scale. §9.2's `global_rating` is `average stars / MAX_STARS`,
+ * and `reviews.stars` carries `CHECK (stars BETWEEN 1 AND 5)` in the init migration —
+ * change one and you must change the other, in a migration.
+ *
+ * There is no `constants/rating.js` yet. When E8 creates one this is a one-line move
+ * and nothing that imports it through the barrel changes, which is the same
+ * arrangement `UNCLASSIFIED_TOPIC_ID` above already documents.
+ */
+export const MAX_STARS = 5;
+
+/**
+ * §9.2's `history_bonus`: "1.0 if this student rated them ≥4 before". Read by
+ * `findPositiveHistoryTeacherIds` in the matching repository and surfaced to the
+ * student as `TeacherMatch.studiedWith` — one threshold, two consumers, so the badge
+ * and the score can never disagree about what "studied with" means.
+ */
+export const HISTORY_MIN_STARS = 4;
+
+/**
+ * The prior when the platform itself has no history and every denominator is zero.
+ *
+ * Reachable only on an empty database, where it is constant across candidates and
+ * therefore cannot change anyone's order — which is the argument for naming neutral
+ * values rather than scattering `?? 0`. A zero prior would push every rated teacher
+ * above every unrated one and look like the algorithm working.
+ *
+ * `rating` is on the 1–`MAX_STARS` scale, the two rates are 0–1. 4.3 divides the sums
+ * `aggregatePlatformAverages()` returns and falls back to these three.
+ */
+export const NEUTRAL_PLATFORM_AVERAGES = { rating: 3, resolveRate: 0.5, acceptRate: 0.5 };
+
 // Guard the invariant at boot rather than discovering a 0.97 total via a subtly
 // wrong ranking three epics from now.
 const weightSum = Object.values(MATCH_WEIGHTS).reduce((a, b) => a + b, 0);
