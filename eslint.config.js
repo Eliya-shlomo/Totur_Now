@@ -6,7 +6,17 @@ import prettier from 'eslint-config-prettier';
 
 export default [
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.husky/**', 'docs/**'],
+    // `.claude/**` holds agent worktrees — full checkouts of this repo at some
+    // older commit. Without it, `npm run lint` reports every file twice and the
+    // second copy's errors are against code that is not on this branch.
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/.husky/**',
+      'docs/**',
+      '.claude/**',
+    ],
   },
 
   js.configs.recommended,
