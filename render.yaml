@@ -91,20 +91,25 @@ services:
       - key: CORS_ORIGINS
         sync: false
 
-      # ── required in production by env.js, even though their epic (E3) has
-      #    not started ───────────────────────────────────────────────────────
+      # ── required in production by env.js ─────────────────────────────────
       # `requiredInProduction` in server/src/config/env.js exits the process on
       # boot if any of these four is missing. That is deliberate — a deployed
       # instance missing a key should fail loudly at startup, not at 2 AM in a
-      # request handler. The consequence for this PR is that the accounts have
-      # to exist before the first successful deploy.
+      # request handler. The consequence is that the accounts have to exist
+      # before the first successful deploy.
+      #
+      # GEMINI_API_KEY was ANTHROPIC_API_KEY until PR 3.3 changed the
+      # classification vendor. `sync: false` means Render does not read the
+      # value from this file, so renaming it here is only half the change —
+      # **an existing service must also add the new key in the dashboard, or
+      # the next deploy exits on boot with `Missing in production:`.**
       - key: CLOUDINARY_CLOUD_NAME
         sync: false
       - key: CLOUDINARY_API_KEY
         sync: false
       - key: CLOUDINARY_API_SECRET
         sync: false
-      - key: ANTHROPIC_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
 
       # ── optional until their epic lands ──────────────────────────────────
