@@ -33,9 +33,11 @@ touched, which files must not be, and what "done" means. Per `MVP.md` §17.3, th
 
 | Epic | Split | Status | Folder |
 |---|---|---|---|
-| E0 — Foundation & Infrastructure | by directory: B `server/`+`prisma/`, A `client/` | not started | [`E0-foundation/`](epics/E0-foundation/) |
-| E1 — Auth & Users | by flow: A registration, B session | not started | [`E1-auth/`](epics/E1-auth/) |
-| E2–E11 | not written yet | — | — |
+| E0 — Foundation & Infrastructure | by directory: B `server/`+`prisma/`, A `client/` | done | [`E0-foundation/`](epics/E0-foundation/) |
+| E1 — Auth & Users | by flow: A registration, B session | done | [`E1-auth/`](epics/E1-auth/) |
+| E2 — Teacher Onboarding | by audience: A public read, B the teacher's own record | closed provisionally — 4 items open | [`E2-teacher-onboarding/`](epics/E2-teacher-onboarding/) |
+| E3 — Question Intake & LLM Classification | by seam: A capture, B classification | not started | [`E3-question-intake/`](epics/E3-question-intake/) |
+| E4–E11 | not written yet | — | — |
 
 DEV-A is eliya, DEV-B is rotem — see [`OWNERSHIP.md`](OWNERSHIP.md) §0.
 
