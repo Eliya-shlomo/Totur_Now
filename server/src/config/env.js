@@ -51,7 +51,7 @@ const schema = z.object({
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
 
-  ANTHROPIC_API_KEY: z.string().optional(), // E3
+  GEMINI_API_KEY: z.string().optional(), // E3 — question classification (PR 3.3)
 
   ZOOM_ACCOUNT_ID: z.string().optional(), // E6
   ZOOM_CLIENT_ID: z.string().optional(),
@@ -66,7 +66,7 @@ const requiredInProduction = [
   'CLOUDINARY_CLOUD_NAME',
   'CLOUDINARY_API_KEY',
   'CLOUDINARY_API_SECRET',
-  'ANTHROPIC_API_KEY',
+  'GEMINI_API_KEY',
 ];
 
 function load() {
