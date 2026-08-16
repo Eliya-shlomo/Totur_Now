@@ -96,7 +96,7 @@ server/**                                           3.5 shipped everything this 
 1. Run the whole flow: `/app/ask` → submit with a photo → land here
 2. Reload; confirm the screen re-renders from the server
 3. Override the topic to something obviously different, reload, confirm it stuck; check `psql`
-4. Break the classifier deliberately (unset `ANTHROPIC_API_KEY`, restart, submit a new question) and confirm the fallback copy is what appears
+4. Break the classifier deliberately (unset `GEMINI_API_KEY`, restart, submit a new question) and confirm the fallback copy is what appears
 5. Paste another student's question id into the URL → not-found state
 6. `update sessions set status='OFFER_SENT' where question_id = ...` locally, reload → explanation, no override control
 7. Confirm → `/app/ask/:id/teachers` placeholder

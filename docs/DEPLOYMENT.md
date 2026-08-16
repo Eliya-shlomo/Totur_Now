@@ -108,7 +108,7 @@ would let an unreviewed branch write to real data.
 That is the whole list, and it is the whole list on purpose. Only `VITE_`-prefixed
 variables reach the bundle, and everything with that prefix is readable by anyone who
 opens devtools. **Do not add the server's keys to this project** to keep them in one
-place — `DATABASE_URL`, the JWT secrets, Cloudinary, Anthropic, Zoom and Resend belong
+place — `DATABASE_URL`, the JWT secrets, Cloudinary, Gemini, Zoom and Resend belong
 to the Render service and nowhere else. One prefix rename is all that separates a key
 in this list from a key in the browser.
 
@@ -271,7 +271,7 @@ and where it comes from:
 | `DATABASE_URL` | Neon **direct** string, `production` branch | Neon → Connect → toggle **Connection pooling** off |
 | `CORS_ORIGINS` | `https://<vercel-production-domain>` | The production URL from PR 0.8. No trailing slash. |
 | `CLOUDINARY_*` | 3 values | cloudinary.com → Dashboard → Product Environment Credentials |
-| `ANTHROPIC_API_KEY` | `sk-ant-…` | console.anthropic.com → API keys |
+| `GEMINI_API_KEY` | the AI Studio key | aistudio.google.com → API keys. Renamed from `ANTHROPIC_API_KEY` in PR 3.3 when classification changed vendor — **an existing deployment must set the new name or it will not boot.** |
 | `ZOOM_*`, `RESEND_API_KEY`, `EMAIL_FROM` | leave blank | E5 / E6. `env.js` treats them as optional. |
 
 `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` are **not** in that list: `render.yaml`
@@ -280,7 +280,7 @@ They are deliberately different from the local development values. Regenerating 
 invalidates every token issued against it — which is the correct response to a leak,
 and the reason not to do it casually.
 
-> **Cloudinary and Anthropic are required to deploy, today, before E3 starts.**
+> **Cloudinary and Gemini are required to deploy, today.**
 > `requiredInProduction` in [`server/src/config/env.js`](../server/src/config/env.js)
 > exits the process on boot when `NODE_ENV=production` and any of those four is
 > missing, and a process that exits on boot is a service Render marks as failed. Both
@@ -602,7 +602,7 @@ wallet — `{"status":"IN_SESSION"}`, `{"pricePerBlock":21}`, `{}` — each a
 | `prisma: not found` in build | `NPM_CONFIG_INCLUDE=dev` missing |
 | `Could not find a schema.prisma` | Build command running from `server/`, not the repo root |
 | Build hangs at `migrate deploy` | Pooled connection string — switch to direct |
-| Deploy succeeds, service unhealthy, `Missing in production: …` in logs | `requiredInProduction` in `env.js`; set the Cloudinary / Anthropic keys |
+| Deploy succeeds, service unhealthy, `Missing in production: …` in logs | `requiredInProduction` in `env.js`; set the Cloudinary / Gemini keys (`GEMINI_API_KEY`, renamed in 3.3) |
 | `Cannot find package '@tutor/shared'` | Installing inside `server/` instead of the workspace root |
 | Health check times out, no app logs | Not binding to Render's `PORT` — do not set `PORT` yourself |
 | First request after a quiet hour takes ~50 s | Cold start, expected. §7. |

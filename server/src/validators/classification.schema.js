@@ -12,11 +12,11 @@ import {
  *
  * Two artifacts describing one object, and they are not redundant:
  *
- * **`CLASSIFICATION_OUTPUT_SCHEMA`** goes to Anthropic as `output_config.format` and
+ * **`CLASSIFICATION_OUTPUT_SCHEMA`** goes to Gemini as `response_format.schema` and
  * constrains what the model is *able* to emit. §8.1 writes `response_format:
- * json_object`, which is not a parameter this API has; this is the guardrail that line
- * was asking for. It stops the failure mode prose parsing has — a model that answers
- * with a paragraph, or with JSON wrapped in a code fence.
+ * json_object`; this is the schema-shaped version of that guardrail, and it stops the
+ * failure mode prose parsing has — a model that answers with a paragraph, or with JSON
+ * wrapped in a code fence.
  *
  * **`classificationSchema`** re-checks the same object on our side, after it arrives.
  * A vendor-side guarantee we cannot inspect is not a guarantee we can build a
@@ -44,17 +44,18 @@ const DIFFICULTY_VALUES = Array.from(
 /**
  * The wire schema, sent with every request.
  *
- * Three constraints of the structured-outputs feature shape this object, and each one
- * is a trap if you learn it from a 400 instead of from here:
+ * Gemini's structured output accepts a subset of JSON Schema, and the subset is the
+ * thing to know before you learn it from a 400: `properties`, `required`,
+ * `additionalProperties`, `enum` (on strings *and* integers), and `minimum`/`maximum`
+ * on numbers are in; string lengths are not. So:
  *
- * 1. **Numeric ranges are not supported** — no `minimum`, `maximum`, `multipleOf`. So
- *    `difficulty` and `estimated_level` are enums built from the constants, and
- *    `confidence` (0–1) is a bare number here and bounded in Zod below.
- * 2. **String lengths are not supported** — no `maxLength`, so `TITLE_MAX_LENGTH` is
- *    enforced in Zod only. It is a column width (`questions.title` is VARCHAR(160)),
- *    so something has to enforce it before the row is written.
- * 3. **Every object needs `additionalProperties: false` and a complete `required`.**
- *    Hence `required` is derived from the property names rather than listed twice.
+ * - `difficulty` and `estimated_level` are enums generated from the constants,
+ * - `confidence` carries its 0–1 range here **and** in Zod,
+ * - `TITLE_MAX_LENGTH` is enforced in Zod alone. It is a column width
+ *   (`questions.title` is VARCHAR(160)), so something has to hold it before the row is
+ *   written, and the wire schema cannot.
+ *
+ * `required` is derived from the property names rather than listed twice.
  *
  * Nothing is nullable. A model that cannot decide does not answer `null` — it answers
  * with a low `confidence`, and the service turns that into the §8.1 fallback. One way
@@ -68,7 +69,7 @@ const CLASSIFICATION_PROPERTIES = {
   estimated_level: { type: 'integer', enum: [...MATH_LEVELS] },
   teacher_brief: { type: 'string' },
   student_confirmation: { type: 'string' },
-  confidence: { type: 'number' },
+  confidence: { type: 'number', minimum: 0, maximum: 1 },
 };
 
 export const CLASSIFICATION_OUTPUT_SCHEMA = {

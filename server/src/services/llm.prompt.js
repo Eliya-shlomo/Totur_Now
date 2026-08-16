@@ -1,13 +1,14 @@
-import { MAX_IMAGES } from '#config/constants/index.js';
+import { MAX_IMAGES, MIN_CONFIDENCE } from '#config/constants/index.js';
 
 /**
  * The classification prompt. PR 3.3, MVP.md §8.1, §7, §17.5.
  *
- * **`SYSTEM_INSTRUCTIONS` below is human-written and is not finished.** `MVP.md` §17.5
- * names LLM prompts as human-authored, and this epic's review checklist says the
- * prompt is read as prose, out loud, by a person — it is the one artifact here no test
- * covers. Everything *around* it in this file is mechanical and is not prose: rendering
- * the taxonomy out of the database, capping images, assembling content blocks.
+ * **`SYSTEM_INSTRUCTIONS` below is human-written.** `MVP.md` §17.5 names LLM prompts as
+ * human-authored, and this epic's review checklist says the prompt is read as prose,
+ * out loud, by a person — it is the one artifact here no test covers, so changing it is
+ * a review by reading and not by a green suite. Everything *around* it in this file is
+ * mechanical and is not prose: rendering the taxonomy out of the database, capping
+ * images, assembling content blocks.
  *
  * The file exports no request parameters and calls nothing. It turns four values into
  * the two fields `messages.create` wants, so that the prompt can be rewritten without
@@ -23,8 +24,9 @@ import { MAX_IMAGES } from '#config/constants/index.js';
 /**
  * The instructions the model is given, minus the taxonomy.
  *
- * **TODO(human): replace this placeholder before merging.** From the epic's review
- * checklist, the prose has to say at least:
+ * Written by DEV-B, and reviewed by reading it rather than by running anything. The
+ * list below is what the epic's review checklist asks the prose to cover, kept here as
+ * the thing to re-read whenever it is edited:
  *
  * - the taxonomy is **closed** — answer with the ids given and never invent one;
  * - `title` is short and human, and it is what a teacher sees in a list;
@@ -44,7 +46,37 @@ import { MAX_IMAGES } from '#config/constants/index.js';
  * The JSON *shape* is enforced by `validators/classification.schema.js` and does not
  * need restating here; what each field should **say** does, and that is this file's job.
  */
-export const SYSTEM_INSTRUCTIONS = `TODO(human): write the classification instructions here.`;
+export const SYSTEM_INSTRUCTIONS = `You are an expert high-school mathematics pedagogical assistant classifying student questions for on-demand tutoring.
+
+Analyze the student's question (text, handwritten exercise photos, or diagrams) and match it to our topic taxonomy.
+
+Guidelines:
+1. Closed Taxonomy:
+- You must choose strictly from the provided topics and subtopics using their exact integer IDs.
+- Never invent, hallucinate, or approximate topic or subtopic IDs.
+- If the problem cannot be confidently mapped to a subtopic in the provided taxonomy, assign a low confidence score (below ${MIN_CONFIDENCE}) so our fallback can handle it. Low confidence is a completely valid and preferred outcome over guessing.
+
+2. Title (title):
+- A short label a teacher reads in a list of waiting questions, not a sentence and not a restatement of the exercise. Name the mathematical object and what is being asked of it.
+- Keep it well under one line. If a teacher scanning ten of these could not tell yours apart, it is too vague.
+
+3. Teacher Brief (teacher_brief):
+- Write a concise, actionable summary specifically highlighting the student's core difficulty or conceptual obstacle.
+- Focus on what the student is stuck on rather than merely repeating or transcribing the problem statement.
+
+4. Student Confirmation (student_confirmation):
+- Provide a single, friendly sentence that a high-school student (12th grader) will immediately recognize as clearly capturing their specific question.
+
+5. Difficulty (difficulty):
+- Rate how hard this exercise is for a student studying at the level you estimated, on a scale where 1 is a routine drill straight out of a textbook chapter and 5 is among the hardest items a Bagrut exam would ask.
+- Rate the exercise, not the student. A basic question asked by a struggling student is still a 1.
+
+6. Estimated Level (estimated_level):
+- Provide your independent pedagogical evaluation of the curriculum level (3, 4, or 5 units / units of study).
+- Do not blindly echo declared_level; use your own domain analysis of the mathematical depth.
+
+7. Language:
+- Detect the language of the student's input (Hebrew or English) and write title, teacher_brief and student_confirmation in that exact same language.`;
 
 /**
  * Whether the prompt above has actually been written.
@@ -88,17 +120,33 @@ export function renderTaxonomy(topicTree) {
 }
 
 /**
- * Four values in, one `messages.create` payload out.
+ * The image types Gemini names, mapped from the only thing we have here — the URL.
  *
- * The images come **before** the text in the user turn, which is the documented
- * ordering for vision requests and the one the student's own question implies: §4.1's
- * example is "I don't know how to start", and the exercise itself is the photograph.
+ * `classifyQuestion` receives URLs, not attachment rows, so the stored `mimeType` from
+ * 3.2 is not in reach without widening the frozen seam. The extension is what is left.
+ * An unrecognised one omits `mime_type` rather than guessing: the field is optional and
+ * the server sniffs the bytes, whereas a wrong declared type is an error on a photo
+ * that would otherwise have classified fine.
+ */
+const MIME_BY_EXTENSION = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+};
+
+/**
+ * Four values in, one `interactions.create` payload out.
  *
- * `imageUrls` are Cloudinary URLs from `POST /questions/attachments` (3.2), sent as URL
- * sources rather than base64 — the bytes never come back through this server, and a
- * question's images are already public. Anything that is not an `https:` string is
- * dropped rather than sent: the list reaches here from a database column, and one bad
- * row must not turn every classification into a 400.
+ * The images come **before** the text, which is the documented ordering for vision
+ * requests and the one the student's own question implies: §4.1's example is "I don't
+ * know how to start", and the exercise itself is the photograph.
+ *
+ * `imageUrls` are Cloudinary URLs from `POST /questions/attachments` (3.2), sent as
+ * URLs rather than base64 — Gemini fetches public HTTPS URLs itself, so the bytes never
+ * come back through this server, which is the property `media.service.js` was built for.
+ * Anything that is not an `https:` string is dropped rather than sent: the list reaches
+ * here from a database column, and one bad row must not fail every classification.
  *
  * `MAX_IMAGES` is applied here as well as at upload. The cap is a cost ceiling on this
  * exact call, and the caller is a service that could one day be handed a longer list.
@@ -113,13 +161,18 @@ export function renderTaxonomy(topicTree) {
  * @param {string[]} [input.imageUrls]
  * @param {number|null} [input.declaredLevel]
  * @param {import('./topic.service.js').TopicNode[]} input.topicTree
- * @returns {{system: string, messages: Array<object>}}
+ * @returns {{systemInstruction: string, input: Array<object>}}
  */
 export function buildMessages({ rawText, imageUrls = [], declaredLevel = null, topicTree }) {
   const images = (imageUrls ?? [])
     .filter((url) => typeof url === 'string' && url.startsWith('https://'))
     .slice(0, MAX_IMAGES)
-    .map((url) => ({ type: 'image', source: { type: 'url', url } }));
+    .map((url) => {
+      const extension = url.split('?')[0].split('.').pop()?.toLowerCase();
+      const mimeType = MIME_BY_EXTENSION[extension];
+
+      return { type: 'image', uri: url, ...(mimeType ? { mime_type: mimeType } : {}) };
+    });
 
   const declared =
     declaredLevel === null || declaredLevel === undefined
@@ -129,7 +182,7 @@ export function buildMessages({ rawText, imageUrls = [], declaredLevel = null, t
   const text = `${declared}<student_text>\n${String(rawText ?? '')}\n</student_text>`;
 
   return {
-    system: `${SYSTEM_INSTRUCTIONS}\n\n<taxonomy>\n${renderTaxonomy(topicTree)}\n</taxonomy>`,
-    messages: [{ role: 'user', content: [...images, { type: 'text', text }] }],
+    systemInstruction: `${SYSTEM_INSTRUCTIONS}\n\n<taxonomy>\n${renderTaxonomy(topicTree)}\n</taxonomy>`,
+    input: [...images, { type: 'text', text }],
   };
 }

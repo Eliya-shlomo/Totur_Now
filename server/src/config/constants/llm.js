@@ -24,15 +24,33 @@ export const MIN_CONFIDENCE = 0.5;
  * **This is a latency decision, and it is the human's to change.** §8.1 sets a hard
  * 8-second budget above, and §4.1 promises the student "2–4 seconds" — which rules
  * out a reasoning-heavy configuration on this path, whatever it would do for
- * accuracy. Haiku 4.5 is the fastest current model, it supports vision (the student's
- * question is usually the photograph), and it supports the structured outputs this
- * epic validates against.
+ * accuracy. The `-lite` Flash tier is the fastest Gemini generation available, it
+ * supports vision (the student's question is usually the photograph), and it supports
+ * the structured outputs this epic validates against.
  *
  * If 3.8's verification shows classification *accuracy* is the problem rather than
- * latency, `claude-sonnet-5` is the next step up: one constant, no other change. Do
+ * latency, `gemini-3.7-flash` is the next step up: one constant, no other change. Do
  * that here rather than in a service file, so the reason travels with the value.
+ *
+ * **The vendor is Gemini, not Anthropic, and that is a deviation from the epic.** The
+ * README's deviations table and this file's history both named `claude-haiku-4-5` on
+ * the reasoning above, which still holds — what changed is which account has credit.
+ * The seam is what made the swap cheap: `classifyQuestion`'s contract, the Zod layer,
+ * the taxonomy check and the fallback are all vendor-agnostic, so the change reached
+ * this constant, the client, the request shape and nothing else.
  */
-export const LLM_MODEL = 'claude-haiku-4-5';
+export const LLM_MODEL = 'gemini-3.5-flash-lite';
+
+/**
+ * How much the model may deliberate before answering.
+ *
+ * Gemini 3.x thinks by default, which is the same latency trap the model choice above
+ * avoids: §4.1 promised 2–4 seconds, and a classification is a lookup against a closed
+ * list of 43 subtopics rather than a problem to solve. `minimal` is the cheaper step
+ * down and `medium` the accuracy step up — both are one word, here, with the budget
+ * they have to fit in written directly above them.
+ */
+export const LLM_THINKING_LEVEL = 'low';
 
 /**
  * Ceiling on what one classification may write back.

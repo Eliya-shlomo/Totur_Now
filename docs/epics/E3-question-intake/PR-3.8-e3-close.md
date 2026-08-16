@@ -38,7 +38,7 @@ is what found the CORS and `VITE_API_URL` misconfigurations, and E2's went unrun
 - [ ] Confirm → `/app/ask/:id/teachers` placeholder
 
 **The fallback path (§8.1) — this is the epic's load-bearing behaviour**
-- [ ] `ANTHROPIC_API_KEY` unset → `POST /questions` still answers `201`, the question row exists, `classification_ok = false`, `teacher_brief` is the student's raw text
+- [ ] `GEMINI_API_KEY` unset → `POST /questions` still answers `201`, the question row exists, `classification_ok = false`, `teacher_brief` is the student's raw text
 - [ ] `LLM_TIMEOUT_MS = 1` → same
 - [ ] Gibberish text → fallback, and the screen asks rather than tells
 - [ ] In every fallback case the student can still choose a topic and continue

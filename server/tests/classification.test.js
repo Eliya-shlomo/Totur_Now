@@ -6,6 +6,7 @@ import {
   DIFFICULTY_MIN,
   LLM_MAX_OUTPUT_TOKENS,
   LLM_MODEL,
+  LLM_THINKING_LEVEL,
   MATH_LEVELS,
   MAX_IMAGES,
   MIN_CONFIDENCE,
@@ -100,8 +101,8 @@ const ANSWER = {
 
 const RAW_TEXT = 'לא מבין איך מציבים גבולות באינטגרל';
 
-/** The envelope `messages.create` resolves with, around whatever JSON we want to test. */
-const reply = (payload) => ({ content: [{ type: 'text', text: JSON.stringify(payload) }] });
+/** The envelope `interactions.create` resolves with, around the JSON under test. */
+const reply = (payload) => ({ output_text: JSON.stringify(payload) });
 
 /**
  * Every dependency, always. Overriding one leaves the rest injected rather than real —
@@ -174,8 +175,9 @@ describe('classificationSchema', () => {
   });
 
   it('rejects a confidence outside 0–1', () => {
-    // The wire schema cannot say this — structured outputs has no `minimum`/`maximum`,
-    // which is the whole reason this second layer exists.
+    // The wire schema asks for this range too, but asking is not receiving: a stubbed
+    // response, a future vendor whose subset drops ranges, or a model that ignores the
+    // constraint all arrive here, and here is where the value is actually checked.
     assert.equal(classificationSchema.safeParse({ ...ANSWER, confidence: 1.4 }).success, false);
     assert.equal(classificationSchema.safeParse({ ...ANSWER, confidence: -0.1 }).success, false);
   });
@@ -260,13 +262,14 @@ describe('CLASSIFICATION_OUTPUT_SCHEMA', () => {
     ]);
   });
 
-  it('carries no numeric range, because the feature does not support one', () => {
-    // If this ever starts failing, structured outputs grew `minimum`/`maximum` and the
-    // Zod layer can stop carrying the confidence bound alone.
+  it('bounds the confidence on the wire as well as in Zod', () => {
+    // Gemini's schema subset supports numeric ranges, so the model is told the bound
+    // rather than only being corrected after the fact. Zod keeps checking it anyway:
+    // this layer constrains what the model emits, that one verifies what arrived.
     const confidence = CLASSIFICATION_OUTPUT_SCHEMA.properties.confidence;
 
-    assert.equal(confidence.minimum, undefined);
-    assert.equal(confidence.maximum, undefined);
+    assert.equal(confidence.minimum, 0);
+    assert.equal(confidence.maximum, 1);
   });
 });
 
@@ -320,29 +323,33 @@ describe('classifyQuestion — the request it builds', () => {
     return { params, options };
   }
 
-  it('sends the model and ceiling from constants, and no effort', async () => {
+  it('sends the model, ceiling and thinking level from constants', async () => {
     const { params } = await capture();
 
     assert.equal(params.model, LLM_MODEL);
-    assert.equal(params.max_tokens, LLM_MAX_OUTPUT_TOKENS);
-    // `effort` is not a parameter this model accepts; sending one is a 400.
-    assert.equal(params.output_config.effort, undefined);
+    assert.equal(params.generation_config.max_output_tokens, LLM_MAX_OUTPUT_TOKENS);
+    // §4.1 promised 2–4 seconds and this model thinks by default — the level is a
+    // latency decision, so it is asserted rather than left to the vendor's default.
+    assert.equal(params.generation_config.thinking_level, LLM_THINKING_LEVEL);
   });
 
   it('asks for the schema rather than for prose', async () => {
     const { params } = await capture();
 
-    assert.equal(params.output_config.format.type, 'json_schema');
-    assert.equal(params.output_config.format.schema, CLASSIFICATION_OUTPUT_SCHEMA);
+    assert.equal(params.response_format.mime_type, 'application/json');
+    assert.equal(params.response_format.schema, CLASSIFICATION_OUTPUT_SCHEMA);
   });
 
-  it('bounds the request itself, in milliseconds', async () => {
+  it('bounds the request itself, in milliseconds, without retries', async () => {
     const { options } = await capture();
 
     assert.equal(options.timeout, 50);
+    // One 8-second budget must not become three: the SDK retries by default, and a
+    // per-request timeout bounds one attempt rather than the wait the student sees.
+    assert.equal(options.maxRetries, 0);
     // Losing the race has to cancel the request, or the timeout protects the student's
     // latency and nothing else — the abandoned call still runs, and is still billed.
-    assert.ok(options.signal);
+    assert.ok(options.fetchOptions.signal);
   });
 
   it('renders the taxonomy from the tree it was handed', async () => {
@@ -350,9 +357,9 @@ describe('classifyQuestion — the request it builds', () => {
 
     // Every parent and leaf the tree carried, by id and by both names — proof the list
     // is read from the database rather than pasted into the prompt.
-    assert.match(params.system, /9: Calculus — Integrals/);
-    assert.match(params.system, /91: Definite \/ אינטגרל מסוים/);
-    assert.match(params.system, /71: Quadratic/);
+    assert.match(params.system_instruction, /9: Calculus — Integrals/);
+    assert.match(params.system_instruction, /91: Definite \/ אינטגרל מסוים/);
+    assert.match(params.system_instruction, /71: Quadratic/);
   });
 
   it('never offers the sentinel as something to choose', async () => {
@@ -360,7 +367,7 @@ describe('classifyQuestion — the request it builds', () => {
 
     // It is a childless root, so no valid answer can name it — printing it would only
     // invite one. Asserted by name because the prompt is where it would appear.
-    assert.doesNotMatch(params.system, /Unclassified/);
+    assert.doesNotMatch(params.system_instruction, /Unclassified/);
   });
 
   it('sends the images before the text, capped and https-only', async () => {
@@ -375,11 +382,11 @@ describe('classifyQuestion — the request it builds', () => {
       ],
     });
 
-    const content = params.messages[0].content;
+    const content = params.input;
     const images = content.filter((block) => block.type === 'image');
 
     assert.equal(images.length, MAX_IMAGES);
-    assert.ok(images.every((block) => block.source.url.startsWith('https://')));
+    assert.ok(images.every((block) => block.uri.startsWith('https://')));
     // The exercise is usually the photograph (§4.1); the text is what it cannot show.
     assert.equal(content.at(-1).type, 'text');
   });
@@ -388,8 +395,8 @@ describe('classifyQuestion — the request it builds', () => {
     const withLevel = await capture({ declaredLevel: 4 });
     const without = await capture({ declaredLevel: null });
 
-    assert.match(withLevel.params.messages[0].content.at(-1).text, /<declared_level>4</);
-    assert.doesNotMatch(without.params.messages[0].content.at(-1).text, /declared_level/);
+    assert.match(withLevel.params.input.at(-1).text, /<declared_level>4</);
+    assert.doesNotMatch(without.params.input.at(-1).text, /declared_level/);
   });
 });
 
@@ -423,11 +430,11 @@ describe('classifyQuestion — every way it falls back', () => {
     },
     {
       name: 'a response that is not JSON at all',
-      overrides: { createMessage: async () => ({ content: [{ type: 'text', text: 'sorry!' }] }) },
+      overrides: { createMessage: async () => ({ output_text: 'sorry!' }) },
     },
     {
-      name: 'a response carrying no text block',
-      overrides: { createMessage: async () => ({ content: [] }) },
+      name: 'a response carrying no output text',
+      overrides: { createMessage: async () => ({}) },
     },
     {
       name: 'a thrown error',
@@ -450,7 +457,7 @@ describe('classifyQuestion — every way it falls back', () => {
       },
     },
     {
-      name: 'an unset ANTHROPIC_API_KEY',
+      name: 'an unset GEMINI_API_KEY',
       overrides: { configured: false },
     },
     {

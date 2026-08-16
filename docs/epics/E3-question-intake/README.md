@@ -14,7 +14,7 @@ made-up boundary.
 
 What E3 actually has is two **external services with two different failure modes**, joined by one
 endpoint. Cloudinary either stores an image or it doesn't, and the student must be told immediately.
-Anthropic either classifies the question or it doesn't, and per `MVP.md` §8.1 the student must
+The LLM either classifies the question or it doesn't, and per `MVP.md` §8.1 the student must
 **not** be told, because the flow continues on `topic_id = 0` regardless. One of those is a hard
 error, the other is a soft one, and `POST /questions` is where they meet.
 
@@ -59,10 +59,10 @@ Prisma schema, not only application source. It does.
 | `shared/api.d.ts` | Append-only, one `// ── E3` block, written once in 3.1 | 3.1 |
 | `client/src/router/routes.student.jsx` | One line per PR: replace a `Placeholder`, never reorder | 3.6, 3.7 |
 | `client/src/components/question/` | Shared directory, disjoint files. DEV-A: `ImagePicker.jsx`, `QuestionTextField.jsx`. DEV-B: `ClassificationCard.jsx`, `TopicOverride.jsx`. | 3.6, 3.7 |
-| `package.json` (root + `server/`) | **One dependency change in this epic, and it is 3.2's.** Announce in chat, land it inside 3.2, and let DEV-B rebase before continuing. Anything else is its own one-line PR. | 3.2 |
+| `package.json` (root + `server/`) | **Planned for one change, took two.** 3.2 added `cloudinary`. 3.3 then replaced the LLM client outright — `@anthropic-ai/sdk` out, `@google/genai` in — when classification changed vendor. Both were announced in chat before the commit; DEV-A rebases after each. Anything further is its own one-line PR. | 3.2, 3.3 |
 | `package-lock.json` | Never hand-merge. `git checkout --theirs package-lock.json && npm install` (`OWNERSHIP.md` §4). | 3.2 |
 | `prisma/schema/*.prisma` | **Corrected in 3.1: the feature needed three migrations, not none.** The tables were all in the 0.2 schema and `question_id` on an attachment is nullable, which is what 3.2 depends on — but `questions.declared_level`, `questions.student_confirmation` and `question_attachments.uploaded_by` are all in the contract freeze below and none of them had a column. All three are additive and nullable, and they landed in 3.1 one at a time. After 3.1 nothing in E3 opens `prisma/` except the two filler items, both DEV-B's, also one at a time. | 3.1, filler |
-| `.env.example` | Untouched. `CLOUDINARY_*` and `ANTHROPIC_API_KEY` were added in 0.7 and are already `requiredInProduction` in `config/env.js`. | — |
+| `.env.example` | **Touched once, in 3.3.** `CLOUDINARY_*` and the LLM key were added in 0.7, but the key changed name when 3.3 swapped vendor: `ANTHROPIC_API_KEY` → `GEMINI_API_KEY`, in `.env.example` and in `config/env.js`'s `requiredInProduction`. Nothing else in E3 opens either file. | 3.3 |
 
 Everything else is suffixed by track: `question.intake.{controller,service,schema}.js` and
 `question.classify.{controller,service,schema}.js`. Never one `question.controller.js`.
@@ -270,8 +270,9 @@ commit, same rule as the E1 and E2 contract freezes.
 | 3.2 `llm.service` and 3.3 fallback as separate PRs | One PR (3.3) | The fallback is the same function's `catch`. Two PRs means two definitions of "failed" — and E2 shipped three contracts that disagreed with each other for exactly this reason. |
 | `POST /questions/:id/attachments` (§12) | `POST /questions/attachments`, then `attachmentIds` on create | Classification is a Vision call inside `POST /questions`. An image bound afterwards is invisible to it. |
 | — | `GET /questions/:id` added | Not in §12. The confirmation screen needs it on reload, and it is the recovery path when the client's request times out but the server's work did not. |
-| `response_format: json_object` (§8.1) | Anthropic structured outputs + a server-side Zod schema | `response_format` is not a parameter the Anthropic API has — §8.1 was written against a different vendor's shape. The guardrail §8.1 actually asks for (schema-validated JSON) is delivered; see 3.3. |
-| Nothing about the model | `claude-haiku-4-5`, in `constants/llm.js` | §8.1 sets an 8-second hard timeout and §4.1 promises "2–4 seconds". That is a latency budget, and it is the reason for the choice — see 3.3's notes, and change it there, not in a service file. |
+| `response_format: json_object` (§8.1) | Gemini structured outputs (`response_format.schema`) + a server-side Zod schema | §8.1 was written against a different vendor's shape. The guardrail it actually asks for — schema-validated JSON — is delivered, in two layers, because a model that satisfies a JSON schema can still name a `subtopic_id` no row has; see 3.3. |
+| Nothing about the model | `gemini-3.5-flash-lite`, in `constants/llm.js` | §8.1 sets an 8-second hard timeout and §4.1 promises "2–4 seconds". That is a latency budget, and it is the reason for the tier — see 3.3's notes, and change it there, not in a service file. Measured on real questions: 2.6–3.7s. |
+| Anthropic (`MVP.md` §8.1, and 3.3's brief) | **Gemini**, via `GEMINI_API_KEY` and `config/gemini.js` | Landed in 3.3 for a blunt reason: the Anthropic account ran out of credit mid-verification and the Gemini one had it. The seam absorbed it — `classifyQuestion`'s contract, the Zod schema, the taxonomy check, the timeout and the fallback are vendor-agnostic, so the swap reached the client, the request shape, one constant and the env var, and no caller at all. **`GEMINI_API_KEY` is the key for classification from here on**, including E4+ if anything else ever calls a model. |
 
 ## Risks
 
