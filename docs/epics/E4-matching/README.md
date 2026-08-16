@@ -173,7 +173,7 @@ owns the screen. Neither opens the other's service.
 | 4.3 | [`bayesian()` + `getPlatformAverages()`](PR-4.3-bayesian-averages.md) | DEV-B | S | 4.1 | ☑ |
 | 4.4 | [Credit-to-minutes and the price ceiling control](PR-4.4-credit-minutes.md) | DEV-A | M | 4.1 | ☑ |
 | 4.5 | [`GET /questions/:id/matches`](PR-4.5-matches-endpoint.md) | DEV-A | M | 4.2 | ☑ |
-| 4.6 | [`matching.scoring` — full scoring per §9.2](PR-4.6-scoring.md) | DEV-B | L | 4.3 | ☐ |
+| 4.6 | [`matching.scoring` — full scoring per §9.2](PR-4.6-scoring.md) | DEV-B | L | 4.3 | ☑ |
 | 4.7 | [Teacher selection screen](PR-4.7-selection-screen.md) | DEV-B | L | 4.4, 4.5, 4.6 | ☐ |
 | 4.8 | [E4 close: verification + retro](PR-4.8-e4-close.md) | DEV-A | S | 4.2–4.7 | ☐ |
 

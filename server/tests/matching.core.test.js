@@ -92,12 +92,4 @@ describe('rankCandidates — the stub, and the shape 4.6 inherits', () => {
     assert.deepEqual(ids(['c', 'a', 'b'].map(candidate)), ['a', 'b', 'c']);
     assert.deepEqual(ids(['a', 'b', 'c'].map(candidate)), ['a', 'b', 'c']);
   });
-
-  it('scores everyone at zero until 4.6', () => {
-    // Not a property worth keeping — a reminder. When this test fails because
-    // scores are real, delete it; 4.6's own tests replace it.
-    const scores = rankCandidates(['a', 'b'].map(candidate), averages).map((e) => e.score);
-
-    assert.deepEqual(scores, [0, 0]);
-  });
 });
