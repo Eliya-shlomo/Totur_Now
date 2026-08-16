@@ -97,6 +97,33 @@ function uploadMessage(error) {
   return detail ?? error?.message ?? 'That image could not be uploaded.';
 }
 
+/**
+ * The field-level reasons a failed submit carries that no control on this screen is
+ * already showing.
+ *
+ * `ApiError.details` is `{ field: sentence }` — `fieldErrors()` on the server strips
+ * the leading `body.`, so the keys are the names this form uses. `rawText` is dropped
+ * here because it is rendered under the textarea instead; everything else has no
+ * control of its own and would otherwise be swallowed.
+ *
+ * **This exists because it was swallowed once, in production.** A stale API instance
+ * answered `POST /questions` with the 3.1 stub schema's
+ * `"Some fields need fixing."` and a `details.body` naming all three keys as
+ * unrecognised. The screen printed the first half and threw the second away, which
+ * turned a one-line diagnosis — the deployed server predates 3.4 — into a hunt. The
+ * message is the server's own and is always safe to show (`ApiError`), and a key like
+ * `body` is unlovely on a student's screen but strictly better than a dead end: it
+ * only ever appears when the client and the server disagree about the contract, which
+ * is a bug, not a thing the student typed wrong.
+ */
+function otherDetailsOf(error) {
+  const details = error?.is?.(ERROR_CODES.VALIDATION_ERROR) ? error.details : null;
+
+  if (!details || typeof details !== 'object') return [];
+
+  return Object.entries(details).filter(([field]) => field !== 'rawText');
+}
+
 /** Distinct per pick, and stable across re-renders — the identity a thumbnail is keyed by. */
 let nextKey = 0;
 
@@ -243,11 +270,15 @@ export default function Ask() {
         navigate(`/app/ask/${question.id}/matching`);
       } catch (error) {
         // The server names a field on a `VALIDATION_ERROR` — `rawText` too long,
-        // `attachmentIds` not this student's — and those belong under the control that
-        // caused them rather than in a block at the bottom of the screen.
+        // `attachmentIds` not this student's — and `rawText` belongs under the control
+        // that caused it rather than in a block at the bottom of the screen.
         if (error?.is?.(ERROR_CODES.VALIDATION_ERROR) && error.details?.rawText) {
           form.setErrors({ rawText: error.details.rawText });
         } else {
+          // Everything else keeps its `details` all the way to the screen. See
+          // `otherDetailsOf` — a message that says only "some fields need fixing" and
+          // names no field is a dead end for the student and a mystery for whoever
+          // reads the bug report.
           setSubmitError(error);
         }
       } finally {
@@ -309,8 +340,21 @@ export default function Ask() {
 
             {submitError && (
               // Under the form rather than in place of it: everything typed is still
-              // on screen, so "Try again" is the same submit with nothing retyped.
-              <ErrorState error={submitError} title="Could not send your question" minHeight={0} />
+              // on screen, so pressing the button again is the same submit with
+              // nothing retyped.
+              <Stack gap={2}>
+                <ErrorState
+                  error={submitError}
+                  title="Could not send your question"
+                  minHeight={0}
+                />
+
+                {otherDetailsOf(submitError).map(([field, message]) => (
+                  <Text key={field} size="xs" c="dimmed" ta="center">
+                    {message}
+                  </Text>
+                ))}
+              </Stack>
             )}
 
             <Group justify="flex-end">
