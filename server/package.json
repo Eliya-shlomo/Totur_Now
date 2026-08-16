@@ -20,7 +20,7 @@
     "start": "node src/index.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.0",
+    "@anthropic-ai/sdk": "^0.117.1",
     "@prisma/client": "^6.0.0",
     "@tutor/shared": "*",
     "bcrypt": "^6.0.0",
