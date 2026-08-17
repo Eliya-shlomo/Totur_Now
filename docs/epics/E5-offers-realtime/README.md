@@ -114,13 +114,14 @@ now answers "may a later PR open this?" rather than "whose is it?".
 | `server/src/routes/offer.routes.js` | **New, and frozen after 5.1.** `POST /offers/:id/accept`, `POST /offers/:id/reject`. A second router because §12 puts these on a different mount — see "Why two routers". | 5.1 |
 | `server/src/repositories/offer.repository.js` | **New, and frozen after 5.1.** Every query the epic needs, written before any of them is called. The one deliberate gap is the conditional `updateMany` that is the lock itself, which is 5.3's and is the only thing 5.3 may add here. | 5.1 |
 | `server/src/repositories/session.repository.js` | **New, and frozen after 5.1.** Session reads and the state transitions. Nothing outside `session.*.service.js` writes `status`. | 5.1 |
-| `server/src/sockets/` | **New directory, created in 5.1.** `index.js` (the server and its JWT handshake), `rooms.js` (`user:{userId}`, `session:{sessionId}`), `events.js` (emitters, one function per §13 event). No controller ever calls `io.emit` directly. | 5.1 |
+| `server/src/sockets/` | **New directory, created in 5.1.** `index.js` (the server and its JWT handshake), `rooms.js` (`user:{userId}`, `session:{sessionId}`), `events.js` (emitters, one function per §13 event). No controller ever calls `io.emit` directly. **5.2 reopened two of them, by decision and not by drift**: `index.js` registers the heartbeat listener, and `events.js`'s `emitTeacherStatus` became a broadcast — 5.1 wrote it to the teacher's own room, which no student can hear, and §13 addresses that event to students. The reasoning is in the emitter's header, where the next person will actually meet it. | 5.1, then 5.2 |
 | `server/src/config/constants/session.js` | **E5 owns it, and only 5.1 opens it.** One appended value, `OFFER_STATUS`; the ten already there are not edited and none is re-typed as a literal anywhere in this epic. | 5.1 |
 | `server/src/config/constants/index.js` | Not touched. `session.js` is already in the barrel. | — |
 | `shared/api.d.ts` | Append-only, one `// ── E5` block, written once in 5.1. The E4 block is not widened and not edited. | 5.1 |
 | `shared/socketEvents.js` | **New, and the reason it is in `shared/`** is the reason `errorCodes.js` is: two drifting lists of event names is a silent bug, and the client switches on the same strings the server emits. Append-only, alphabetical. | 5.1 |
 | `shared/errorCodes.js` | **Not touched.** `TEACHER_UNAVAILABLE`, `OFFER_EXPIRED`, `SESSION_NOT_ACTIVE`, `INSUFFICIENT_CREDIT` all already exist, with the right statuses. E5 is the first thrower of the first two. | — |
-| `server/src/validators/teacher.me.schema.js` | **Not touched, and this is worth a sentence.** `SETTABLE_STATUSES` is `['OFFLINE','ONLINE']` — a teacher may not hand-set `OFFER_LOCKED` or `IN_SESSION`, which is correct, and it means **E5 opens no E2 file at all**. The system writes those two through E5's own repository. | — |
+| `server/src/validators/teacher.me.schema.js` | **Not touched, and this is worth a sentence.** `SETTABLE_STATUSES` is `['OFFLINE','ONLINE']` — a teacher may not hand-set `OFFER_LOCKED` or `IN_SESSION`, which is correct. The system writes those two through E5's own repository. | — |
+| `server/src/controllers/teacher.me.controller.js` | **E2's, and 5.2 opens it — the one E2 file E5 touches.** §13 says a teacher's own toggle emits `teacher:status`, and a `PATCH` is HTTP: nothing in the socket layer can observe it, so the announcement has to be made where the write is known to have succeeded. Two lines after `res.json`, guarded on the request having said anything about `status`, calling a service. The service, the schema and the repository underneath are untouched, and the endpoint's status codes, payload and validation are what they were. | 5.2 |
 | `server/src/repositories/matching.repository.js` | **Not touched.** E4's, frozen since 4.2. E5 writes `rejected_by`; E4 reads it. The write lives in `offer.repository.js`. | — |
 | `prisma/schema/*.prisma` | **No migration is planned, and the claim has been checked** — see the eight gaps below, all of which resolve without one. `Offer.status` is the only tempting candidate and the temptation is answered there. | — |
 | `prisma/seed/questions.js` | **New in 5.1**, carried from E4's F5. Two `PENDING` demo questions, written as upserts like the rest of the seed. | 5.1 |
@@ -189,7 +190,7 @@ private window, or a second browser.
 | # | PR | Size | Depends on | Status |
 |---|---|---|---|---|
 | 5.1 | [Offer core: frozen routers and repositories, Socket.IO with the JWT handshake, seeded demo questions](PR-5.1-offer-core.md) | **human** · L | E4 | ☑ |
-| 5.2 | [Availability heartbeat, `last_seen_at`, `teacher:status` broadcast](PR-5.2-presence-heartbeat.md) | S | 5.1 | ☐ |
+| 5.2 | [Availability heartbeat, `last_seen_at`, `teacher:status` broadcast](PR-5.2-presence-heartbeat.md) | S | 5.1 | ☑ |
 | 5.3 | [**`POST /sessions/:id/offer` — the atomic teacher lock**](PR-5.3-atomic-offer.md) | **human** · M | 5.1 | ☐ |
 | 5.4 | [Accept / reject, lock release, `rejected_by`](PR-5.4-accept-reject.md) | M | 5.3 | ☐ |
 | 5.5 | [Cron: offer expiry + auto-away](PR-5.5-cron-expiry-away.md) | M | 5.3 | ☐ |
@@ -285,6 +286,16 @@ does not run.
 cron's. The 55 is a `teacher:status`-adjacent event to one connected user, and it is 5.2's,
 because 5.2 owns `last_seen_at` and is the only PR that knows what "activity" means. Both
 constants already exist in `constants/session.js`.
+
+**Amended when 5.2 landed: the 55-minute warning is 5.5's, not 5.2's.** 5.2 has no clock.
+Firing the warning from the heartbeat path means either a per-socket timer — which a
+heartbeat resets, so on an open dashboard it never fires — or reading `last_seen_at` to
+decide, which 5.2's own review checklist forbids for the reason that two readers of a
+freshness rule drift. 5.5 already sweeps on `last_seen_at` every `CRON_TICK_SECONDS` and
+already holds the one reader; the warning is the same query with a different threshold and
+an emit instead of an update. **5.5 owns both numbers**, and the event is still
+`teacher:status` carrying the teacher's *current* status, exactly as §10 asked — the client
+decides that "you are still ONLINE and we are asking" is a modal.
 
 ## Contract freeze
 

@@ -1,3 +1,4 @@
+import { publishTeacherStatus } from '#services/presence.service.js';
 import { getTeacherMe, updateTeacherMe } from '#services/teacher.me.service.js';
 
 /**
@@ -39,9 +40,30 @@ export async function getMe(req, res) {
  *
  * `req.body` is what `validate(teacherUpdateSchema)` wrote back: coerced, stripped, and
  * guaranteed non-empty. An empty body never reaches here.
+ *
+ * **PR 5.2 added the last two lines and changed nothing above them.** The status code,
+ * the payload and the validation are what they were; `publishTeacherStatus` is a side
+ * effect of a response that has already gone out. It is here rather than inside
+ * `teacher.me.service.js` because that file is E2's and this PR opens no E2 service —
+ * and the layering holds either way, since a controller calling a service is the
+ * arrangement CONVENTIONS.md asks for.
+ *
+ * It runs **after** `res.json` and is not awaited, which is deliberate on both counts:
+ * a teacher whose socket server is unwell still gets their 200, and
+ * `publishTeacherStatus` returns void and reports its own failures, so there is no
+ * promise here to leave unhandled.
+ *
+ * The status is read off the response body — the row as it now is, after the write —
+ * rather than off `req.body`, which is a partial and says nothing about `status` on a
+ * request that only changed a bio. That is also what makes the guard right: a `PATCH`
+ * that did not touch availability broadcasts nothing.
  */
 export async function patchMe(req, res) {
   const teacher = await updateTeacherMe(req.user.id, req.body);
 
   res.status(200).json({ success: true, data: teacher });
+
+  if (req.body.status !== undefined) {
+    publishTeacherStatus(req.user.id, teacher.status);
+  }
 }

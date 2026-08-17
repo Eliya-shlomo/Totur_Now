@@ -109,6 +109,35 @@ client/**                                       5.7 consumes this
 - Confirm nothing in this PR reads `last_seen_at` to make a decision. The sweep is 5.5's, and two readers of a freshness rule drift.
 - Confirm the broadcast-to-everyone choice carries its explanation in the code, not only here.
 
+## Amendments made while implementing
+
+Four, each decided before code was written rather than discovered afterwards.
+
+**The allowlist gained two files.** `server/src/sockets/events.js`, because the broadcast
+decision below is an edit to an emitter 5.1 froze, and
+`server/src/controllers/teacher.me.controller.js`, because §13's toggle path is HTTP and
+nothing in the socket layer can observe a `PATCH`. Both are named in the epic README's
+shared-file table with the rule that now applies to them.
+
+**`emitTeacherStatus` became a broadcast.** 5.1 shipped it addressed to the teacher's own
+room, with a header arguing against a broadcast; this brief asked for one. The brief wins:
+an event only the teacher themselves can hear cannot do the job §13 gives it, and this
+brief's own manual test — a student's socket seeing a teacher go `OFFLINE` — is
+unsatisfiable otherwise. The reasoning, including what would have to change before a
+heartbeat may ever emit a status, is in the emitter's header.
+
+**The 55-minute "Still there?" warning moved to 5.5.** 5.2 has no clock. A per-socket timer
+is reset by the heartbeat, so on an open dashboard it never fires; the alternative is
+reading `last_seen_at` to decide, which this brief's own review checklist forbids. 5.5
+already sweeps that column on a tick and is already its one reader. Recorded in the epic
+README, gap 8.
+
+**A fifth file, `server/src/services/presence.debounce.js`.** `npm test` is bare
+`node --test` with no database, so a test that imports `presence.service.js` imports
+`PrismaClient`. The debounce is the only part of this PR with branches worth asserting and
+it depends on nothing but a clock, so it is its own module and `presence.test.js` imports
+that and nothing else.
+
 ## Notes
 
 **Why the debounce is safe.** `AUTO_AWAY_MINUTES` is 60 and the write threshold is half of it,

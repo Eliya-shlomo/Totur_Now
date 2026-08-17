@@ -25,7 +25,9 @@ import { userRoom } from './rooms.js';
  *
  * **They take a recipient, never a socket.** Addressed to a person, delivered to
  * every tab that person has open. A teacher with the dashboard in two windows must
- * raise the modal in both, and must see it clear in both.
+ * raise the modal in both, and must see it clear in both. `emitTeacherStatus` is the
+ * one exception and it still takes an id rather than a socket — see its header for
+ * why it goes to everybody.
  *
  * **They never throw into the caller.** Every one of these is a side effect of a
  * transaction that has already committed. An offer that 500s because a socket server
@@ -41,8 +43,11 @@ import { userRoom } from './rooms.js';
 /**
  * Emits to one user's room, swallowing a transport failure.
  *
- * The single point where `emit` is called, so the "no `io.emit` outside this
- * directory" rule has one line to enforce rather than five.
+ * The single point where an addressed `emit` is called, so the "no `io.emit` outside
+ * this directory" rule has one line to enforce rather than five. `emitTeacherStatus`
+ * is the one function that does not go through it, because it is the one event with
+ * no recipient — it writes its own two lines rather than taking a room name it would
+ * have to invent.
  *
  * @param {string} userId
  * @param {string} event one of SOCKET_EVENTS
@@ -124,19 +129,46 @@ export function emitOfferRejected(studentId, payload) {
  * `teacher:status` — a teacher's availability changed. 5.2's, and the one event here
  * that is not about a specific offer.
  *
- * Addressed to the teacher's own room and not broadcast: it is how their own tabs
- * agree with each other about a pill that says ONLINE. A student watching a match
- * list does not get it — E4's list is a snapshot the student refreshes, and pushing
- * every teacher's every status change to every browsing student would be a broadcast
- * per heartbeat.
+ * **This one goes to every connected socket, and the reason is that there is nowhere
+ * else to send it.** §13 addresses it to "students in selection", and E5 has no such
+ * room: the only room in the epic is `user:{userId}`, joined at handshake time from
+ * the verified identity, and a student browsing a match list is not identified by
+ * anything the server can turn into a room name. The alternative is a room per
+ * teacher that students join when a match list renders and leave when it does not —
+ * a subscription lifecycle, with a join, a leave, a reconnect path and a leak when
+ * the leave is missed. At fifteen teachers and a demo, the honest implementation is
+ * to send it to everybody and let each client ignore the ids it is not looking at.
  *
- * 5.2 also uses it for the "Still there?" prompt at `AUTO_AWAY_WARNING_MINUTES`,
- * which is a status-adjacent message to one connected user and needs no second event
- * name.
+ * **This is a scale-shaped decision, not a permanent one.** The payload carries no
+ * secret — a teacher's availability is on their public card as `isOnline` — so
+ * broadcasting it leaks nothing. What it costs is one frame per connected socket per
+ * status change, which is fine while status changes are toggles and offers and awful
+ * if a heartbeat ever starts emitting one. **Nothing in 5.2 emits from the heartbeat
+ * path**, and that is the invariant to keep: if a future PR wants per-beat status,
+ * the room per teacher has to be built first.
  *
- * @param {string} teacherId
+ * The teacher's own tabs are inside "everybody", so the pill on their dashboard still
+ * agrees with itself across windows.
+ *
+ * `teacherId` stays in the payload as well as being the parameter, because the
+ * recipient is no longer the subject: every client receives every teacher's changes
+ * and has to know whose this is.
+ *
+ * @param {string} teacherId whose status moved — in the payload, not the address
  * @param {{teacherId: string, status: string}} payload
  */
 export function emitTeacherStatus(teacherId, payload) {
-  emitToUser(teacherId, SOCKET_EVENTS.TEACHER_STATUS, payload);
+  try {
+    getIo().emit(SOCKET_EVENTS.TEACHER_STATUS, payload);
+    logger.debug('Socket event broadcast', { event: SOCKET_EVENTS.TEACHER_STATUS, teacherId });
+  } catch (error) {
+    // Same swallow as `emitToUser`, for the same reason: this is a side effect of a
+    // committed write, and a status change that 500s because the socket server
+    // hiccuped is a worse product than a pill that is stale until the next fetch.
+    logger.error('Socket broadcast failed', {
+      event: SOCKET_EVENTS.TEACHER_STATUS,
+      teacherId,
+      message: error?.message,
+    });
+  }
 }
