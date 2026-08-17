@@ -33,3 +33,24 @@ export const NO_SHOW_WINDOW_SEC = 60;
 
 /** Background jobs tick at this interval. MVP.md §13. */
 export const CRON_TICK_SECONDS = 10;
+
+/**
+ * The four values `offers.status` takes. Appended in PR 5.1, and the only edit E5
+ * makes to this file.
+ *
+ * A frozen object rather than a Prisma enum, because the column is a `VarChar(20)`
+ * and stays one — see docs/epics/E5-offers-realtime/README.md, gap 1: making it an
+ * enum costs a migration and buys no behaviour. That decision is exactly why the
+ * values need a home. `SessionStatus` and `TeacherStatus` are enums, so Prisma's
+ * generated types keep those two honest; nothing keeps a string column honest except
+ * this object, read by the Zod schema on the way in and by the repository on the way
+ * out.
+ *
+ * No PR in E5 writes any of these four as a literal anywhere else.
+ */
+export const OFFER_STATUS = Object.freeze({
+  PENDING: 'PENDING',
+  ACCEPTED: 'ACCEPTED',
+  REJECTED: 'REJECTED',
+  EXPIRED: 'EXPIRED',
+});

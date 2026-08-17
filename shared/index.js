@@ -8,3 +8,4 @@
  */
 
 export { ERROR_CODES, ERROR_STATUS } from './errorCodes.js';
+export { SOCKET_EVENTS } from './socketEvents.js';

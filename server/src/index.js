@@ -1,5 +1,6 @@
 import { disconnectDb } from '#config/db.js';
 import { env } from '#config/env.js';
+import { closeSockets, initSockets } from '#sockets/index.js';
 import { logger } from '#utils/logger.js';
 
 import { app } from './app.js';
@@ -26,6 +27,18 @@ const server = app.listen(env.PORT, () => {
     corsOrigins: env.corsOrigins,
   });
 });
+
+/**
+ * Socket.IO on the same listener (PR 5.1).
+ *
+ * The same HTTP server, not a second port: a socket connection starts as an HTTP
+ * request and upgrades, so it has to reach the listener Express is already on. A
+ * second one would mean a second Render service, a second URL, and a second CORS
+ * list to keep in step with this one.
+ *
+ * It authenticates every handshake and, as of this PR, emits nothing.
+ */
+initSockets(server);
 
 /**
  * Graceful shutdown.
@@ -55,6 +68,11 @@ async function shutdown(signal) {
   forceExit.unref();
 
   try {
+    // Sockets first, and the order is not cosmetic. `server.close()` waits for
+    // in-flight connections to finish, and a WebSocket is by design a connection that
+    // never finishes on its own — draining HTTP first would hang until the timeout
+    // above fires, on every single deploy.
+    await closeSockets();
     await new Promise((resolve, reject) => {
       server.close((err) => (err ? reject(err) : resolve()));
     });

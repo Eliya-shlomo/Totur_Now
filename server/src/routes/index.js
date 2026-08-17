@@ -2,8 +2,10 @@ import { Router } from 'express';
 
 import { authRoutes } from '#routes/auth.routes.js';
 import { matchingRoutes } from '#routes/matching.routes.js';
+import { offerRoutes } from '#routes/offer.routes.js';
 import { publicRoutes } from '#routes/public.routes.js';
 import { questionRoutes } from '#routes/question.routes.js';
+import { sessionRoutes } from '#routes/session.routes.js';
 import { teacherRoutes } from '#routes/teacher.routes.js';
 
 /**
@@ -32,6 +34,8 @@ export const apiRoutes = Router();
 // Append below, alphabetically. One line each.
 apiRoutes.use('/auth', authRoutes);
 
+apiRoutes.use('/offers', offerRoutes);
+
 apiRoutes.use('/public', publicRoutes);
 
 apiRoutes.use('/questions', questionRoutes);
@@ -40,5 +44,7 @@ apiRoutes.use('/questions', questionRoutes);
 // falls through it into the second. `question.routes.js` is frozen after 3.1 and E4
 // does not unfreeze it (PR 4.1). Neither line is dead — do not delete either.
 apiRoutes.use('/questions', matchingRoutes);
+
+apiRoutes.use('/sessions', sessionRoutes);
 
 apiRoutes.use('/teachers', teacherRoutes);
