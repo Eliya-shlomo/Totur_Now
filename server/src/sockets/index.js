@@ -4,6 +4,7 @@ import { env } from '#config/env.js';
 import { logger } from '#utils/logger.js';
 
 import { socketAuth } from './auth.js';
+import { registerPresenceHandlers } from './handlers.presence.js';
 
 /**
  * The Socket.IO server. Created in PR 5.1, and **it emits nothing until 5.2.**
@@ -62,8 +63,11 @@ export function initSockets(httpServer) {
   io.use(socketAuth);
 
   io.on('connection', (socket) => {
-    // Nothing else is wired here on purpose. 5.2 adds the `teacher:heartbeat`
-    // listener, and it is the only client → server event in the epic.
+    // `teacher:heartbeat` — the only client → server event in the epic, added in 5.2.
+    // A student's socket gets no listener at all; the role check is inside, at the
+    // boundary, rather than here where every later handler would have to repeat it.
+    registerPresenceHandlers(socket);
+
     socket.on('disconnect', (reason) => {
       logger.debug('Socket disconnected', {
         socketId: socket.id,
