@@ -169,13 +169,31 @@ owns the screen. Neither opens the other's service.
 | # | PR | Owner | Size | Depends on | Status |
 |---|---|---|---|---|---|
 | 4.1 | [Matching core: frozen router, repository, scoring seam](PR-4.1-matching-core.md) | DEV-A · **human** | M | E3 (3.1–3.7) | ☑ |
-| 4.2 | [Candidate pool — §9.1 hard filters](PR-4.2-candidate-pool.md) | DEV-A | M | 4.1 | ☑ |
+| 4.2 | [Candidate pool — §9.1 hard filters](PR-4.2-candidate-pool.md) | DEV-A, **delivered by DEV-B** | M | 4.1 | ☑ |
 | 4.3 | [`bayesian()` + `getPlatformAverages()`](PR-4.3-bayesian-averages.md) | DEV-B | S | 4.1 | ☑ |
 | 4.4 | [Credit-to-minutes and the price ceiling control](PR-4.4-credit-minutes.md) | DEV-A | M | 4.1 | ☑ |
 | 4.5 | [`GET /questions/:id/matches`](PR-4.5-matches-endpoint.md) | DEV-A | M | 4.2 | ☑ |
 | 4.6 | [`matching.scoring` — full scoring per §9.2](PR-4.6-scoring.md) | DEV-B | L | 4.3 | ☑ |
 | 4.7 | [Teacher selection screen](PR-4.7-selection-screen.md) | DEV-B | L | 4.4, 4.5, 4.6 | ☑ |
-| 4.8 | [E4 close: verification + retro](PR-4.8-e4-close.md) | DEV-A | S | 4.2–4.7 | ☐ |
+| 4.8 | [E4 close: verification + retro](PR-4.8-e4-close.md) | DEV-A, **closed by DEV-B** | S | 4.2–4.7 | ◐ |
+
+[`RETRO.md`](RETRO.md) is written and its repository-evidenced sections are final: the seam
+held, the freeze held a fourth time, the 4.7 wait was absorbed, and the `TEACHER_VIEW`
+export cost nothing. **"The checklist, as run" is not yet filled in** — it takes the
+recorded output of the pass, and a table of ticks without values is the thing E2's retro
+exists to prevent. 4.8 flips to ☑ when those values land.
+
+Three things the epic found, recorded here so the table does not have to be read alongside
+the retro to be true:
+
+- **§18's acceptance criterion fails.** With Gil V. and Shira G. `ONLINE`, the endpoint
+  returns Gil first. `globalRating` is the one §9.2 component left unsmoothed. Its own PR,
+  DEV-B's, against `matching.scoring.js` — 4.8 changes no source.
+- **4.2 was planned for DEV-A and delivered on `dev-b/E4.2-candidate-pool`.** The owner
+  column above now says so, per E1's rule that an owner change is an edit to this table.
+- **4.8 was planned for DEV-A and closed by DEV-B.** The brief's reason for alternating —
+  that the retro's author should not be the person whose arithmetic is described — is
+  therefore not satisfied for the scoring sections. Stated in the retro too.
 
 ### Filler, pre-planned
 
@@ -193,6 +211,17 @@ developer's own area* — otherwise the wait moves rather than disappearing.
 **F1, F3 and F5 all touch `prisma/`, and F1 and F3 carry migrations. Never two in flight**
 (`OWNERSHIP.md` §2) — announce in chat, land one, then the next. If 4.2's measurement
 produces an index, it queues with them.
+
+**State at E4's close, 2026-08-17: none of F1–F5 was done.** F1's seed still writes parent
+rows (`prisma/seed/teachers.js:317`), F2's list still has four copies, F3's `onboarded_at`
+column does not exist, F4's toggle is still keyed on `location.pathname`, and
+`prisma/seed/questions.js` was never created. Four debts entered E3 from E2, four left it,
+E4 added three — F5, the `globalRating` fix, and the classification outage — and finished
+none.
+
+That is four epics of filler being written down and not done, and the retro's reading is
+that the missing condition is not size or ownership — all six qualify — but **a position in
+the order table**. For E5: number the filler and schedule it, or stop listing it.
 
 **DEV-A's filler is thinner than DEV-B's, deliberately.** DEV-A carries five PRs to DEV-B's
 three and the two L's are both DEV-B's, so DEV-A's slack is review time on 4.6 and 4.7 —
@@ -526,6 +555,12 @@ replaces in a file it already owns. The `sessionId` E5 will need is already in t
   **three** teachers on the seed as it stands, and the criterion is invisible through the
   endpoint. 4.6 pins it as a unit test on `rankCandidates` with the seed's own numbers, and
   4.8 runs it end to end after flipping Gil and Shira `ONLINE` locally and reverting.
+
+  **Outcome: the risk was real and the criterion fails.** Flipped `ONLINE`, the endpoint
+  returns **Gil first** — Gil ≈ 0.793 against Dana ≈ 0.765. `globalRating` is unsmoothed, so
+  one 5-star scores a full 1.0 at weight 0.2 and `newTeacherBoost` adds 0.05. 4.6's unit
+  tests all pass; `topicFit` is smoothed and does favour Dana. Writing this risk down is
+  what turned the defect into a named finding instead of a demo. Its fix is DEV-B's own PR.
 - **Prisma `Decimal` does not do arithmetic with `*`.** The four `teacher_topic_stats`
   columns come back as `Prisma.Decimal`. A scoring function that multiplies one by a weight
   produces something that is neither a number nor an error — it produces a ranking that is
@@ -538,6 +573,13 @@ replaces in a file it already owns. The `sessionId` E5 will need is already in t
   product's answer (§6.1: nothing is verified; §8.1: classification must not block the
   flow), but it is also the path most likely to be seen during a demo, because a Gemini quota
   error produces it. It must be walked deliberately in 4.8, not discovered.
+
+  **Outcome: it was the only path available.** Classification failed for every question
+  during 4.8's pass — cause not yet established, filed separately — so every question landed
+  on the sentinel. An unplanned live test of §8.1's fallback and of this branch, and the
+  third time the fallback has fired for real. A classified question is reachable meanwhile
+  through 3.5's override endpoint, which is the path the product already gives a student who
+  disagrees with the machine.
 - **Every score is identical on a database with no history.** New platform, new teachers:
   the smoothed components all collapse to the prior and only `new_teacher_boost` varies. Two
   calls must still return the same five teachers in the same order, or the price control and
