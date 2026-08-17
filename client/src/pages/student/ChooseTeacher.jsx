@@ -278,7 +278,18 @@ function QuestionHeading({ questionId, heading, level, walletBalance }) {
 
       <Group gap="xs" wrap="wrap" align="center">
         {heading.label ? (
-          <Badge variant="light" size="lg" radius="sm">
+          // The label wraps rather than truncating. Mantine clips a `Badge` at its
+          // container, and at 375px "Calculus — Integrals · Integration by parts"
+          // clips to "…INTEGRATION BY PA…" — losing the leaf, which is the one thing
+          // this line exists to say and the thing the whole match list was built on.
+          <Badge
+            variant="light"
+            size="lg"
+            radius="sm"
+            h="auto"
+            styles={{ label: { whiteSpace: 'normal', overflow: 'visible' } }}
+            py={4}
+          >
             {heading.label}
           </Badge>
         ) : (
