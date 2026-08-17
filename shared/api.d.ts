@@ -418,3 +418,56 @@ export interface MatchesResponse {
    */
   walletBalance: number;
 }
+
+// ── E5 ──────────────────────────────────────────────────────────────────────
+// Frozen in docs/epics/E5-offers-realtime/README.md § "Contract freeze", and copied
+// here verbatim in PR 5.1. E5 has one developer, so this block is not settling an
+// argument between two tracks — it is settling one between two *consumers*, the
+// client and the server, which stay two even when one person writes both. E2 shipped
+// three defects of the class "two subsystems disagree" and E4 shipped a fourth, and
+// none of the four was caught by the person who wrote the code. Changing anything
+// below is a note in the PR before the code.
+//
+// The socket contract is not here. Event names live in `shared/socketEvents.js`,
+// which is JavaScript because both sides import the values rather than the types.
+
+/** `PENDING` until the teacher answers or the clock runs out. */
+export type OfferStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
+
+/**
+ * What the student's awaiting screen renders, and what `POST /sessions/:id/offer`
+ * answers with.
+ *
+ * **`expiresAt` is absolute and server-issued.** The countdown is computed from it
+ * on every tick rather than from a client-side `setTimeout` seeded once: a phone
+ * that sleeps for thirty seconds must wake up showing the right number, and a
+ * client clock that is two minutes fast must not expire the offer early.
+ */
+export interface OfferResponse {
+  offerId: string;
+  sessionId: string;
+  status: OfferStatus;
+  /** ISO 8601, UTC. `createdAt + OFFER_TTL_SECONDS`. */
+  expiresAt: string;
+  teacher: TeacherCard;
+  /** The price snapshotted onto the session, in credits per block. */
+  pricePerBlock: number;
+}
+
+/**
+ * One row in the teacher's incoming-offer modal — §13's `offer:new` payload,
+ * and the shape `GET /sessions/:id` answers with for the teacher's side.
+ *
+ * `brief` is E3's `teacher_brief`, which is the student's own words when the
+ * classifier fell back. It is shown, never re-summarised here.
+ */
+export interface IncomingOffer {
+  offerId: string;
+  sessionId: string;
+  brief: string;
+  topicLabel: string | null;
+  level: number | null;
+  /** What this offer is worth to the teacher after §5.3's commission. */
+  expectedEarning: number;
+  expiresAt: string;
+}

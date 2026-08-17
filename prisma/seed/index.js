@@ -7,6 +7,7 @@ import { prisma, SEED_PASSWORD, log } from './helpers.js';
 import { seedTopics } from './topics.js';
 import { seedTeachers } from './teachers.js';
 import { seedStudents } from './students.js';
+import { seedQuestions } from './questions.js';
 
 /**
  * `npm run db:seed`, and automatically after `prisma migrate reset`.
@@ -17,8 +18,10 @@ import { seedStudents } from './students.js';
  * place. The only exception is the id-0 "General / Unclassified" topic, whose value
  * is part of the classifier contract.
  *
- * Order matters exactly once: topics before teachers, because a teacher's declared
- * topics and per-topic stats reference topic ids the first step generates.
+ * Order matters twice now: topics before teachers, because a teacher's declared
+ * topics and per-topic stats reference topic ids the first step generates — and
+ * students before questions, because a demo question is owned by a seeded student and
+ * is looked up by that student's id.
  */
 async function main() {
   console.log('\nSeeding TutorNow…\n');
@@ -28,6 +31,7 @@ async function main() {
 
   await seedTeachers(topicIdBySlug);
   await seedStudents();
+  await seedQuestions(topicIdBySlug);
 
   console.log(`\nDone. Every demo account uses the password: ${SEED_PASSWORD}\n`);
 }

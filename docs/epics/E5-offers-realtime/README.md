@@ -188,7 +188,7 @@ private window, or a second browser.
 
 | # | PR | Size | Depends on | Status |
 |---|---|---|---|---|
-| 5.1 | [Offer core: frozen routers and repositories, Socket.IO with the JWT handshake, seeded demo questions](PR-5.1-offer-core.md) | **human** · L | E4 | ☐ |
+| 5.1 | [Offer core: frozen routers and repositories, Socket.IO with the JWT handshake, seeded demo questions](PR-5.1-offer-core.md) | **human** · L | E4 | ☑ |
 | 5.2 | [Availability heartbeat, `last_seen_at`, `teacher:status` broadcast](PR-5.2-presence-heartbeat.md) | S | 5.1 | ☐ |
 | 5.3 | [**`POST /sessions/:id/offer` — the atomic teacher lock**](PR-5.3-atomic-offer.md) | **human** · M | 5.1 | ☐ |
 | 5.4 | [Accept / reject, lock release, `rejected_by`](PR-5.4-accept-reject.md) | M | 5.3 | ☐ |
