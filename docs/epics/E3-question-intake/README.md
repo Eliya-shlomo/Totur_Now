@@ -107,7 +107,22 @@ endpoint the confirmation screen patches. Neither opens the other's controller.
 | 3.5 | [`GET /questions/:id` + `PATCH /questions/:id/classification`](PR-3.5-classification-override.md) | DEV-B | S | 3.4 | ☑ |
 | 3.6 | [Question form screen — text + image, camera-first](PR-3.6-question-form-screen.md) | DEV-A | M | 3.2, 3.4 | ☑ |
 | 3.7 | [Classification confirmation screen](PR-3.7-classification-screen.md) | DEV-B | M | 3.5, 3.6 | ☑ |
-| 3.8 | [E3 close: verification + retro](PR-3.8-e3-close.md) | DEV-B | S | 3.2–3.7 | ☐ |
+| 3.8 | [E3 close: verification + retro](PR-3.8-e3-close.md) | DEV-B | S | 3.2–3.7 | ◐ |
+
+**3.8 is half done.** [`RETRO.md`](RETRO.md) is written — the process questions are answered
+from the repository — but **none of the 32 checklist items has been run**, so nothing in this
+epic has been verified end to end. The retro says so in as many words rather than reading as a
+close. Same symbol and same reason as E2's 2.7, and the same rule applies: the pass runs before
+E5 opens, by whichever developer is not closing it.
+
+The two claims below that the retro corrects, so this table stops disagreeing with itself:
+
+- **F1 and F3 are not E4 gates.** 3.8's brief said "E4 must not start until F1 and F3 are
+  merged". E4 checked that against the code and rejected it — a parent row in `teacher_topics`
+  is inert under E4's topic filter, and E4 does not filter on `onboardingComplete` at all. E4
+  ran to 4.7 with neither merged and neither blocked anything. The "**E4 reads this column**"
+  and "**E4 uses the flag**" notes in the filler table below are wrong for that reason.
+- **All four filler items are still open** as of 2026-08-17, and E4 added a fifth.
 
 ### Filler, pre-planned
 
