@@ -185,9 +185,15 @@ export async function findSessionForView(sessionId) {
  * @param {import('@prisma/client').Prisma.TransactionClient} tx
  * @returns {Promise<{locked: boolean}>} `false` means somebody else won the race
  */
-// eslint-disable-next-line no-unused-vars -- the signature is 5.1's freeze; the body is 5.3's
 export async function lockTeacherForOffer(teacherId, tx) {
-  throw AppError.notImplemented('lockTeacherForOffer');
+  const { count } = await tx.teacherProfile.updateMany({
+    where: { userId: teacherId, status: 'ONLINE' },
+    data: { status: 'OFFER_LOCKED' },
+  });
+
+  // `=== 1` rather than `> 0`: `userId` is the primary key, so a match of two is not
+  // a thing that can happen, and the stricter comparison says so.
+  return { locked: count === 1 };
 }
 
 /**

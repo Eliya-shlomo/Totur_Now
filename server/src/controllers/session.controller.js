@@ -1,3 +1,4 @@
+import { sendOffer as sendSessionOffer } from '#services/session.offer.service.js';
 import { AppError } from '#utils/AppError.js';
 
 /**
@@ -20,7 +21,12 @@ import { AppError } from '#utils/AppError.js';
  */
 
 /**
- * `POST /sessions/:id/offer` — 200 `OfferResponse`. **The epic's whole risk.**
+ * `POST /sessions/:id/offer` — 201 `OfferResponse`. **The epic's whole risk.**
+ *
+ * **201 and not 200**, which is what 5.3's acceptance criteria assert and what the verb
+ * means: the request creates an `offers` row that the response then identifies by id.
+ * 5.1 wrote 200 in this header before the row existed; the criterion is the harder
+ * contract and 5.8 reads the body either way.
  *
  * 5.3's service is one transaction and the order inside it is the design:
  *
@@ -46,9 +52,25 @@ import { AppError } from '#utils/AppError.js';
  * The email (5.6) and the `offer:new` emit are side effects of the *committed*
  * transaction, never steps inside it. An offer that 500s because Resend is down is a
  * worse product than an offer with no email.
+ *
+ * **Filled in by 5.3, and it opened no frozen file to do it.** One service call and the
+ * envelope, exactly as this file's header promised: both announcements live in
+ * `session.offer.service.js` below the commit, so there is nothing after `res` here to
+ * leave as an unhandled rejection on a request that already succeeded.
+ *
+ * Every argument comes from somewhere the client cannot forge. `req.user.id` is the
+ * token's — `sendOfferSchema` is `.strict()` and could not carry one anyway — and
+ * `req.body.teacherId` is the only field the body is allowed to have. **The price is
+ * not among them**, deliberately: the service reads it off the teacher's own row.
  */
-export async function sendOffer() {
-  throw AppError.notImplemented('POST /sessions/:id/offer');
+export async function sendOffer(req, res) {
+  const offer = await sendSessionOffer({
+    sessionId: req.params.id,
+    studentId: req.user.id,
+    teacherId: req.body.teacherId,
+  });
+
+  res.status(201).json({ success: true, data: offer });
 }
 
 /**
