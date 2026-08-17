@@ -2,7 +2,7 @@ import { Anchor, Badge, Card, Group, SimpleGrid, Stack, Text, Title } from '@man
 import { IconArrowLeft, IconStar } from '@tabler/icons-react';
 import { ERROR_CODES } from '@tutor/shared';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { getTeacher } from '@/api/teacher.public.api';
 import ErrorState from '@/components/state/ErrorState';
@@ -20,6 +20,19 @@ import NotFound from '@/pages/NotFound';
  */
 export default function TeacherProfile() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  /**
+   * Whether this screen was reached from somewhere inside the app.
+   *
+   * React Router stamps `key: 'default'` on the first entry of a browsing session
+   * and a real key on every entry pushed after it, so this is "there is a page
+   * behind me" without keeping a trail of our own. A shared link, a new tab and a
+   * bookmark all answer false and get the list; everything else goes back where it
+   * came from.
+   */
+  const cameFromInsideTheApp = location.key !== 'default';
 
   const [teacher, setTeacher] = useState(null);
   const [error, setError] = useState(null);
@@ -73,12 +86,31 @@ export default function TeacherProfile() {
 
   return (
     <Stack gap="xl">
-      <Anchor component={Link} to="/teachers" size="sm">
-        <Group gap={4} align="center">
-          <IconArrowLeft size={14} />
-          All teachers
-        </Group>
-      </Anchor>
+      {/*
+        Back to wherever the visitor was, not always to the public list.
+
+        A student who opened this profile from their match list (`/app/ask/:id/teachers`,
+        PR 4.7) was reading five teachers chosen for their question; sending them to
+        `/teachers` drops them into all fifteen, most of whom are offline or cannot
+        teach that topic, with no way back to the shortlist but the browser's own back
+        button. The list is only the right destination when it is where they actually
+        came from.
+      */}
+      {cameFromInsideTheApp ? (
+        <Anchor component="button" type="button" size="sm" onClick={() => navigate(-1)}>
+          <Group gap={4} align="center">
+            <IconArrowLeft size={14} />
+            Back
+          </Group>
+        </Anchor>
+      ) : (
+        <Anchor component={Link} to="/teachers" size="sm">
+          <Group gap={4} align="center">
+            <IconArrowLeft size={14} />
+            All teachers
+          </Group>
+        </Anchor>
+      )}
 
       <Stack gap="sm">
         <Group justify="space-between" align="flex-start" wrap="wrap" gap="sm">
