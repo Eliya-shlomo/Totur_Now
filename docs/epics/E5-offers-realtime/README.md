@@ -195,7 +195,7 @@ private window, or a second browser.
 | 5.4 | [Accept / reject, lock release, `rejected_by`](PR-5.4-accept-reject.md) | M | 5.3 | ☑ |
 | 5.5 | [Cron: offer expiry + auto-away](PR-5.5-cron-expiry-away.md) | M | 5.3 | ☑ |
 | 5.6 | [Email to the teacher on a new offer](PR-5.6-offer-email.md) | S | 5.3 | ☑ |
-| 5.7 | [Teacher dashboard — availability toggle + incoming offer modal](PR-5.7-teacher-dashboard.md) | L | 5.2, 5.4 | ☐ |
+| 5.7 | [Teacher dashboard — availability toggle + incoming offer modal](PR-5.7-teacher-dashboard.md) | L | 5.2, 5.4 | ☑ |
 | 5.8 | [Student awaiting-response state + 60-second countdown](PR-5.8-awaiting-response.md) | M | 5.4 | ☐ |
 | 5.9 | [E5 close: verification + retro](PR-5.9-e5-close.md) | S | 5.2–5.8 | ☐ |
 
