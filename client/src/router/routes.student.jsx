@@ -3,6 +3,7 @@ import Placeholder from '@/components/Placeholder';
 import Ask from '@/pages/student/Ask';
 import ChooseTeacher from '@/pages/student/ChooseTeacher';
 import Classifying from '@/pages/student/Classifying';
+import Session from '@/pages/student/Session';
 import ProtectedRoute from '@/router/ProtectedRoute';
 
 /**
@@ -26,7 +27,7 @@ export const studentRoutes = [
       { path: 'ask', element: <Ask /> },
       { path: 'ask/:id/matching', element: <Classifying /> },
       { path: 'ask/:id/teachers', element: <ChooseTeacher /> },
-      { path: 'session/:id', element: <Placeholder title="Active session" pr="6.7" /> },
+      { path: 'session/:id', element: <Session /> },
       { path: 'session/:id/review', element: <Placeholder title="Rate this session" pr="8.4" /> },
       { path: 'wallet', element: <Placeholder title="Wallet" pr="7.7" /> },
       { path: 'history', element: <Placeholder title="Session history" pr="8.6" /> },

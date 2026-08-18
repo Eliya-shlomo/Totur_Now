@@ -1,28 +1,19 @@
-import {
-  Alert,
-  Anchor,
-  Badge,
-  Button,
-  Group,
-  Modal,
-  SimpleGrid,
-  Stack,
-  Text,
-  Title,
-} from '@mantine/core';
+import { Alert, Anchor, Badge, Button, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core';
 import { IconInfoCircle, IconRefresh, IconUsersGroup, IconWallet } from '@tabler/icons-react';
 import { ERROR_CODES } from '@tutor/shared';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { getMatches } from '@/api/matching.api';
 import { getPricing, getTopics } from '@/api/public.api';
 import { getQuestion } from '@/api/question.classification.api';
+import { sendOffer } from '@/api/session.api';
 import MatchCard from '@/components/match/MatchCard';
 import PriceCeiling from '@/components/match/PriceCeiling';
 import EmptyState from '@/components/state/EmptyState';
 import ErrorState from '@/components/state/ErrorState';
 import LoadingState from '@/components/state/LoadingState';
+import { notify } from '@/lib/notify';
 
 /**
  * `/app/ask/:id/teachers` — the five teachers, and the choice. MVP.md §14.1, §14.2.
@@ -92,8 +83,22 @@ export default function ChooseTeacher() {
    */
   const [pendingChoice, setPendingChoice] = useState(null);
 
+  /**
+   * The offer is in flight. **A ref rather than state, on purpose** — see `onChoose`:
+   * it is read and written synchronously, one tick before `pendingChoice` re-renders
+   * the disabled props, and that tick is where a double press lives.
+   */
+  const sendingRef = useRef(false);
+
   /** `'A' | 'B' | 'C'`, or `null` for no band ceiling. The URL is the only copy. */
   const priceBand = searchParams.get('priceBand');
+
+  /**
+   * The `PENDING` session `POST /questions` created alongside the question, and what
+   * E4 matched against. `null` until the question has loaded, which is before any card
+   * — and therefore any button — is on the screen.
+   */
+  const sessionId = context?.question.sessionId ?? null;
 
   const loadContext = useCallback(() => {
     let cancelled = false;
@@ -163,23 +168,99 @@ export default function ChooseTeacher() {
   );
 
   /**
-   * The E5 seam. **Frozen signature — `onChoose({ teacherId, pricePerBlock })`.**
+   * What each way of losing the request looks like, and **none of them is red except
+   * the ones nobody can act on.**
    *
-   * In this PR the body confirms the choice and stops. It creates no session, sends
-   * no request and navigates nowhere, and that is deliberate rather than unfinished:
-   * `POST /sessions/:id/offer`, the atomic teacher lock and the 60-second countdown
-   * are all E5, 5.3 is human-written per §17.5, and §14.1 has no offer screen. A route
-   * invented here would be a route E5 has to either honour or rename; a callback is
-   * one function body E5 replaces in a file it already owns. The `sessionId` it will
-   * need is already on the `QuestionResponse` this screen loaded.
+   * `TEACHER_UNAVAILABLE` is the atomic lock working: another student pressed first, or
+   * the teacher went offline between the list being built and the button being pressed.
+   * That is the product functioning exactly as designed, so it is an informational
+   * toast and a fresh list — the pool has genuinely changed, and re-running the match is
+   * both the correct next step and the proof of it.
    *
-   * The functional update is the double-click guard: a second press in the same tick
-   * keeps the first choice rather than replacing it, so the callback's effect happens
-   * once even before the disabled prop has re-rendered.
+   * `INSUFFICIENT_CREDIT` is the balance having moved since E4 applied its ceiling. The
+   * list is re-run rather than a message invented here: the server answers it with
+   * `reason: INSUFFICIENT_CREDIT`, which is the wallet empty state this screen already
+   * renders, with the amount in it.
+   *
+   * `SESSION_NOT_ACTIVE` means an offer is already out on this question — a reload
+   * re-enables every card, so a second press is an ordinary user action rather than an
+   * attack. The awaiting screen is the truthful place for that student to be, so this
+   * goes there instead of explaining. The session id is the one this screen holds.
    */
-  const onChoose = useCallback((choice) => {
-    setPendingChoice((current) => current ?? choice);
-  }, []);
+  const onSendFailed = useCallback(
+    (error) => {
+      if (error?.is?.(ERROR_CODES.SESSION_NOT_ACTIVE)) {
+        navigate(`/app/session/${sessionId}`);
+
+        return;
+      }
+
+      if (error?.is?.(ERROR_CODES.TEACHER_UNAVAILABLE)) {
+        notify.info(error.message, 'Somebody got there first');
+        loadMatches();
+
+        return;
+      }
+
+      if (error?.is?.(ERROR_CODES.INSUFFICIENT_CREDIT)) {
+        loadMatches();
+
+        return;
+      }
+
+      notify.apiError(error);
+    },
+    [loadMatches, navigate, sessionId],
+  );
+
+  /**
+   * The E5 seam, **closed in 5.8 — and this is the whole of the change to this file.**
+   *
+   * 4.7 froze the signature `onChoose({ teacherId, pricePerBlock })` a whole epic ago
+   * so that E5 would be one function body in a screen it inherits rather than a route
+   * it invents. This is that claim being tested: the body posts the offer and navigates
+   * to `/app/session/:id`, and nothing else on the screen moves.
+   *
+   * **`sessionId` comes off the `QuestionResponse` this screen already loaded.** No
+   * second fetch and no new endpoint: `POST /questions` created the session alongside
+   * the question, and E4 matched against it.
+   *
+   * **The price is not sent**, though it is in the payload the card hands over. The
+   * server reads it off the teacher's own row and snapshots it, so a price on the wire
+   * would be a price the client could choose. It stays in the signature because the
+   * card renders from it and 4.7 froze it.
+   *
+   * **The in-flight latch is a ref, not the state below.** Two presses in the same tick
+   * both read `pendingChoice` as `null` — the disabled prop has not re-rendered yet —
+   * and the second one would take a second atomic lock on a second teacher. The ref is
+   * written synchronously, so the second press returns before it can send anything.
+   *
+   * On success nothing is cleared: the screen unmounts on the navigation. Every failure
+   * clears both, because the student is still here and has to be able to press again.
+   */
+  const onChoose = useCallback(
+    async (choice) => {
+      if (sendingRef.current) return;
+
+      sendingRef.current = true;
+      setPendingChoice(choice);
+
+      try {
+        const offer = await sendOffer(sessionId, { teacherId: choice.teacherId });
+
+        // The awaiting screen re-reads `GET /sessions/:id` on mount rather than being
+        // handed this body, so that a reload is the same screen as an arrival. The id
+        // is the only thing carried across.
+        navigate(`/app/session/${offer.sessionId}`);
+      } catch (error) {
+        sendingRef.current = false;
+        setPendingChoice(null);
+
+        onSendFailed(error);
+      }
+    },
+    [navigate, onSendFailed, sessionId],
+  );
 
   if (contextError) {
     const isMissing = contextError?.is?.(ERROR_CODES.NOT_FOUND);
@@ -204,9 +285,6 @@ export default function ChooseTeacher() {
   const heading = topicHeadingFor(topics, question.classification);
   const level = question.classification.estimatedLevel ?? question.declaredLevel;
   const offerIsOut = matchesError?.is?.(ERROR_CODES.SESSION_NOT_ACTIVE) === true;
-  const chosen = pendingChoice
-    ? matches?.teachers.find((match) => match.teacher.id === pendingChoice.teacherId)
-    : null;
 
   return (
     <Stack gap="lg">
@@ -253,12 +331,6 @@ export default function ChooseTeacher() {
         onChoose={onChoose}
         onRetry={loadMatches}
         onTopUp={() => navigate('/app/wallet')}
-      />
-
-      <ChoiceConfirmation
-        match={chosen}
-        block={pricing.block}
-        onClose={() => setPendingChoice(null)}
       />
     </Stack>
   );
@@ -463,45 +535,6 @@ function MatchResults({
         </Button>
       </Group>
     </Stack>
-  );
-}
-
-/**
- * What pressing "Send request" does in E4: it says what would happen, and stops.
- *
- * The one thing this modal must not do is imply that anything was sent. Nothing was:
- * the offer flow is E5, and `MVP.md` §18's own note about half-built demos applies
- * exactly here — rendering a plausible "request sent!" instead of the honest state is
- * how a demo becomes a lie. So it names the teacher and the real opening-block cost,
- * both of which are true today, and says plainly that the sending part is not built.
- */
-function ChoiceConfirmation({ match, block, onClose }) {
-  const opened = Boolean(match);
-  const openingCost = match ? match.teacher.pricePerBlock * block.openingBlocks : 0;
-
-  return (
-    <Modal opened={opened} onClose={onClose} title="Ready to send" centered>
-      {match && (
-        <Stack gap="sm">
-          <Text>
-            <Text span fw={600}>
-              {match.teacher.fullName}
-            </Text>{' '}
-            costs ₪{match.teacher.pricePerBlock} a block, so the {block.openingMinutes}-minute
-            opening block with them is ₪{openingCost}, charged when they accept.
-          </Text>
-
-          <Text size="sm" c="dimmed">
-            We have not sent anything yet — this is where the request goes out, and that part is
-            still being built.
-          </Text>
-
-          <Group justify="flex-end">
-            <Button onClick={onClose}>Got it</Button>
-          </Group>
-        </Stack>
-      )}
-    </Modal>
   );
 }
 

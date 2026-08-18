@@ -495,8 +495,19 @@ describe('GET /sessions/:id — one route, two shapes', () => {
     assert.equal(view.offerId, OFFER_ID);
     assert.equal(view.status, OFFER_STATUS.PENDING);
     assert.equal(view.pricePerBlock, PRICE_PER_BLOCK);
+
+    // 5.8's recovery link is `/app/ask/:questionId/teachers`, and a reload has nothing
+    // else to build it from. `OfferResponse` has no such field — the deviation is
+    // written on `studentView` and in 5.8's PR description.
+    assert.equal(view.questionId, QUESTION_ID);
     assert.equal(view.teacher.id, TEACHER_ID);
     assert.equal(view.teacher.fullName, 'Dana Levi');
+
+    // The row says `OFFER_LOCKED`, which `toTeacherCard` reads as not online — and it is
+    // this offer doing the locking. "Offline" beside a running countdown tells the
+    // student they asked somebody who is not there. `offerView.js` makes the same call
+    // for the POST body, from the pre-lock row.
+    assert.equal(view.teacher.isOnline, true);
 
     // `brief` is the teacher's field. A student reading their own question does not
     // get the teacher's payload by accident.
