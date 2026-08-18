@@ -25,10 +25,14 @@ import { useSocketEvent } from '@/hooks/useSocketEvent';
  * prevent — would be invisible until it reached production. The client's job here is
  * to be a witness.
  *
- * **No rehydrate on reload.** A teacher who refreshes mid-offer sees no modal, and
- * that is scoped out rather than forgotten: `GET /sessions/:id` answers the teacher's
- * side of a pending offer, and wiring it is a later PR's. The offer expires on its own
- * either way and the lock is released by 5.5.
+ * **A reload no longer loses the offer, and neither does logging in late.** 5.7 scoped
+ * that out — "the offer expires on its own either way" — and end-to-end testing turned
+ * it into the bug that made the teacher's side untestable: the lock is taken, the header
+ * reads "Offer pending", and there is nothing on screen to accept. The server now
+ * re-emits `offer:new` on every teacher handshake (`sockets/handlers.offer.js`), so the
+ * modal is raised by the same event and the same payload whether the frame is the
+ * original or the replay. The only thing this screen had to learn is that a repeated
+ * `offerId` is not a second offer.
  */
 export default function Dashboard() {
   /** `TeacherMeResponse`, for the standing block. Its own read — see `loadTeacher`. */
@@ -70,11 +74,20 @@ export default function Dashboard() {
   /**
    * A student picked this teacher. The payload is `IncomingOffer` in full, including
    * the absolute `expiresAt` the countdown recomputes from.
+   *
+   * **The same `offerId` twice is a replay, not a second offer.** The server re-emits
+   * `offer:new` on every teacher handshake, so that logging in after the student
+   * pressed **Send request** — or reloading, or a socket that dropped and came back —
+   * still raises the modal. A second tab connecting therefore delivers a frame for the
+   * offer this tab is already showing, and the modal must not be rebuilt underneath a
+   * teacher who is reading it.
    */
   useSocketEvent(
     SOCKET_EVENTS.OFFER_NEW,
     useCallback((incoming) => {
       setOffer((current) => {
+        if (current && current.offerId === incoming?.offerId) return current;
+
         if (current) {
           // Loud on purpose, and not a toast: this is not something the teacher can
           // act on, it is a server-side invariant that has just been violated. The

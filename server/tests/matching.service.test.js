@@ -113,6 +113,7 @@ const candidate = (id, overrides = {}) => ({
  */
 function spies({
   questionRow = question(),
+  questionAfterSweep = null,
   pool = {},
   balance = WALLET_BALANCE,
   history = [],
@@ -123,12 +124,23 @@ function spies({
     resolvePool: [],
     loadAverages: [],
     findPositiveHistory: [],
+    sweepExpiredOffers: [],
   };
 
   const deps = {
     findQuestion: async (id) => {
       calls.findQuestion.push(id);
+
+      // The re-read after an on-demand sweep. `questionAfterSweep` is what 5.5's tick
+      // left behind; without one the row is unchanged, which is the offer that is
+      // genuinely still live.
+      if (calls.findQuestion.length > 1 && questionAfterSweep) return questionAfterSweep;
+
       return questionRow;
+    },
+    sweepExpiredOffers: async () => {
+      calls.sweepExpiredOffers.push(true);
+      return { expired: 0 };
     },
     findBalance: async (id) => {
       calls.findBalance.push(id);
@@ -219,6 +231,23 @@ describe('getQuestionMatches — the session guard (§9.5)', () => {
     });
 
     assert.equal(calls.findBalance.length, 0);
+  });
+
+  it('sweeps a dead offer on the read, and answers with the list', async () => {
+    // The student's countdown resolves the instant it hits zero; 5.5's tick runs every
+    // ten seconds. In that gap the column still says `OFFER_SENT` for an offer that is
+    // already dead, and refusing here is what put "this question is already with a
+    // teacher" in front of a student who had just been told to pick somebody else.
+    const { calls, deps } = spies({
+      questionRow: question({ session: { id: 's', status: 'OFFER_SENT' } }),
+      questionAfterSweep: question({ session: { id: 's', status: 'PENDING' } }),
+    });
+
+    const response = await getQuestionMatches(request(), deps);
+
+    assert.equal(calls.sweepExpiredOffers.length, 1);
+    assert.equal(calls.findQuestion.length, 2);
+    assert.equal(response.reason, null);
   });
 
   it('refuses a question whose session row is missing', async () => {

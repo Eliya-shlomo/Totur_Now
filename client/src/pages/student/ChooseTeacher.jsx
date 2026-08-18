@@ -324,6 +324,7 @@ export default function ChooseTeacher() {
         loading={matchesLoading}
         error={matchesError}
         offerIsOut={offerIsOut}
+        sessionId={sessionId}
         matches={matches}
         pricing={pricing}
         subtopicName={heading.subtopicName}
@@ -411,6 +412,7 @@ function MatchResults({
   loading,
   error,
   offerIsOut,
+  sessionId,
   matches,
   pricing,
   subtopicName,
@@ -423,6 +425,13 @@ function MatchResults({
     // Not an error, and not a list. An offer is already out, so the pool this screen
     // would show is a way to double-book a student — the same rule 3.7 states on the
     // previous screen, in the same words.
+    //
+    // **It says what to do now, which it did not.** The old wording ended at "there is
+    // nobody left to choose", on a screen with no button on it: a student who reached
+    // it mid-offer was told they were stuck and given nowhere to go, when the answer is
+    // one press away and it is a screen this epic just built. The waiting screen owns
+    // the countdown, the resolution and the way back to this list, so it is where a
+    // student with an offer out belongs.
     return (
       <Alert
         icon={<IconInfoCircle size={16} />}
@@ -430,8 +439,23 @@ function MatchResults({
         variant="light"
         title="This question is already with a teacher"
       >
-        We have sent it out and we are waiting for an answer, so there is nobody left to choose. Ask
-        a new question if you need a different teacher.
+        <Stack gap="sm" align="flex-start">
+          <Text size="sm">
+            We have sent it out and we are waiting for them to answer, so there is nobody left to
+            choose here. The waiting screen has the clock on it, and it brings you back here if they
+            do not take it.
+          </Text>
+
+          <Group gap="sm">
+            <Button component={Link} to={`/app/session/${sessionId}`} size="sm">
+              Go to the waiting screen
+            </Button>
+
+            <Button component={Link} to="/app/ask" variant="subtle" size="sm">
+              Ask a different question
+            </Button>
+          </Group>
+        </Stack>
       </Alert>
     );
   }

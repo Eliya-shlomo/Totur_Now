@@ -4,6 +4,7 @@ import { env } from '#config/env.js';
 import { logger } from '#utils/logger.js';
 
 import { socketAuth } from './auth.js';
+import { replayOpenOffer } from './handlers.offer.js';
 import { registerPresenceHandlers } from './handlers.presence.js';
 
 /**
@@ -67,6 +68,13 @@ export function initSockets(httpServer) {
     // A student's socket gets no listener at all; the role check is inside, at the
     // boundary, rather than here where every later handler would have to repeat it.
     registerPresenceHandlers(socket);
+
+    // The offer this teacher is already holding, if there is one. `offer:new` is a
+    // live frame and nothing catches it when the teacher's socket did not exist yet —
+    // logging in after the student pressed **Send request** is the ordinary way to
+    // hold a lock with no modal on screen. Fire-and-forget, and it cannot throw: see
+    // the file's header for why a failed replay must never cost the connection.
+    replayOpenOffer(socket);
 
     socket.on('disconnect', (reason) => {
       logger.debug('Socket disconnected', {

@@ -1,6 +1,7 @@
 import rateLimit from 'express-rate-limit';
 
 import { RATE_LIMIT } from '#config/constants/index.js';
+import { env } from '#config/env.js';
 import { ERROR_CODES } from '#config/errors/codes.js';
 import { AppError } from '#utils/AppError.js';
 
@@ -37,14 +38,56 @@ const shared = {
   handler: reject,
 };
 
+/**
+ * How much the strict budget is multiplied by outside production.
+ *
+ * **Ten requests per fifteen minutes is a production number and it makes the app
+ * untestable locally.** One developer on one machine is one IP: a few logins, a
+ * re-registration and three questions is the entire budget, and what follows is a red
+ * "Too many requests" on the ask screen with nothing wrong except that somebody was
+ * working. §15.5's number is about a stranger on the internet, and the whole reason it
+ * is written down is worth keeping — so the limiter stays wired in every environment
+ * and only the budget moves. A runaway loop in development still trips it, three orders
+ * of magnitude later.
+ *
+ * Not `skip`, deliberately: a limiter that is switched off locally is a limiter nobody
+ * exercises until production, and the 429 body's shape is part of the contract.
+ */
+const DEV_BUDGET_MULTIPLIER = 50;
+
+/** The production number, or a working developer's version of it. */
+function limitFor(max) {
+  return env.isProduction ? max : max * DEV_BUDGET_MULTIPLIER;
+}
+
 export const globalLimiter = rateLimit({
   windowMs: RATE_LIMIT.global.windowMs,
-  limit: RATE_LIMIT.global.max,
+  limit: limitFor(RATE_LIMIT.global.max),
   ...shared,
 });
 
-export const strictLimiter = rateLimit({
-  windowMs: RATE_LIMIT.strict.windowMs,
-  limit: RATE_LIMIT.strict.max,
-  ...shared,
-});
+/**
+ * The strict limiter, **and every route that mounts it gets its own counter.**
+ *
+ * It used to be one instance shared by `POST /auth/login`, `POST /auth/register` and
+ * `POST /questions`, which means one budget for three unrelated things: logging in
+ * during testing spent the questions a student could ask, and the 429 arrived on a
+ * screen that had made one request. Signing in is not evidence that somebody is
+ * abusing question creation.
+ *
+ * A factory, so each mount is a separate `rateLimit` instance with a separate store.
+ * The exported `strictLimiter` stays for the two frozen auth routes that already import
+ * it by name; anything new asks for its own.
+ *
+ * @param {number} [max] requests per window, before the development multiplier
+ * @returns {import('express').RequestHandler}
+ */
+export function makeStrictLimiter(max = RATE_LIMIT.strict.max) {
+  return rateLimit({
+    windowMs: RATE_LIMIT.strict.windowMs,
+    limit: limitFor(max),
+    ...shared,
+  });
+}
+
+export const strictLimiter = makeStrictLimiter();

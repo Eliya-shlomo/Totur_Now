@@ -5,6 +5,7 @@ import {
   findQuestionForMatching,
   findWalletBalance,
 } from '#repositories/matching.repository.js';
+import { runOfferExpiry } from '#jobs/offer.expiry.job.js';
 import { getPlatformAverages } from '#services/matching.averages.service.js';
 import { resolveCandidatePool } from '#services/matching.candidates.service.js';
 import { rankCandidates } from '#services/matching.scoring.js';
@@ -64,6 +65,7 @@ const defaultDeps = {
   resolvePool: resolveCandidatePool,
   loadAverages: getPlatformAverages,
   findPositiveHistory: findPositiveHistoryTeacherIds,
+  sweepExpiredOffers: runOfferExpiry,
 };
 
 /**
@@ -87,14 +89,26 @@ const defaultDeps = {
  * @returns {Promise<import('@tutor/shared').MatchesResponse>}
  */
 export async function getQuestionMatches({ questionId, studentId, priceBand }, deps = defaultDeps) {
-  const { findQuestion, findBalance, resolvePool, loadAverages, findPositiveHistory } = {
+  const {
+    findQuestion,
+    findBalance,
+    resolvePool,
+    loadAverages,
+    findPositiveHistory,
+    sweepExpiredOffers,
+  } = {
     ...defaultDeps,
     ...deps,
   };
 
-  const question = await loadOwnedQuestion({ questionId, studentId, findQuestion });
-
-  assertSessionIsPending(question);
+  const owned = await loadOwnedQuestion({ questionId, studentId, findQuestion });
+  const question = await requireMatchableSession({
+    question: owned,
+    questionId,
+    studentId,
+    findQuestion,
+    sweepExpiredOffers,
+  });
 
   // `null` — no wallet row at all — is read as zero here rather than in the
   // serializer, because `MatchesResponse.walletBalance` is a `number` and the
@@ -155,7 +169,8 @@ async function loadOwnedQuestion({ questionId, studentId, findQuestion }) {
 }
 
 /**
- * Only a question still waiting to be matched may be matched again.
+ * Only a question still waiting to be matched may be matched again — **and a session
+ * that merely looks busy is swept before it is refused.**
  *
  * Once the session has left `PENDING` there is an offer out or a teacher attached, and
  * a fresh list is a way to double-book a student — precisely the invariant §9.5's "one
@@ -174,8 +189,37 @@ async function loadOwnedQuestion({ questionId, studentId, findQuestion }) {
  * nothing left to match, and inventing a default for a row that must exist would hide
  * a bug.
  */
-function assertSessionIsPending(question) {
-  if (question.session?.status === 'PENDING') return;
+async function requireMatchableSession({
+  question,
+  questionId,
+  studentId,
+  findQuestion,
+  sweepExpiredOffers,
+}) {
+  if (question.session?.status === 'PENDING') return question;
+
+  // The session says an offer is out. It may not be: `sessions.status` is moved by
+  // 5.5's tick, and the tick is allowed to be late — Render sleeps the instance, and
+  // even awake it runs every `CRON_TICK_SECONDS`. E5's rule for exactly this is
+  // "correctness on the read, timeliness on the tick", and `GET /sessions/:id` has
+  // obeyed it since 5.4 while this read still trusted the column.
+  //
+  // What that costs is the student's whole recovery: their awaiting screen resolves
+  // the moment the countdown hits zero, they press **Choose another teacher**, and this
+  // endpoint answers 409 for an offer that has been dead for three seconds. The screen
+  // they land on says the question is already with a teacher, which is neither true nor
+  // actionable.
+  //
+  // So the sweep is run on demand before refusing. It is 5.5's own tick, and running it
+  // here is safe for the reason the job's header gives: the status change is a
+  // conditional `updateMany`, so a tick that overlaps the scheduler's finds nothing to
+  // do and emits nothing. The ordinary case sweeps one row, on a request that is about
+  // to run a ranking query anyway.
+  await sweepExpiredOffers();
+
+  const swept = await loadOwnedQuestion({ questionId, studentId, findQuestion });
+
+  if (swept.session?.status === 'PENDING') return swept;
 
   throw new AppError(
     ERROR_CODES.SESSION_NOT_ACTIVE,
