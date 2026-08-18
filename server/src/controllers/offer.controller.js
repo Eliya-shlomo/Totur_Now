@@ -1,12 +1,16 @@
-import { AppError } from '#utils/AppError.js';
+import {
+  acceptOffer as acceptTeacherOffer,
+  rejectOffer as rejectTeacherOffer,
+} from '#services/offer.respond.service.js';
 
 /**
  * The teacher's two answers to an offer.
  *
- * **Both handlers are stubs, filled in by 5.4, which owns this file.** Created here
- * for the reason `session.controller.js` is: the router beside it is frozen after
- * this PR, and a controller created later is a controller the router had to be
- * edited to reach.
+ * **Both handlers were stubs until 5.4, which owns this file, filled them in.**
+ * Created in 5.1 for the reason `session.controller.js` was: the router beside it is
+ * frozen after that PR, and a controller created later is a controller the router had
+ * to be edited to reach. **5.4 opened no frozen file to fill them** — one service
+ * call and the envelope each, exactly as 5.1 promised.
  *
  * Both call `offer.respond.service.js` — one service for both verbs, because they
  * are the same transaction with a different terminal state and the expiry check in
@@ -42,8 +46,13 @@ import { AppError } from '#utils/AppError.js';
  * transaction re-checks it under the row lock. Correctness must not depend on a
  * process that is allowed to be asleep.
  */
-export async function acceptOffer() {
-  throw AppError.notImplemented('POST /offers/:id/accept');
+export async function acceptOffer(req, res) {
+  const session = await acceptTeacherOffer({
+    offerId: req.params.id,
+    teacherId: req.user.id,
+  });
+
+  res.json({ success: true, data: session });
 }
 
 /**
@@ -63,7 +72,17 @@ export async function acceptOffer() {
  *
  * The session goes back to `PENDING`, not to a dead end — the student's screen
  * returns to E4's list, which is what "show me more teachers" is for.
+ *
+ * **200 on an expired offer too, and that is deliberate.** Rejecting something that
+ * already went away is what the teacher wanted; a `409` there makes a dismissed modal
+ * look broken. Accepting an expired offer is the opposite case and does answer `409`,
+ * because the teacher believes they have a session and they do not.
  */
-export async function rejectOffer() {
-  throw AppError.notImplemented('POST /offers/:id/reject');
+export async function rejectOffer(req, res) {
+  const offer = await rejectTeacherOffer({
+    offerId: req.params.id,
+    teacherId: req.user.id,
+  });
+
+  res.json({ success: true, data: offer });
 }

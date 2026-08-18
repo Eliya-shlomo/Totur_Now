@@ -1,10 +1,10 @@
+import { getSessionView } from '#services/session.view.service.js';
 import { sendOffer as sendSessionOffer } from '#services/session.offer.service.js';
-import { AppError } from '#utils/AppError.js';
 
 /**
  * The session surface — sending an offer, and reading the session both sides share.
  *
- * **Both handlers are stubs. `sendOffer` is filled in by 5.3, `getSession` by 5.4.**
+ * **Both handlers are filled in: `sendOffer` by 5.3, `getSession` by 5.4.**
  * Written here, in the blocking PR, so that neither of those opens the frozen router:
  * a controller created by the PR that fills it in is a controller the router had to
  * be edited to reach. 2.1, 3.1 and 4.1 all made this call, and none of the PRs that
@@ -85,7 +85,17 @@ export async function sendOffer(req, res) {
  * 5.4 answers the teacher's side with `IncomingOffer` and the student's with the
  * session's own state. The two shapes are in the contract freeze; the branch between
  * them is the service's.
+ *
+ * **Filled in by 5.4, and it opened no frozen file to do it.** One service call and
+ * the envelope, and the caller's id comes from the token rather than from anything
+ * the request could carry — `sessionByIdSchema` is `.strict()` with an empty body, so
+ * the id in the path is the only thing this handler reads off the wire.
  */
-export async function getSession() {
-  throw AppError.notImplemented('GET /sessions/:id');
+export async function getSession(req, res) {
+  const session = await getSessionView({
+    sessionId: req.params.id,
+    userId: req.user.id,
+  });
+
+  res.json({ success: true, data: session });
 }
