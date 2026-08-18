@@ -11,10 +11,16 @@ import { prisma } from '#config/db.js';
  * `git log --oneline -- <file>` — the only reviewer this epic has — then shows one PR
  * against it.
  *
- * **Nothing here reads `last_seen_at`.** The freshness rule has exactly one reader and
- * it is 5.5's sweep; a second one drifts from the first, and the two disagreeing about
- * when a teacher counts as away is a defect nothing in the test suite could see. This
- * file writes the column and never asks what is in it.
+ * **The freshness rule has exactly one reader, and PR 5.5 added it below.** 5.2 wrote
+ * that nothing here reads `last_seen_at`, because a second reader drifts from the first
+ * and two of them disagreeing about when a teacher counts as away is a defect nothing
+ * in the test suite could see. That is still the rule; what changed is where the one
+ * reader lives. `sweepIdleTeachers` is it, and it is here rather than in a fifth
+ * repository because the column it reads is the column this file writes — a reader in
+ * another file is exactly the drift 5.2 was guarding against.
+ *
+ * **Nothing in `presence.service.js` may call it.** The write path and the sweep are
+ * the two ends of the same rule and they are allowed to meet only in the column.
  */
 
 /**
@@ -42,4 +48,79 @@ export async function touchLastSeenAt(teacherId, instant) {
     where: { userId: teacherId },
     data: { lastSeenAt: instant },
   });
+}
+
+/**
+ * The auto-away sweep — PR 5.5's second job, and the one read of `last_seen_at` in
+ * this codebase.
+ *
+ * ```sql
+ * UPDATE teacher_profiles SET status = 'OFFLINE'
+ *  WHERE status = 'ONLINE' AND last_seen_at IS NOT NULL AND last_seen_at < $1
+ * ```
+ *
+ * **`status = 'ONLINE'` is load-bearing and is not an optimisation.** A teacher who is
+ * `OFFER_LOCKED` has an offer out and a stale `last_seen_at` is the expected reading —
+ * they are looking at the modal, not clicking. Sweeping them would release a live
+ * offer's lock without touching the offer, which is the one way this epic can produce a
+ * teacher who is `ONLINE` with a `PENDING` offer against them: E4 then offers them to a
+ * second student while the first is still counting down. A teacher who is `IN_SESSION`
+ * is teaching. Neither is swept, and the predicate is what says so.
+ *
+ * **`last_seen_at IS NOT NULL` is the second half of that.** Postgres compares `NULL`
+ * to nothing, so the `lt` alone would already skip those rows — the clause is written
+ * anyway because it states the product rule: a teacher who has never connected is not
+ * idle, they are new, and the day somebody changes the comparison the intent is on the
+ * line rather than in a `NULL` semantics footnote.
+ *
+ * Two statements rather than one, for `expirePendingOffersBefore`'s reason exactly:
+ * Prisma's `updateMany` cannot `RETURNING`, and 5.5 emits `teacher:status` per id. The
+ * ids are read first and the update is scoped to them, so what comes back is what this
+ * call swept. The window between the two can only shrink the set — a teacher who beats
+ * in between stops matching `lt` and the update skips them — so no id is reported that
+ * this call did not move.
+ *
+ * Idempotent, because it is conditional: the second tick in the same second finds the
+ * rows already `OFFLINE` and updates nothing.
+ *
+ * **No index, and that was measured rather than assumed.** `teacher_profiles` is 22
+ * rows; the `EXPLAIN` is in 5.5's PR description and the plan is a sequential scan
+ * costing less than the index lookup would. 4.2's instruction and 4.2's outcome.
+ *
+ * The instant is passed in, the same rule every other function here follows: deciding
+ * what counts as idle is `AUTO_AWAY_MINUTES`'s job, and that number lives in
+ * `constants/session.js` where the product can see it.
+ *
+ * @param {Date} instant teachers last seen before this are away
+ * @returns {Promise<string[]>} the ids actually swept, for 5.5 to notify on
+ */
+export async function sweepIdleTeachers(instant) {
+  const idle = await prisma.teacherProfile.findMany({
+    where: { status: 'ONLINE', lastSeenAt: { not: null, lt: instant } },
+    select: { userId: true },
+  });
+
+  if (idle.length === 0) return [];
+
+  const ids = idle.map((teacher) => teacher.userId);
+
+  const { count } = await prisma.teacherProfile.updateMany({
+    where: { userId: { in: ids }, status: 'ONLINE', lastSeenAt: { not: null, lt: instant } },
+    data: { status: 'OFFLINE' },
+  });
+
+  // Equal in every ordinary tick. Fewer means somebody beat, took an offer, or toggled
+  // themselves off between the two statements — none of which is an error — and
+  // re-reading is how the caller avoids announcing `OFFLINE` for a teacher who is
+  // `OFFER_LOCKED` by now.
+  if (count !== ids.length) {
+    const swept = await prisma.teacherProfile.findMany({
+      where: { userId: { in: ids }, status: 'OFFLINE' },
+      select: { userId: true },
+    });
+
+    return swept.map((teacher) => teacher.userId);
+  }
+
+  return ids;
 }
