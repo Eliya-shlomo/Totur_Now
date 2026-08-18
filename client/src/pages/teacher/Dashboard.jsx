@@ -8,7 +8,6 @@ import { getTeacherMe } from '@/api/teacher.api';
 import IncomingOfferModal from '@/components/offer/IncomingOfferModal';
 import ErrorState from '@/components/state/ErrorState';
 import LoadingState from '@/components/state/LoadingState';
-import TeacherStatusToggle from '@/components/teacher/TeacherStatusToggle';
 import { useSocketEvent } from '@/hooks/useSocketEvent';
 
 /**
@@ -112,24 +111,34 @@ export default function Dashboard() {
     <Stack gap="lg">
       <Title order={2}>Dashboard</Title>
 
+      {/*
+        Explanation, and no second control.
+
+        This card mounted `TeacherStatusToggle` a second time at first, on the argument
+        that one component cannot disagree with itself. The argument was right and the
+        result was still wrong: the menu is rendered inline (`withinPortal={false}`, so
+        that it works from the header at every width) and a `Card` clips it, so the
+        dropdown opened into nothing and the control here could not be used at all.
+
+        A control that does not work beside one that does is worse than no control, and
+        the header is where the toggle belongs anyway — §6.3's reason is that going
+        offline has to be reachable from wherever the teacher happens to be, which a
+        dashboard-only control is not. So the block explains what availability means and
+        sends the teacher to the one place that changes it.
+      */}
       <Card withBorder padding="lg">
         <Stack gap="xs">
-          <Group justify="space-between" wrap="nowrap">
-            <Text fw={600}>Availability</Text>
-
-            {/*
-              The same control as the header's, and deliberately the same component
-              rather than a copy: it owns the `PATCH`, it owns the `teacher:status`
-              listener, and two mount points of one component cannot disagree. What a
-              second implementation here would buy is a second thing to keep correct.
-            */}
-            <TeacherStatusToggle />
-          </Group>
+          <Text fw={600}>Availability</Text>
 
           <Text size="sm" c="dimmed">
             While you are online, students can send you questions and you have 60 seconds to answer
             each one. Going offline stops new requests; it never interrupts a session you are
             already in.
+          </Text>
+
+          <Text size="sm" c="dimmed">
+            Use the availability control in the top bar to go online or offline. It shows your
+            current status, including when the system is holding you for an offer or a session.
           </Text>
         </Stack>
       </Card>
