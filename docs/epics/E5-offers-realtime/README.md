@@ -192,7 +192,7 @@ private window, or a second browser.
 | 5.1 | [Offer core: frozen routers and repositories, Socket.IO with the JWT handshake, seeded demo questions](PR-5.1-offer-core.md) | **human** · L | E4 | ☑ |
 | 5.2 | [Availability heartbeat, `last_seen_at`, `teacher:status` broadcast](PR-5.2-presence-heartbeat.md) | S | 5.1 | ☑ |
 | 5.3 | [**`POST /sessions/:id/offer` — the atomic teacher lock**](PR-5.3-atomic-offer.md) | **human** · M | 5.1 | ☑ |
-| 5.4 | [Accept / reject, lock release, `rejected_by`](PR-5.4-accept-reject.md) | M | 5.3 | ☐ |
+| 5.4 | [Accept / reject, lock release, `rejected_by`](PR-5.4-accept-reject.md) | M | 5.3 | ☑ |
 | 5.5 | [Cron: offer expiry + auto-away](PR-5.5-cron-expiry-away.md) | M | 5.3 | ☐ |
 | 5.6 | [Email to the teacher on a new offer](PR-5.6-offer-email.md) | S | 5.3 | ☐ |
 | 5.7 | [Teacher dashboard — availability toggle + incoming offer modal](PR-5.7-teacher-dashboard.md) | L | 5.2, 5.4 | ☐ |
@@ -319,6 +319,45 @@ defect, so the correction breaks a build rather than passing silently.
 `session.repository.js`, returning the card columns plus `createdAt`. That is the procedure
 that file's own header prescribes for a query discovered missing, and it is written here
 rather than left as a `TODO` for the same reason the other eight are written down.
+
+### A tenth gap, found while implementing 5.4: the session has no way back to `PENDING`
+
+**Resolved inside 5.4, as a deliberate reopen of a frozen file.**
+
+`session.repository.js` wrote sessions forwards only — `setSessionOfferSent`
+(`PENDING` → `OFFER_SENT`) and `setSessionActive` (`OFFER_SENT` → `ACTIVE`). §10's
+diagram has an arrow back, which is what a reject is, and **no function could make it.**
+Without one a rejected session stays at `OFFER_SENT`, where `session.offer.service.js`'s
+`PENDING` assertion refuses every future **Send request**: the student's question is
+stuck for good, by a teacher declining it.
+
+The file's own header prescribes "a note in the epic README and its own small PR" for a
+query discovered missing. 5.4 added `setSessionPending` itself instead, because the diff
+is the same twelve lines either way and this epic has one developer, so a separate PR
+would buy a second reader who does not exist. **It is the only function 5.4 added to that
+file**, alongside `releaseTeacherLock`'s body, which was 5.4's by the freeze. `git log
+--oneline -- server/src/repositories/session.repository.js` is the mechanism that will
+say so, and it now names three PRs rather than two.
+
+It clears `teacher_id` and `price_per_block` with the status, because a session that
+reads `PENDING` while still naming a teacher is a row two readers disagree about — and
+`GET /sessions/:id` decides who may see what from `teacher_id`.
+
+**Two smaller notes from the same PR.**
+
+`markOfferResponded` stamps `responded_at`; `expirePendingOffersBefore` (5.5's) sets it
+to `null`. 5.4's late-answer sweep uses the former, because it is the only writer in the
+frozen `offer.repository.js` that takes a `tx`, so **the same expired offer ends up with
+a different row depending on which path noticed it died.** Nothing renders the column
+yet. Whoever next opens that file legitimately reconciles it — either 5.5 stops nulling,
+or an `expireOffer(offerId, tx)` joins the repository.
+
+`GET /sessions/:id` answers a student's own session that has no offer row with the
+`OfferResponse` shape and `null` in every offer-derived field, rather than a `404`. A
+session with no offer is what every question looks like before E4's screen is used, and
+`shared/api.d.ts` is frozen at 5.1 so there is no type for it. **This is a deviation
+from the contract's types, and it is written here and in 5.4's PR description rather
+than left for 5.8 to meet at runtime.**
 
 ## Contract freeze
 

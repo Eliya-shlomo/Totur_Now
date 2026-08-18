@@ -1,5 +1,4 @@
 import { prisma } from '#config/db.js';
-import { AppError } from '#utils/AppError.js';
 
 /**
  * Every read and every state transition E5 makes on `sessions`, plus the two
@@ -15,6 +14,17 @@ import { AppError } from '#utils/AppError.js';
  * A query discovered missing mid-5.4 is a frozen file being reopened, which is the
  * failure the freeze exists to prevent — if something is genuinely absent, that is a
  * note in the epic README and its own small PR, never an edit in passing.
+ *
+ * **That happened, once, and it is recorded rather than hidden.** 5.4 added
+ * `setSessionPending` here: this file wrote sessions forwards only, §10's diagram has
+ * an arrow back, and a reject had no writer to make it — which left a rejected
+ * session stuck at `OFFER_SENT`, where 5.3's `PENDING` assertion refuses every future
+ * **Send request** and the student's question is unanswerable for good. The note is
+ * the epic README's tenth gap and the PR is 5.4 rather than a separate one, because
+ * the diff is the same either way and this epic has one developer. It is the only
+ * function 5.4 added, beside `releaseTeacherLock`'s body, which was 5.4's by the
+ * freeze. `git log --oneline -- server/src/repositories/session.repository.js` now
+ * names three PRs, and that is the mechanism working rather than failing.
  *
  * Three rules everything here follows:
  *
@@ -222,9 +232,17 @@ export async function lockTeacherForOffer(teacherId, tx) {
  * @param {import('@prisma/client').Prisma.TransactionClient} tx
  * @returns {Promise<{locked: boolean}>} `false` means they were not locked any more
  */
-// eslint-disable-next-line no-unused-vars -- the signature is 5.1's freeze; the body is 5.4's
 export async function releaseTeacherLock(teacherId, tx) {
-  throw AppError.notImplemented('releaseTeacherLock');
+  const { count } = await tx.teacherProfile.updateMany({
+    where: { userId: teacherId, status: 'OFFER_LOCKED' },
+    data: { status: 'ONLINE' },
+  });
+
+  // `=== 1` rather than `> 0`, matching the lock: `userId` is the primary key, so a
+  // match of two cannot happen and the stricter comparison says so. The caller reads
+  // `false` as "they had already moved on" — an `OFFLINE` teacher stays `OFFLINE` —
+  // and not as an error, which is why nothing here throws.
+  return { locked: count === 1 };
 }
 
 /**
@@ -348,6 +366,46 @@ export async function setSessionActive({ sessionId, startedAt, endsAt }, tx) {
   return tx.session.updateMany({
     where: { id: sessionId, status: 'OFFER_SENT' },
     data: { status: 'ACTIVE', startedAt, endsAt },
+  });
+}
+
+/**
+ * `OFFER_SENT` → `PENDING`. The reject path (5.4), and the late-accept sweep with it.
+ *
+ * **Added in 5.4, in a file frozen at 5.1, and that is a deliberate reopen rather
+ * than drift.** This file writes sessions forwards only — `setSessionOfferSent` and
+ * `setSessionActive` — and §10's diagram has an arrow back that nothing here could
+ * make. A reject with no writer for it leaves the session at `OFFER_SENT`, where
+ * `session.offer.service.js`'s `PENDING` assertion refuses every future **Send
+ * request**: the student's question is stuck, permanently, with no route out of it.
+ * The header's procedure is "a note in the epic README and its own small PR"; the
+ * note is in the README's gap list and in 5.4's description, and the PR is 5.4
+ * because the diff is the same twelve lines either way and this epic has one
+ * developer. It is the only function 5.4 adds here.
+ *
+ * **`teacherId` and `pricePerBlock` are cleared with the status.** They are who the
+ * offer went to and what it cost, and the offer is over; a session that reads
+ * `PENDING` while still naming a teacher is a row two readers will disagree about —
+ * `GET /sessions/:id` decides who may see it from `teacherId`, and a rejecting
+ * teacher must stop being a participant the moment they decline. The `offers` rows
+ * keep the history, which is where the history belongs.
+ *
+ * `startedAt` and `endsAt` are not touched because nothing has set them: they are
+ * written by `setSessionActive`, and a session that reaches here never reached
+ * `ACTIVE`.
+ *
+ * Conditional on `OFFER_SENT`, like every other writer in this file. Zero means the
+ * session had already moved — an accept that beat this reject, or a sweep — and the
+ * caller decides what that means rather than seeing an exception.
+ *
+ * @param {string} sessionId
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @returns {Promise<{count: number}>} `0` means it was no longer `OFFER_SENT`
+ */
+export async function setSessionPending(sessionId, tx) {
+  return tx.session.updateMany({
+    where: { id: sessionId, status: 'OFFER_SENT' },
+    data: { status: 'PENDING', teacherId: null, pricePerBlock: null },
   });
 }
 
