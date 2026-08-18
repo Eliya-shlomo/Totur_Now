@@ -1,5 +1,6 @@
 import { disconnectDb } from '#config/db.js';
 import { env } from '#config/env.js';
+import { startJobs, stopJobs } from '#jobs/index.js';
 import { closeSockets, initSockets } from '#sockets/index.js';
 import { logger } from '#utils/logger.js';
 
@@ -41,6 +42,23 @@ const server = app.listen(env.PORT, () => {
 initSockets(server);
 
 /**
+ * Background jobs on the `CRON_TICK_SECONDS` tick (PR 5.5).
+ *
+ * After `listen` rather than before it: Render's health check hits the listener, and a
+ * boot that swept first would delay the thing the platform is actually waiting for.
+ *
+ * Two of MVP.md §13's four jobs — offer expiry and auto-away. The other two read
+ * `ends_at` as a live billing deadline and belong to E6, which is the epic that makes
+ * that clock tick.
+ *
+ * **It is a sweeper, not the source of truth.** Render's free plan spins the instance
+ * down after ~15 minutes without a request and `node-cron` runs in-process, so these
+ * jobs do not run on a sleeping server. 5.4 evaluates expiry on every read for that
+ * reason; this makes the watched case timely.
+ */
+startJobs();
+
+/**
  * Graceful shutdown.
  *
  * `server.close()` stops accepting new connections and waits for in-flight
@@ -68,14 +86,18 @@ async function shutdown(signal) {
   forceExit.unref();
 
   try {
-    // Sockets first, and the order is not cosmetic. `server.close()` waits for
+    // **The scheduler before anything else.** A sweep still running when the pool
+    // closes throws `Cannot use PrismaClient after $disconnect` on every deploy, in
+    // the shutdown log, where it is indistinguishable from a real failure. `stopJobs`
+    // also awaits the tick in flight, so this line is a guarantee rather than a hope.
+    await stopJobs();
+
+    // Sockets next, and the order is not cosmetic. `server.close()` waits for
     // in-flight connections to finish, and a WebSocket is by design a connection that
     // never finishes on its own — draining HTTP first would hang until the timeout
     // above fires, on every single deploy.
     await closeSockets();
-    await new Promise((resolve, reject) => {
-      server.close((err) => (err ? reject(err) : resolve()));
-    });
+    await closeListener();
     await disconnectDb();
     logger.info('Shutdown complete');
     process.exit(0);
@@ -83,6 +105,38 @@ async function shutdown(signal) {
     logger.error('Error during shutdown', { message: error?.message, stack: error?.stack });
     process.exit(1);
   }
+}
+
+/**
+ * Closes the HTTP listener, tolerating the case where it is already closed.
+ *
+ * **Socket.IO closes this listener as part of `closeSockets()`.** `io.close()` shuts
+ * down the HTTP server it was attached to, not only the socket layer — so by the time
+ * the line above returns, the listener the process started is usually already down and
+ * `server.close()` answers `ERR_SERVER_NOT_RUNNING`. That was logged as
+ * `Error during shutdown` on every clean SIGTERM, with a stack, immediately before the
+ * exit code that says everything went fine. A shutdown log that cries wolf on every
+ * deploy is a shutdown log nobody reads on the deploy that goes wrong.
+ *
+ * Both halves are needed and neither is redundant. `server.listening` skips the call
+ * in the ordinary case; the `code` check covers the close that happened between the
+ * check and the call, which `closeSockets()` starts and does not synchronously finish.
+ * Every other error still rejects and still reaches the handler above — a listener
+ * that genuinely failed to drain is a real failure and stays loud.
+ *
+ * The ordering it depends on is `closeSockets()` first, which has its own reason next
+ * to it: draining HTTP ahead of the WebSockets would hang until the force-exit fires.
+ */
+function closeListener() {
+  if (!server.listening) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (!error || error.code === 'ERR_SERVER_NOT_RUNNING') return resolve();
+
+      reject(error);
+    });
+  });
 }
 
 // SIGTERM: Render, on every deploy. SIGINT: Ctrl-C in development.

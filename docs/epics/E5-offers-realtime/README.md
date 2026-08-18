@@ -193,7 +193,7 @@ private window, or a second browser.
 | 5.2 | [Availability heartbeat, `last_seen_at`, `teacher:status` broadcast](PR-5.2-presence-heartbeat.md) | S | 5.1 | ☑ |
 | 5.3 | [**`POST /sessions/:id/offer` — the atomic teacher lock**](PR-5.3-atomic-offer.md) | **human** · M | 5.1 | ☑ |
 | 5.4 | [Accept / reject, lock release, `rejected_by`](PR-5.4-accept-reject.md) | M | 5.3 | ☑ |
-| 5.5 | [Cron: offer expiry + auto-away](PR-5.5-cron-expiry-away.md) | M | 5.3 | ☐ |
+| 5.5 | [Cron: offer expiry + auto-away](PR-5.5-cron-expiry-away.md) | M | 5.3 | ☑ |
 | 5.6 | [Email to the teacher on a new offer](PR-5.6-offer-email.md) | S | 5.3 | ☐ |
 | 5.7 | [Teacher dashboard — availability toggle + incoming offer modal](PR-5.7-teacher-dashboard.md) | L | 5.2, 5.4 | ☐ |
 | 5.8 | [Student awaiting-response state + 60-second countdown](PR-5.8-awaiting-response.md) | M | 5.4 | ☐ |
@@ -296,6 +296,19 @@ already holds the one reader; the warning is the same query with a different thr
 an emit instead of an update. **5.5 owns both numbers**, and the event is still
 `teacher:status` carrying the teacher's *current* status, exactly as §10 asked — the client
 decides that "you are still ONLINE and we are asking" is a modal.
+
+**Amended again when 5.5 landed: the warning is nobody's yet, and that is now written
+down rather than assigned.** The amendment above says 5.5 owns both numbers.
+`PR-5.5-cron-expiry-away.md` scopes two jobs, names neither
+`AUTO_AWAY_WARNING_MINUTES` nor a warning, and has no acceptance criterion for one —
+the two documents disagree, and 5.5 implemented the brief. The blocker is not the
+query, which is the same sweep with a different threshold: it is that `SOCKET_EVENTS`
+is append-only and has no name that carries "you are still `ONLINE` and we are asking".
+`teacher:status` with an unchanged status is an event that tells a client nothing
+changed, which is not a modal trigger — it is a no-op every existing handler already
+ignores. So the warning needs a seventh event name, and appending one is a contract
+change rather than a job. **It is E6's or its own small PR, and `AUTO_AWAY_WARNING_MINUTES`
+stays an unused constant until then.**
 
 ### A ninth gap, found while implementing 5.3: `expectedEarning` has no backing read
 
