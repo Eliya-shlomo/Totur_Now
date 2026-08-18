@@ -194,7 +194,7 @@ private window, or a second browser.
 | 5.3 | [**`POST /sessions/:id/offer` — the atomic teacher lock**](PR-5.3-atomic-offer.md) | **human** · M | 5.1 | ☑ |
 | 5.4 | [Accept / reject, lock release, `rejected_by`](PR-5.4-accept-reject.md) | M | 5.3 | ☑ |
 | 5.5 | [Cron: offer expiry + auto-away](PR-5.5-cron-expiry-away.md) | M | 5.3 | ☑ |
-| 5.6 | [Email to the teacher on a new offer](PR-5.6-offer-email.md) | S | 5.3 | ☐ |
+| 5.6 | [Email to the teacher on a new offer](PR-5.6-offer-email.md) | S | 5.3 | ☑ |
 | 5.7 | [Teacher dashboard — availability toggle + incoming offer modal](PR-5.7-teacher-dashboard.md) | L | 5.2, 5.4 | ☐ |
 | 5.8 | [Student awaiting-response state + 60-second countdown](PR-5.8-awaiting-response.md) | M | 5.4 | ☐ |
 | 5.9 | [E5 close: verification + retro](PR-5.9-e5-close.md) | S | 5.2–5.8 | ☐ |
@@ -332,6 +332,31 @@ defect, so the correction breaks a build rather than passing silently.
 `session.repository.js`, returning the card columns plus `createdAt`. That is the procedure
 that file's own header prescribes for a query discovered missing, and it is written here
 rather than left as a `TODO` for the same reason the other eight are written down.
+
+**Closed in 5.6, inside that PR rather than before it.** `findTeacherForNotification` is the
+function — `session.repository.js`, and the epic's second deliberate reopen of a frozen file.
+Two departures from the paragraph above, both by decision and both in 5.6's description:
+
+- **Not its own PR.** The diff is the same either way, this epic has one developer, and a
+  repository function whose only callers are in the same PR reviews better beside them than
+  a week earlier. The reopen was planned in writing here first, which is the part that
+  mattered — it is the difference between the freeze working and the freeze eroding.
+- **Narrower than "the card columns plus `createdAt`".** It returns `createdAt` and the
+  teacher's address, and nothing else. The card columns are already in hand at the call site
+  from `findTeacherById`; re-reading them would be a second answer to `pricePerBlock` on the
+  same request, free to disagree with the value the transaction wrote to
+  `sessions.price_per_block`.
+
+The address is the second half of the gap and this document did not predict it: **no read in
+E5 returned `users.email` either**, and an email needs somewhere to go. `TEACHER_VIEW`
+refuses it by explicit design, which is right for a serializer feeding a browser and is why
+the notification read is E5's own rather than an amendment to E2's.
+
+`offer.send.test.js`'s pinned test now asserts the net, and three tests beside it pin the two
+free cases and the failure fallback. The clock in them is fixed on purpose: §5.3's low-demand
+window is `[6, 14)` in `TIMEZONE`, so an unpinned commission test asserts the gross every
+morning and the net every afternoon — the first run of that block failed at 12:17 for exactly
+that reason.
 
 ### A tenth gap, found while implementing 5.4: the session has no way back to `PENDING`
 

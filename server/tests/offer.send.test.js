@@ -38,7 +38,7 @@ process.env.DATABASE_URL ??= 'postgresql://unused:unused@localhost:5433/unused';
 process.env.JWT_ACCESS_SECRET ??= 'test-access-secret-at-least-32-characters';
 process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret-at-least-32-characters';
 
-const { OFFER_TTL_SECONDS, OPENING_BLOCKS, PLATFORM_FEE_PCT } =
+const { NEW_TEACHER_FEE_DAYS, OFFER_TTL_SECONDS, OPENING_BLOCKS, PLATFORM_FEE_PCT } =
   await import('#config/constants/index.js');
 const { ERROR_CODES } = await import('#config/errors/codes.js');
 const { sendOffer } = await import('#services/session.offer.service.js');
@@ -54,6 +54,40 @@ const OFFER_ID = '66666666-6666-4666-8666-666666666666';
 /** Credits per block, and a balance comfortably above the opening block. */
 const PRICE_PER_BLOCK = 12;
 const WALLET_BALANCE = 100;
+
+/** One day, for the two fixtures below and the clock they are measured against. */
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * **The instant every commission assertion runs at, and it has to be pinned.**
+ *
+ * §5.3 charges nothing during `LOW_DEMAND_HOURS`, which is `[6, 14)` resolved through
+ * `TIMEZONE`. `platformFeeRate` reads the wall clock, `sendOffer` gives it no seam to
+ * inject one through, and the consequence is that an unpinned test of the fee asserts
+ * the gross every morning and the net every afternoon. The first run of this block
+ * failed at 12:17 Jerusalem time for exactly that reason — which is the same class of
+ * defect as `isLowDemandHour` existing at all, and `utils/time.js`'s header says so:
+ * a rule written against the host's clock passes locally and is wrong in production.
+ *
+ * 18:00 UTC is 20:00 in Asia/Jerusalem in March, outside the window at either offset,
+ * so the choice does not depend on whether the date lands inside daylight saving.
+ */
+const FIXED_NOW = new Date('2026-03-10T18:00:00Z');
+
+/** Inside the same window, so the free-hour branch gets its own assertion. */
+const LOW_DEMAND_NOW = new Date('2026-03-10T08:00:00Z');
+
+/**
+ * A teacher past the new-teacher exemption, so `platformFeeRate` charges.
+ *
+ * Derived from `NEW_TEACHER_FEE_DAYS` rather than typed as a date: a fixture that said
+ * "2024-01-01" would silently drift into the free window the day somebody lengthens it,
+ * and the commission would quietly become `0` in every assertion below.
+ */
+const ESTABLISHED_SINCE = new Date(FIXED_NOW.getTime() - (NEW_TEACHER_FEE_DAYS + 1) * MS_PER_DAY);
+
+/** The brief's acceptance criterion, literally: "a teacher created yesterday". */
+const JOINED_YESTERDAY = new Date(FIXED_NOW.getTime() - MS_PER_DAY);
 
 /** The transaction client. A sentinel, so "did this write get the `tx`" is assertable. */
 const TX = Object.freeze({ transactionClient: true });
@@ -122,6 +156,20 @@ const sessionView = (overrides = {}) => ({
 });
 
 /**
+ * A `findTeacherForNotification` row — the second post-commit read, added in 5.6.
+ *
+ * Two fields, because that is all the function selects: the start date §5.3's
+ * commission needs, and the address the email needs. Deliberately not a
+ * `TEACHER_VIEW` row — the card columns are already in hand from `findTeacher` at
+ * this point, and a fixture carrying both would hide a service reading the wrong one.
+ */
+const teacherContact = (overrides = {}) => ({
+  createdAt: ESTABLISHED_SINCE,
+  user: { fullName: 'Dana Levi', email: 'dana@demo.tutornow.il' },
+  ...overrides,
+});
+
+/**
  * The happy path's collaborators, each replaceable by name.
  *
  * `runTransaction` mirrors Prisma's contract rather than merely calling the callback:
@@ -148,8 +196,10 @@ function deps(overrides = {}) {
     markOfferSent: spy(async () => ({ count: 1 })),
     countOffer: spy(async () => ({})),
     loadSessionView: spy(async () => sessionView()),
+    loadTeacherContact: spy(async () => teacherContact()),
     announceStatus: spy(),
     notifyTeacher: spy(),
+    emailTeacher: spy(async () => undefined),
     ...overrides,
   };
 
@@ -683,17 +733,56 @@ describe('toIncomingOffer — the teacher’s shape', () => {
   });
 });
 
-describe('the expectedEarning gap — pinned so it cannot ship quietly', () => {
-  it('currently emits the gross, because no read carries teacher_profiles.created_at', async () => {
-    // **This asserts a known defect, deliberately.** `platformFeeRate` needs the
-    // teacher's start date; `TEACHER_VIEW` excludes it by design and no read reachable
-    // from 5.3 returns it, so the fallback reads as "joined just now" and the
-    // new-teacher exemption answers 0 for everybody. Nothing in 5.3 renders the number
-    // — 5.6's email and 5.7's modal are its consumers and neither exists — but an
-    // established teacher quoted the gross would be shown 15% more than they earn.
-    //
-    // The fix is a teacher read owned by E5 that carries `createdAt`, as its own small
-    // PR. When it lands, this test fails, which is the point of writing it.
+describe('the expectedEarning gap — closed in 5.6, and pinned the other way', () => {
+  /**
+   * **This block asserted a known defect until 5.6, deliberately.** `platformFeeRate`
+   * needs the teacher's start date; `TEACHER_VIEW` excludes it by design and no read
+   * reachable from 5.3 returned it, so the fallback read as "joined just now", the
+   * new-teacher exemption answered `0` for everybody and the payload carried the
+   * gross. It was written to fail the day a read carried `created_at`, and it did.
+   *
+   * `findTeacherForNotification` is that read. The assertions run the other way now,
+   * and they are why the epic README's ninth gap is closed rather than moved.
+   *
+   * Every test here pins the clock to `FIXED_NOW` — see that constant for why an
+   * unpinned one answers differently before and after 14:00.
+   */
+  it('nets the commission for an established teacher', async (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: FIXED_NOW });
+
+    const collaborators = deps();
+
+    await sendOffer(input(), collaborators);
+
+    const [, payload] = collaborators.notifyTeacher.calls[0];
+
+    assert.equal(
+      payload.expectedEarning,
+      PRICE_PER_BLOCK * OPENING_BLOCKS * (1 - PLATFORM_FEE_PCT),
+    );
+  });
+
+  it('pays a teacher created yesterday the full amount', async (t) => {
+    // §5.3's supply incentive: no commission in the first `NEW_TEACHER_FEE_DAYS`, and
+    // the brief's acceptance criterion names this teacher by age.
+    t.mock.timers.enable({ apis: ['Date'], now: FIXED_NOW });
+
+    const collaborators = deps({
+      loadTeacherContact: spy(async () => teacherContact({ createdAt: JOINED_YESTERDAY })),
+    });
+
+    await sendOffer(input(), collaborators);
+
+    const [, payload] = collaborators.notifyTeacher.calls[0];
+
+    assert.equal(payload.expectedEarning, PRICE_PER_BLOCK * OPENING_BLOCKS);
+  });
+
+  it('pays the full amount during the low-demand window', async (t) => {
+    // The second free case, and the one that made the first version of this block
+    // pass for the wrong reason. An established teacher, inside `LOW_DEMAND_HOURS`.
+    t.mock.timers.enable({ apis: ['Date'], now: LOW_DEMAND_NOW });
+
     const collaborators = deps();
 
     await sendOffer(input(), collaborators);
@@ -701,5 +790,90 @@ describe('the expectedEarning gap — pinned so it cannot ship quietly', () => {
     const [, payload] = collaborators.notifyTeacher.calls[0];
 
     assert.equal(payload.expectedEarning, PRICE_PER_BLOCK * OPENING_BLOCKS);
+  });
+
+  it('falls back to the gross when the contact read fails, rather than throwing', async (t) => {
+    // Both directions of wrong are available and the fallback picks one on purpose: a
+    // teacher quoted too much on a notification the platform failed to enrich is a
+    // smaller wrong than one quoted too little. The offer is committed by this point
+    // either way, so what must not happen is a rejection.
+    t.mock.timers.enable({ apis: ['Date'], now: FIXED_NOW });
+
+    const collaborators = deps({
+      loadTeacherContact: spy(async () => {
+        throw new Error('connection terminated');
+      }),
+    });
+
+    const response = await sendOffer(input(), collaborators);
+
+    assert.equal(response.offerId, OFFER_ID);
+
+    const [, payload] = collaborators.notifyTeacher.calls[0];
+
+    assert.equal(payload.expectedEarning, PRICE_PER_BLOCK * OPENING_BLOCKS);
+  });
+});
+
+describe('the offer email — PR 5.6, and what the request path must not wait for', () => {
+  it('sends the socket payload itself, so the inbox and the modal cannot disagree', async () => {
+    const collaborators = deps();
+
+    await sendOffer(input(), collaborators);
+
+    const [[, emitted]] = collaborators.notifyTeacher.calls;
+    const [[{ to, teacherName, offer }]] = collaborators.emailTeacher.calls;
+
+    assert.equal(offer, emitted);
+    assert.equal(to, 'dana@demo.tutornow.il');
+    assert.equal(teacherName, 'Dana Levi');
+  });
+
+  it('does not await the send', async () => {
+    // Rule 2 of the brief: a student's 201 does not wait on an email provider. A send
+    // that never settles must not delay the response, so the assertion is that
+    // `sendOffer` resolves while this promise is still pending.
+    let released;
+    const collaborators = deps({
+      emailTeacher: spy(
+        () =>
+          new Promise((resolve) => {
+            released = resolve;
+          }),
+      ),
+    });
+
+    const response = await sendOffer(input(), collaborators);
+
+    assert.equal(response.offerId, OFFER_ID);
+    assert.equal(collaborators.emailTeacher.calls.length, 1);
+
+    released();
+  });
+
+  it('answers with the offer when the send rejects, and handles the rejection', async () => {
+    // `sendOfferEmail` swallows its own failures by contract. This is the belt and
+    // braces for the day a later edit breaks that contract: an unhandled rejection
+    // would take the process down, with a committed offer behind it.
+    const collaborators = deps({
+      emailTeacher: spy(async () => {
+        throw new Error('resend is unreachable');
+      }),
+    });
+
+    const response = await sendOffer(input(), collaborators);
+
+    assert.equal(response.offerId, OFFER_ID);
+  });
+
+  it('is not called when the transaction rolled back', async () => {
+    // Same rule as every other announcement here: an offer that does not exist is not
+    // announced, and a teacher is not emailed about a request nobody can accept.
+    const collaborators = deps({ lockTeacher: spy(async () => ({ locked: false })) });
+
+    await assert.rejects(() => sendOffer(input(), collaborators));
+
+    assert.equal(collaborators.emailTeacher.calls.length, 0);
+    assert.equal(collaborators.loadTeacherContact.calls.length, 0);
   });
 });
