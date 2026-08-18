@@ -191,7 +191,7 @@ private window, or a second browser.
 |---|---|---|---|---|
 | 5.1 | [Offer core: frozen routers and repositories, Socket.IO with the JWT handshake, seeded demo questions](PR-5.1-offer-core.md) | **human** · L | E4 | ☑ |
 | 5.2 | [Availability heartbeat, `last_seen_at`, `teacher:status` broadcast](PR-5.2-presence-heartbeat.md) | S | 5.1 | ☑ |
-| 5.3 | [**`POST /sessions/:id/offer` — the atomic teacher lock**](PR-5.3-atomic-offer.md) | **human** · M | 5.1 | ☐ |
+| 5.3 | [**`POST /sessions/:id/offer` — the atomic teacher lock**](PR-5.3-atomic-offer.md) | **human** · M | 5.1 | ☑ |
 | 5.4 | [Accept / reject, lock release, `rejected_by`](PR-5.4-accept-reject.md) | M | 5.3 | ☐ |
 | 5.5 | [Cron: offer expiry + auto-away](PR-5.5-cron-expiry-away.md) | M | 5.3 | ☐ |
 | 5.6 | [Email to the teacher on a new offer](PR-5.6-offer-email.md) | S | 5.3 | ☐ |
@@ -296,6 +296,29 @@ already holds the one reader; the warning is the same query with a different thr
 an emit instead of an update. **5.5 owns both numbers**, and the event is still
 `teacher:status` carrying the teacher's *current* status, exactly as §10 asked — the client
 decides that "you are still ONLINE and we are asking" is a modal.
+
+### A ninth gap, found while implementing 5.3: `expectedEarning` has no backing read
+
+**Blocks 5.6 and 5.7. Does not block 5.4 or 5.5.**
+
+`IncomingOffer.expectedEarning` is the teacher's cut after §5.3's commission, and
+`platformFeeRate` needs `teacher_profiles.created_at` to know whether the new-teacher
+exemption applies. **No read reachable from E5 returns that column.** `TEACHER_VIEW`
+excludes it by explicit design — `teacher.repository.js`'s header lists the columns it
+refuses to select — and both session reads are about the session. 5.4's
+`findSessionForView` has the same hole, so this is not a 5.3 oversight; it is a gap in the
+contract freeze that nobody would have found until an email rendered a wrong number.
+
+5.3 shipped inside its permitted file list rather than unfreezing a repository, so
+`feeRateFor` in `session.offer.service.js` currently resolves to `0` for everybody and
+`expectedEarning` is the **gross**. Nothing in 5.3 renders it — the field reaches no screen
+until 5.6 and 5.7 — and `offer.send.test.js` pins the current value in a test named for the
+defect, so the correction breaks a build rather than passing silently.
+
+**The fix is one function, as its own small PR before 5.6:** a teacher read owned by E5, in
+`session.repository.js`, returning the card columns plus `createdAt`. That is the procedure
+that file's own header prescribes for a query discovered missing, and it is written here
+rather than left as a `TODO` for the same reason the other eight are written down.
 
 ## Contract freeze
 
