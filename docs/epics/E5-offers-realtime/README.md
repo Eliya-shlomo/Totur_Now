@@ -397,6 +397,35 @@ session with no offer is what every question looks like before E4's screen is us
 from the contract's types, and it is written here and in 5.4's PR description rather
 than left for 5.8 to meet at runtime.**
 
+### An eleventh gap, found in verification: a teacher who walks out of an `ACTIVE` session
+
+A teacher accepts, the session goes `ACTIVE`, and the teacher logs out or closes the
+browser. Nothing in E5 notices. The session stays `ACTIVE` for ever, the teacher stays
+`IN_SESSION`, and no screen tells the student that the person they are waiting for has
+gone.
+
+**No money is at risk today, and that is the only reason this ships.** E5 charges
+nothing — 5.4's accept moves state and calls no wallet service, which is itself a
+recorded deviation from §12 — so a student cannot yet pay for a lesson nobody attended.
+The moment E7 charges the opening block on accept, this becomes a refund path rather
+than a cosmetic gap.
+
+What it needs, and where it belongs:
+
+- **E6** owns the session screen and the meter. A teacher whose last socket disappears
+  mid-session is a `session:*` event and a message on the student's screen, and E6 is the
+  epic that has a screen to put it on.
+- **§10's no-show window is already in the constants** — `NO_SHOW_WINDOW_SEC` is 60 —
+  and it is the product's answer to "the other side never showed up". Nothing reads it
+  yet.
+- The presence fix on top of 5.8 deliberately **does not** touch `IN_SESSION`:
+  `setTeacherOffline` moves a teacher only from `ONLINE`, so a walked-out session still
+  reads `IN_SESSION` and E6 inherits an honest row rather than one this fix quietly
+  cleaned up.
+
+Recorded here rather than fixed here, because a fix without E6's screen is a state
+change nobody can see.
+
 ## Contract freeze
 
 Agreed before 5.2 starts. Appended to `shared/api.d.ts` in 5.1 as one `E5` block. Changing

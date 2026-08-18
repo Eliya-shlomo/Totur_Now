@@ -5,7 +5,7 @@ import { logger } from '#utils/logger.js';
 
 import { socketAuth } from './auth.js';
 import { replayOpenOffer } from './handlers.offer.js';
-import { registerPresenceHandlers } from './handlers.presence.js';
+import { registerPresenceHandlers, scheduleOfflineIfLastSocket } from './handlers.presence.js';
 
 /**
  * The Socket.IO server. Created in PR 5.1, and **it emits nothing until 5.2.**
@@ -82,6 +82,11 @@ export function initSockets(httpServer) {
         userId: socket.data.user.id,
         reason,
       });
+
+      // A teacher whose last tab has gone stops being available — after a grace period,
+      // because a reload is also a disconnect. See the handler for why the check is
+      // "any socket left in this user's room" rather than "this one closed".
+      scheduleOfflineIfLastSocket(socket);
     });
   });
 

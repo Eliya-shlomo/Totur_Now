@@ -22,6 +22,19 @@ export const GRACE_SECONDS = 30;
 /** An offer a teacher has not answered within this window expires. */
 export const OFFER_TTL_SECONDS = 60;
 
+/**
+ * How long a teacher's last socket may stay gone before they are taken offline.
+ *
+ * Short enough that a student is not offered somebody who closed their laptop, long
+ * enough to survive the two events that look identical from the server: a page reload
+ * and a tunnel. A reload reconnects in well under a second; a teacher who is actually
+ * gone waits this out and drops off every match list.
+ *
+ * This is not §10's auto-away and does not replace it. That sweep answers "the tab is
+ * open and nobody has touched it for an hour"; this answers "there is no tab".
+ */
+export const PRESENCE_DISCONNECT_GRACE_SECONDS = 15;
+
 /** ONLINE teachers idle this long are flipped OFFLINE. */
 export const AUTO_AWAY_MINUTES = 60;
 

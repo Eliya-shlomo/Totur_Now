@@ -1,5 +1,11 @@
-import { Anchor, Badge, Card, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core';
-import { IconCoin, IconStar, IconCircleCheck, IconMessages } from '@tabler/icons-react';
+import { Alert, Anchor, Badge, Card, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import {
+  IconCoin,
+  IconStar,
+  IconCircleCheck,
+  IconMessages,
+  IconPlugOff,
+} from '@tabler/icons-react';
 import { SOCKET_EVENTS } from '@tutor/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -118,6 +124,26 @@ export default function Dashboard() {
     }, []),
   );
 
+  /**
+   * `teacher:status` — this teacher's own availability, from wherever it moved.
+   *
+   * The notice below is a claim about the present, so it cannot be rendered from a value
+   * read once on mount: the toggle in the header changes it, and so do the offer lock,
+   * a session starting and both sweeps. The payload is filtered to this teacher because
+   * `emitTeacherStatus` broadcasts to everybody — the same filter, for the same reason,
+   * as `TeacherStatusToggle`.
+   */
+  useSocketEvent(
+    SOCKET_EVENTS.TEACHER_STATUS,
+    useCallback((payload) => {
+      setTeacher((current) => {
+        if (!current || payload?.teacherId !== current.id) return current;
+
+        return { ...current, status: payload.status };
+      });
+    }, []),
+  );
+
   const clearOffer = useCallback(() => setOffer(null), []);
 
   return (
@@ -153,6 +179,28 @@ export default function Dashboard() {
             Use the availability control in the top bar to go online or offline. It shows your
             current status, including when the system is holding you for an offer or a session.
           </Text>
+
+          {/*
+            Said out loud, because a teacher now starts every session offline and nothing
+            else on the screen would explain the silence.
+
+            `status` used to survive the browser that set it: a teacher went online, closed
+            the laptop, and students were offered them for the next hour with nobody there
+            to answer. Availability is a statement about right now, so it is made once per
+            session — and the cost of that is a teacher who does not know they are invisible.
+            This is that cost, paid in one sentence.
+          */}
+          {teacher?.status === 'OFFLINE' && (
+            <Alert
+              icon={<IconPlugOff size={16} />}
+              color="yellow"
+              variant="light"
+              title="You are offline, so no questions will reach you"
+            >
+              You start each sign-in offline. Go online in the top bar when you are ready to answer,
+              and stay on this page — a question arrives here.
+            </Alert>
+          )}
         </Stack>
       </Card>
 

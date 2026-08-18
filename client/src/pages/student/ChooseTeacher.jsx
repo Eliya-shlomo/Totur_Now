@@ -1,6 +1,6 @@
 import { Alert, Anchor, Badge, Button, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core';
 import { IconInfoCircle, IconRefresh, IconUsersGroup, IconWallet } from '@tabler/icons-react';
-import { ERROR_CODES } from '@tutor/shared';
+import { ERROR_CODES, SOCKET_EVENTS } from '@tutor/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
@@ -13,6 +13,7 @@ import PriceCeiling from '@/components/match/PriceCeiling';
 import EmptyState from '@/components/state/EmptyState';
 import ErrorState from '@/components/state/ErrorState';
 import LoadingState from '@/components/state/LoadingState';
+import { useSocketEvent } from '@/hooks/useSocketEvent';
 import { notify } from '@/lib/notify';
 
 /**
@@ -149,6 +150,53 @@ export default function ChooseTeacher() {
 
   useEffect(loadContext, [loadContext]);
   useEffect(loadMatches, [loadMatches]);
+
+  /**
+   * `teacher:status` — a teacher on this list came or went, **while the student is
+   * looking at them.**
+   *
+   * Without this the list was a photograph. A teacher who logged out, closed the laptop
+   * or went offline stayed on screen with an "Online" pill until the student pressed
+   * **Look again**, and pressing **Send request** on that card spent a round trip to be
+   * told they are no longer available. The event has been broadcast since 5.2 and this
+   * screen was not listening to it.
+   *
+   * **The card is updated, not removed.** Cards vanishing from under a finger is worse
+   * than a pill changing, and the pill plus a disabled button says the true thing: they
+   * were here a moment ago and they are not now. The list re-runs on **Look again**,
+   * which is where the pool is supposed to change.
+   *
+   * The filter is not optional — `emitTeacherStatus` goes to every connected socket,
+   * because E5 has no room for "students watching this teacher" — so every teacher's
+   * changes arrive here and only the ones on screen matter. Identity is
+   * `teacher_profiles.user_id`, which is `TeacherCard.id`.
+   */
+  useSocketEvent(
+    SOCKET_EVENTS.TEACHER_STATUS,
+    useCallback((payload) => {
+      setMatches((current) => {
+        const index = current?.teachers.findIndex(
+          (match) => match.teacher.id === payload?.teacherId,
+        );
+
+        if (index === undefined || index === -1) return current;
+
+        // Anything that is not `ONLINE` is unreachable to a student: `OFFER_LOCKED` and
+        // `IN_SESSION` are as unavailable as `OFFLINE`, and the card's own `isOnline` is
+        // computed the same way on the server (`teacherView.js`).
+        const isOnline = payload.status === 'ONLINE';
+
+        if (current.teachers[index].teacher.isOnline === isOnline) return current;
+
+        const teachers = [...current.teachers];
+        const match = teachers[index];
+
+        teachers[index] = { ...match, teacher: { ...match.teacher, isOnline } };
+
+        return { ...current, teachers };
+      });
+    }, []),
+  );
 
   /**
    * Move the ceiling, which means moving the URL.
@@ -536,7 +584,10 @@ function MatchResults({
             walletBalance={matches.walletBalance}
             block={pricing.block}
             onChoose={onChoose}
-            disabled={pendingChoice !== null}
+            // A card whose teacher has just gone offline keeps its place and loses its
+            // button. Sending to them would answer `TEACHER_UNAVAILABLE`, which is a
+            // round trip to learn what the pill beside the button already says.
+            disabled={pendingChoice !== null || !match.teacher.isOnline}
           />
         ))}
       </SimpleGrid>
