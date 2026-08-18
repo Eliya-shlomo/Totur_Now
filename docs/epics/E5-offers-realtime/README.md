@@ -359,6 +359,26 @@ session with no offer is what every question looks like before E4's screen is us
 from the contract's types, and it is written here and in 5.4's PR description rather
 than left for 5.8 to meet at runtime.**
 
+### 5.4 ships an executable version of its own manual test — and 5.9 re-runs it
+
+`server/tests/manual/verify-5.4.js` is the brief's manual test with a machine typing it:
+it logs in as the seeded accounts, drives the real endpoints against a real Postgres,
+and asserts the rows afterwards. It sits outside `npm test` on purpose — the glob is
+`server/tests/**/*.test.js`, and a check needing a database and a listening server would
+turn a green suite red on a machine with neither.
+
+**It exists for one check that `npm test` structurally cannot make.**
+`releaseTeacherLock`'s `where` on `OFFER_LOCKED` is invisible to a suite that runs one
+request at a time; the script is the only thing in this repository that can set a
+teacher `OFFLINE` while they hold an offer and then look. That was verified by negative
+control before 5.4 merged: with the predicate removed, check A fails and **`npm test`
+stays 353/353 green.**
+
+**5.9 runs it, and does not treat a pass as the epic's verification.** The two-browser
+test is still the acceptance criterion — this script drives one caller at a time and can
+see neither 5.3's lock nor a socket arriving in a browser. It is the regression floor
+under the manual pass, not a replacement for it.
+
 ## Contract freeze
 
 Agreed before 5.2 starts. Appended to `shared/api.d.ts` in 5.1 as one `E5` block. Changing
