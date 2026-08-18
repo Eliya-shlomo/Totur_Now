@@ -1,4 +1,5 @@
 import TeacherLayout from '@/layouts/TeacherLayout';
+import Dashboard from '@/pages/teacher/Dashboard';
 import Onboarding from '@/pages/teacher/Onboarding';
 import Profile from '@/pages/teacher/Profile';
 import Placeholder from '@/components/Placeholder';
@@ -19,7 +20,7 @@ export const teacherRoutes = [
       </ProtectedRoute>
     ),
     children: [
-      { index: true, element: <Placeholder title="Teacher dashboard" pr="5.7" /> },
+      { index: true, element: <Dashboard /> },
       { path: 'onboarding', element: <Onboarding /> },
       { path: 'session/:id', element: <Placeholder title="Active session" pr="6.8" /> },
       { path: 'earnings', element: <Placeholder title="Earnings" pr="7.8" /> },

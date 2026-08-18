@@ -1,9 +1,11 @@
 import { Button, Group, Menu, Text, UnstyledButton } from '@mantine/core';
 import { IconChevronDown, IconPlayerPause, IconWorld } from '@tabler/icons-react';
+import { SOCKET_EVENTS } from '@tutor/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
 import { getTeacherMe, updateTeacherMe } from '@/api/teacher.api';
+import { useSocketEvent } from '@/hooks/useSocketEvent';
 import { notify } from '@/lib/notify';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -101,6 +103,40 @@ export default function TeacherStatusToggle() {
       setPending(false);
     }
   }, []);
+
+  /**
+   * `teacher:status` — the listener that finally makes this control correct. **F4**,
+   * filed in E2's retro and carried by three epics.
+   *
+   * The read above has re-run on `location.pathname` since 2.4, which was merely stale
+   * then and is wrong from 5.3 on: a teacher's status now changes because the *server*
+   * locked them — an offer arrived, a session started, the sweep took them away — and
+   * no navigation happens when it does. A pill that only re-reads on navigation shows
+   * "Online" to a teacher the engine has already locked.
+   *
+   * **This adds a listener and writes nothing.** The `PATCH` path above is untouched:
+   * this is the same value arriving by a second route, not a second writer.
+   *
+   * **The filter is not optional.** `emitTeacherStatus` broadcasts to every connected
+   * socket — E5 has no room for "students watching this teacher", and the emitter's
+   * header explains why — so this component hears every teacher's changes and must
+   * apply only its own. `teacherId` in the payload is `teacher_profiles.user_id`,
+   * which is the id in the auth store.
+   */
+  useSocketEvent(
+    SOCKET_EVENTS.TEACHER_STATUS,
+    useCallback(
+      (payload) => {
+        if (!isTeacher || !user?.id || payload?.teacherId !== user.id) return;
+
+        // Merged into the record rather than replacing it: the payload carries a
+        // status and nothing else, and `onboardingComplete`, the price and the topics
+        // are still whatever the last read said.
+        setRecord((current) => (current ? { ...current, status: payload.status } : current));
+      },
+      [isTeacher, user?.id],
+    ),
+  );
 
   // Students and admins never see this, and neither does the frame between a reload
   // and the first read answering — an empty header is better than one that flickers a
