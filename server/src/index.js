@@ -1,5 +1,6 @@
 import { disconnectDb } from '#config/db.js';
 import { env } from '#config/env.js';
+import { isGeminiConfigured } from '#config/gemini.js';
 import { startJobs, stopJobs } from '#jobs/index.js';
 import { closeSockets, initSockets } from '#sockets/index.js';
 import { logger } from '#utils/logger.js';
@@ -26,7 +27,24 @@ const server = app.listen(env.PORT, () => {
   logger.info(`Server listening on port ${env.PORT}`, {
     nodeEnv: env.NODE_ENV,
     corsOrigins: env.corsOrigins,
+    // **Said at boot, because §8.1's fallback is silent by design.** A process with no
+    // key still serves every request: the classifier answers the sentinel topic and the
+    // student's own words as the brief, which is correct behaviour and looks exactly
+    // like a model that has stopped understanding anything. Half a day was spent on
+    // that once — a dev server whose environment predated the key in `.env`, kept alive
+    // by `--watch`, since `dotenv` never overrides a variable already in `process.env`.
+    // One field in the line everybody reads first is the whole fix.
+    classification: isGeminiConfigured ? 'enabled' : 'DISABLED — GEMINI_API_KEY missing',
   });
+
+  if (!isGeminiConfigured) {
+    logger.warn(
+      'GEMINI_API_KEY is not set in this process, so every question will fall back to the unclassified topic',
+      {
+        hint: 'it is read from the repo-root .env at boot; a running dev server does not pick up a change to it',
+      },
+    );
+  }
 });
 
 /**
