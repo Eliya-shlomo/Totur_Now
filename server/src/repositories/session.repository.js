@@ -15,7 +15,7 @@ import { prisma } from '#config/db.js';
  * failure the freeze exists to prevent — if something is genuinely absent, that is a
  * note in the epic README and its own small PR, never an edit in passing.
  *
- * **That happened, once, and it is recorded rather than hidden.** 5.4 added
+ * **That happened twice, and both are recorded rather than hidden.** 5.4 added
  * `setSessionPending` here: this file wrote sessions forwards only, §10's diagram has
  * an arrow back, and a reject had no writer to make it — which left a rejected
  * session stuck at `OFFER_SENT`, where 5.3's `PENDING` assertion refuses every future
@@ -25,6 +25,12 @@ import { prisma } from '#config/db.js';
  * function 5.4 added, beside `releaseTeacherLock`'s body, which was 5.4's by the
  * freeze. `git log --oneline -- server/src/repositories/session.repository.js` now
  * names three PRs, and that is the mechanism working rather than failing.
+ *
+ * The second is `findTeacherForNotification`, added by 5.6 and documented at the
+ * function. The epic README's ninth gap called it before either PR was written —
+ * `expectedEarning` had no backing read — so unlike the first it is a reopen that was
+ * planned in writing, which is the difference between the mechanism working and the
+ * freeze quietly eroding.
  *
  * Three rules everything here follows:
  *
@@ -153,6 +159,57 @@ export async function findSessionForView(sessionId) {
           createdAt: true,
         },
       },
+    },
+  });
+}
+
+/**
+ * The two fields the notification path needs and no other read in E5 returns —
+ * `teacher_profiles.created_at` and the teacher's address. PR 5.6.
+ *
+ * **This is the epic README's ninth gap, and it is a second deliberate reopen of a
+ * frozen file.** `IncomingOffer.expectedEarning` is the teacher's cut after §5.3's
+ * commission, and `platformFeeRate` cannot answer without a start date.
+ * `TEACHER_VIEW` excludes `createdAt` and refuses `email` by explicit design —
+ * `teacher.repository.js`'s header lists both — and both session reads above are
+ * about the session. So 5.3 shipped with `feeRateFor` resolving to `0` for
+ * everybody, `offer.send.test.js` pinned that as a known defect, and 5.6 is the PR
+ * that renders the number to a human for the first time. It closes here.
+ *
+ * The README prescribed this as its own small PR before 5.6. It is inside 5.6
+ * instead, by decision: the diff is the same either way, this epic has one
+ * developer, and a repository function whose only two callers are in the same PR is
+ * easier to review beside them than a week earlier. Said in 5.6's description rather
+ * than left for `git log --oneline -- server/src/repositories/session.repository.js`
+ * to reveal, which now names four PRs.
+ *
+ * **Narrower than the README's sketch, which said "the card columns plus
+ * `createdAt`".** The card columns are already in hand at the only call site —
+ * `findTeacherById` supplied them before the lock — so re-reading them here would be
+ * a second answer to `pricePerBlock` on the same request, free to disagree with the
+ * one the transaction actually wrote to `sessions.price_per_block`. This returns the
+ * two facts nobody has, and the caller keeps the row it already trusts.
+ *
+ * **`email` is read here and nowhere else, and it is why this read is E5's rather
+ * than an amendment to `TEACHER_VIEW`.** That constant feeds `toTeacherCard` and
+ * `toTeacherMe`, which serialize to a browser; a column added there ships to the
+ * public teacher list the moment it lands. This one is consumed by
+ * `notification.service.js`, reaches no payload and no socket event, and the call
+ * site is after `COMMIT` on the notification path — so a teacher's address is never
+ * loaded by the request that answers the student.
+ *
+ * `null` when the id has no `teacher_profiles` row. The caller is post-commit and
+ * treats it as "send no email" rather than as an error: the offer already exists.
+ *
+ * @param {string} teacherId `teacher_profiles.user_id`
+ * @returns {Promise<{createdAt: Date, user: {fullName: string, email: string}}|null>}
+ */
+export async function findTeacherForNotification(teacherId) {
+  return prisma.teacherProfile.findUnique({
+    where: { userId: teacherId },
+    select: {
+      createdAt: true,
+      user: { select: { fullName: true, email: true } },
     },
   });
 }

@@ -5,12 +5,14 @@ import { createOffer } from '#repositories/offer.repository.js';
 import {
   findSessionForOffer,
   findSessionForView,
+  findTeacherForNotification,
   findWalletBalance,
   incrementOffersReceived,
   lockTeacherForOffer,
   setSessionOfferSent,
 } from '#repositories/session.repository.js';
 import { findTeacherById } from '#repositories/teacher.repository.js';
+import { sendOfferEmail } from '#services/notification.service.js';
 import { publishTeacherStatus } from '#services/presence.service.js';
 import { emitOfferNew } from '#sockets/events.js';
 import { AppError } from '#utils/AppError.js';
@@ -99,8 +101,10 @@ const defaultDeps = {
   markOfferSent: setSessionOfferSent,
   countOffer: incrementOffersReceived,
   loadSessionView: findSessionForView,
+  loadTeacherContact: findTeacherForNotification,
   announceStatus: publishTeacherStatus,
   notifyTeacher: emitOfferNew,
+  emailTeacher: sendOfferEmail,
 };
 
 /**
@@ -124,8 +128,10 @@ export async function sendOffer({ sessionId, studentId, teacherId }, deps = defa
     markOfferSent,
     countOffer,
     loadSessionView,
+    loadTeacherContact,
     announceStatus,
     notifyTeacher,
+    emailTeacher,
   } = { ...defaultDeps, ...deps };
 
   const session = await loadOwnedSession({ sessionId, studentId, findSession });
@@ -206,12 +212,13 @@ export async function sendOffer({ sessionId, studentId, teacherId }, deps = defa
     offer,
     session,
     sessionId,
-    teacher,
     teacherId,
     pricePerBlock,
     loadSessionView,
+    loadTeacherContact,
     announceStatus,
     notifyTeacher,
+    emailTeacher,
   });
 
   return toOfferResponse({ offer, sessionId, teacher, pricePerBlock });
@@ -284,7 +291,7 @@ function assertCanAffordOpeningBlock({ balance, pricePerBlock }) {
 /**
  * Everything that happens **after** `COMMIT`, and nothing that happens before it.
  *
- * Two announcements, in this order:
+ * One status broadcast, two reads and two notifications:
  *
  * **`teacher:status`** first, because E4's first hard filter is `status = 'ONLINE'` and
  * a locked teacher has just left the candidate pool. Every student with a match list
@@ -295,84 +302,106 @@ function assertCanAffordOpeningBlock({ balance, pricePerBlock }) {
  * by at most one offer: harmless, and better than sweeping a teacher offline while they
  * are looking at a modal.
  *
- * **`offer:new`** second, carrying `IncomingOffer` in full so that 5.7's modal renders
- * from the event rather than fetching on receipt.
+ * **Then the two reads, together.** The enrichment read exists for one field —
+ * `findSessionForOffer` selects `topicId` and `subtopicId` but no names, and
+ * `IncomingOffer.topicLabel` is a label. The contact read (5.6) exists for two fields
+ * nothing else in this epic returns: `teacher_profiles.created_at`, which §5.3's
+ * commission needs, and the teacher's address, which the email needs. `Promise.all`
+ * rather than one after the other, because neither depends on the other and this path
+ * is a teacher's sixty seconds.
  *
- * **Neither can fail this request.** Both emitters swallow their own transport
- * failures by contract (`sockets/events.js`), and the one thing here that can reject —
- * the enrichment read — is caught to `null`. An offer that is committed and answered
- * with 201 must not become a 500 because a notification could not be decorated.
+ * **Both reads are allowed to fail, separately.** Each catches to `null`: the label
+ * degrades to `null`, which the contract types and 5.7 renders, and the email is
+ * skipped. An offer that is committed and answered with 201 must not become a 500
+ * because a notification could not be decorated.
  *
- * **The enrichment read exists for one field.** `findSessionForOffer` selects `topicId`
- * and `subtopicId` but no names, and `IncomingOffer.topicLabel` is a label. This is one
- * `SELECT` on the notification path, off the hot path and outside every lock, against a
- * query 5.1 already froze. When it fails the payload falls back to the session already
- * in hand and the label degrades to `null`, which the contract types and 5.7 renders.
+ * **`offer:new`** then carries `IncomingOffer` in full so that 5.7's modal renders from
+ * the event rather than fetching on receipt, and **the email carries the same object**
+ * — the earning in the inbox and the earning in the modal are one value, not two
+ * agreeing call sites.
+ *
+ * **Neither notification can fail this request.** The socket emitters swallow their own
+ * transport failures by contract (`sockets/events.js`), `sendOfferEmail` swallows the
+ * provider's by contract (`notification.service.js`), and the email is additionally
+ * **not awaited**: Resend is an HTTP call to a third party, and a student's 201 does not
+ * wait on somebody else's outage. The `.catch` after it is belt and braces for the day
+ * that contract is broken by a later edit — an unhandled rejection would take the
+ * process down, and this one has a committed offer behind it.
  */
 async function announceOffer({
   offer,
   session,
   sessionId,
-  teacher,
   teacherId,
   pricePerBlock,
   loadSessionView,
+  loadTeacherContact,
   announceStatus,
   notifyTeacher,
+  emailTeacher,
 }) {
   announceStatus(teacherId, 'OFFER_LOCKED');
 
-  const view = await loadSessionView(sessionId).catch((error) => {
-    logger.warn('Offer notification could not be enriched', {
+  const [view, contact] = await Promise.all([
+    loadSessionView(sessionId).catch((error) => {
+      logger.warn('Offer notification could not be enriched', {
+        sessionId,
+        message: error?.message,
+      });
+
+      return null;
+    }),
+    loadTeacherContact(teacherId).catch((error) => {
+      logger.warn('Offer notification could not read the teacher', {
+        sessionId,
+        message: error?.message,
+      });
+
+      return null;
+    }),
+  ]);
+
+  const incoming = toIncomingOffer({
+    offer,
+    sessionId,
+    question: view?.question ?? session.question,
+    pricePerBlock,
+    feeRate: feeRateFor(contact),
+  });
+
+  notifyTeacher(teacherId, incoming);
+
+  emailTeacher({
+    to: contact?.user?.email,
+    teacherName: contact?.user?.fullName,
+    offer: incoming,
+  }).catch((error) => {
+    logger.warn('Offer email rejected into the request path', {
       sessionId,
       message: error?.message,
     });
-
-    return null;
   });
-
-  notifyTeacher(
-    teacherId,
-    toIncomingOffer({
-      offer,
-      sessionId,
-      question: view?.question ?? session.question,
-      pricePerBlock,
-      feeRate: feeRateFor(teacher),
-    }),
-  );
 }
 
 /**
- * §5.3's commission for this teacher — **and the one number in this PR that is
- * currently a placeholder. It is `0` for everybody.**
+ * §5.3's commission for this teacher, from their own start date.
  *
- * `platformFeeRate` needs `teacher_profiles.created_at`, and **no read reachable from
- * this PR returns it.** `TEACHER_VIEW` excludes it by explicit design — the header of
- * `teacher.repository.js` lists the columns it refuses to select and that file is E2's
- * and frozen — and `findSessionForOffer` and `findSessionForView` are both about the
- * session. So `teacher.createdAt` is `undefined` on every row that reaches here, the
- * fallback below reads as "joined just now", and the new-teacher exemption answers `0`
- * every time. 5.3 was kept inside its permitted file list rather than unfreezing a
- * repository to fix it, which is the right trade for a field 5.3 itself never renders.
+ * **This is the epic README's ninth gap, closed.** 5.3 shipped with no read carrying
+ * `teacher_profiles.created_at`: `TEACHER_VIEW` excludes it by explicit design and both
+ * session reads are about the session, so the fallback here read as "joined just now",
+ * the new-teacher exemption answered `0` for everybody and `expectedEarning` was the
+ * gross. Nothing rendered it — 5.6's email and 5.7's modal are its consumers — and
+ * `offer.send.test.js` pinned the wrong value in a test named for the defect, so this
+ * correction broke a build rather than passing silently, which is what pinning it was
+ * for. `findTeacherForNotification` supplies the column now.
  *
- * **What that costs, stated plainly:** `IncomingOffer.expectedEarning` is the gross,
- * not the net. Nothing in this PR shows it to anybody — 5.7's modal and 5.6's email are
- * its consumers and neither exists — and 5.3's acceptance criteria do not assert it. It
- * must be corrected before either lands, because `commission.js`'s header is explicit
- * that the number a teacher is shown at accept time is the one E7 has to honour, and
- * an established teacher quoted the gross would be shown 15% more than they earn.
- *
- * The fix is one function: a teacher read owned by E5 that carries `createdAt`, in
- * `session.repository.js`, as its own small PR — which is exactly the procedure that
- * file's own header prescribes for a query discovered missing. It is a note in the epic
- * README and a blocker on 5.6, not a silent `TODO`.
- *
- * The fallback is `new Date()` rather than the epoch on purpose. Both are fictions; this
- * one is at least a date the row could have, and it fails toward paying the teacher
- * more rather than promising them less, which is the safer direction to be wrong in
- * while the number reaches no screen.
+ * `null` when that read failed. The fallback stays `new Date()` and stays deliberate:
+ * both it and the epoch are fictions, this one is a date the row could have, and it
+ * fails toward quoting the teacher **more** rather than promising them less. A teacher
+ * shown 15% too much on a notification the platform failed to enrich is a smaller wrong
+ * than a teacher shown 15% too little, and E7 charges from the row rather than from
+ * this number either way.
  */
-function feeRateFor(teacher) {
-  return platformFeeRate({ teacherCreatedAt: teacher.createdAt ?? new Date() });
+function feeRateFor(contact) {
+  return platformFeeRate({ teacherCreatedAt: contact?.createdAt ?? new Date() });
 }
