@@ -7,6 +7,13 @@ import { fileURLToPath } from 'node:url';
  * The teacher's two answers — `POST /offers/:id/accept`, `POST /offers/:id/reject`
  * and `GET /sessions/:id`. PR 5.4, MVP.md §10 and §12.
  *
+ * **The accept's transaction moved to `session.activate.test.js` in 6.3, and so did its
+ * tests.** What is left here is what `offer.respond.service.js` still decides: whose
+ * offer it is, whether the instant has passed, the tidy-up a late answer performs, the
+ * whole of the reject path, and `GET /sessions/:id` while an offer is out. The four
+ * steps, the three races and the room are asserted beside the service that performs
+ * them — one test file per service, the same rule as one PR per file.
+ *
  * **What this file cannot test, said first so a green run is not mistaken for a
  * verified release.** `releaseTeacherLock` is a conditional `UPDATE` whose `where`
  * carries `status = 'OFFER_LOCKED'`, and dropping that predicate is invisible to every
@@ -23,11 +30,6 @@ import { fileURLToPath } from 'node:url';
  * real Postgres can see a row that moved; it can never see the absence of the statement
  * that would have moved it. That is what every collaborator arriving through the second
  * argument buys.
- *
- * Nothing here types a block count or a block length. `OPENING_BLOCKS` and
- * `BLOCK_MINUTES` are imported and the expected `endsAt` is computed from them, so the
- * day somebody tunes the appendix this file moves with it instead of passing for the
- * wrong reason.
  */
 
 // The services import `config/db.js` transitively for `$transaction`, and that
@@ -39,7 +41,7 @@ process.env.DATABASE_URL ??= 'postgresql://unused:unused@localhost:5433/unused';
 process.env.JWT_ACCESS_SECRET ??= 'test-access-secret-at-least-32-characters';
 process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret-at-least-32-characters';
 
-const { BLOCK_MINUTES, OFFER_STATUS, OPENING_BLOCKS } = await import('#config/constants/index.js');
+const { OFFER_STATUS } = await import('#config/constants/index.js');
 const { ERROR_CODES } = await import('#config/errors/codes.js');
 const { acceptOffer, rejectOffer } = await import('#services/offer.respond.service.js');
 const { getSessionView } = await import('#services/session.view.service.js');
@@ -100,14 +102,22 @@ function deps(overrides = {}) {
   const base = {
     findOffer: spy(async () => offer()),
     markResponded: spy(async () => ({ count: 1 })),
-    activateSession: spy(async () => ({ count: 1 })),
     resetSession: spy(async () => ({ count: 1 })),
-    takeTeacher: spy(async () => ({ locked: true })),
     releaseTeacher: spy(async () => ({ locked: true })),
     appendRejection: spy(async () => [TEACHER_ID]),
     announceStatus: spy(),
-    notifyAccepted: spy(),
     notifyRejected: spy(),
+
+    // 6.3's delegation. Stubbed so that "a late accept never starts a session" is an
+    // assertion about a call that did not happen, rather than about a transaction this
+    // file no longer owns.
+    activate: spy(async () => ({
+      sessionId: SESSION_ID,
+      status: 'ACTIVE',
+      startedAt: new Date(),
+      endsAt: new Date(),
+      video: Promise.resolve(true),
+    })),
     ...overrides,
   };
 
@@ -140,73 +150,6 @@ async function rejectsWithCode(promise, code) {
   });
 }
 
-describe('acceptOffer — the four steps', () => {
-  it('marks the offer ACCEPTED, activates the session and takes the teacher', async () => {
-    const collaborators = deps();
-
-    await acceptOffer(input(), collaborators);
-
-    const [responded] = collaborators.markResponded.calls[0];
-
-    assert.equal(responded.offerId, OFFER_ID);
-    assert.equal(responded.status, OFFER_STATUS.ACCEPTED);
-    assert.equal(collaborators.activateSession.calls.length, 1);
-    assert.deepEqual(collaborators.takeTeacher.calls[0], [TEACHER_ID, TX]);
-    assert.equal(collaborators.runTransaction.committed, true);
-  });
-
-  it('every write inside the transaction receives the tx, never the global client', async () => {
-    const collaborators = deps();
-
-    await acceptOffer(input(), collaborators);
-
-    assert.equal(collaborators.markResponded.calls[0][1], TX);
-    assert.equal(collaborators.activateSession.calls[0][1], TX);
-    assert.equal(collaborators.takeTeacher.calls[0][1], TX);
-  });
-
-  it('computes endsAt from OPENING_BLOCKS x BLOCK_MINUTES, not from a literal', async () => {
-    const collaborators = deps();
-
-    const response = await acceptOffer(input(), collaborators);
-
-    const [{ startedAt, endsAt }] = collaborators.activateSession.calls[0];
-    const expected = OPENING_BLOCKS * BLOCK_MINUTES * 60 * 1000;
-
-    assert.equal(endsAt.getTime() - startedAt.getTime(), expected);
-
-    // The same two instants reach the column and the caller. A response that
-    // recomputed them would be a second clock.
-    assert.equal(response.startedAt, startedAt.toISOString());
-    assert.equal(response.endsAt, endsAt.toISOString());
-    assert.equal(response.status, 'ACTIVE');
-  });
-
-  it('announces IN_SESSION and tells the student, after the commit', async () => {
-    const collaborators = deps();
-
-    await acceptOffer(input(), collaborators);
-
-    assert.deepEqual(collaborators.announceStatus.calls[0], [TEACHER_ID, 'IN_SESSION']);
-    assert.deepEqual(collaborators.notifyAccepted.calls[0], [
-      STUDENT_ID,
-      { offerId: OFFER_ID, sessionId: SESSION_ID },
-    ]);
-  });
-
-  it('emits no zoomUrl key at all — not zoomUrl: null', async () => {
-    const collaborators = deps();
-
-    await acceptOffer(input(), collaborators);
-
-    const [, payload] = collaborators.notifyAccepted.calls[0];
-
-    // `in`, not a truthiness check. §13 names the field and E5 has no Zoom; a null
-    // that means "later" is indistinguishable from a null that means "failed".
-    assert.equal('zoomUrl' in payload, false);
-  });
-});
-
 describe('acceptOffer — expiry is asserted in code, not read off status', () => {
   it('refuses an offer past its instant even though status still reads PENDING', async () => {
     const collaborators = deps({ findOffer: spy(async () => staleOffer()) });
@@ -215,7 +158,12 @@ describe('acceptOffer — expiry is asserted in code, not read off status', () =
 
     // The status the row carried was `PENDING`. Nothing in the service consulted it.
     assert.equal(staleOffer().status, OFFER_STATUS.PENDING);
-    assert.equal(collaborators.activateSession.calls.length, 0);
+
+    // **The expiry check is in front of the delegation, not behind it.** A late accept
+    // never reaches the activation at all, so it never takes a row lock and never gets
+    // as far as `assertTransition` — which would have passed, because the session is
+    // still legally at `OFFER_SENT`.
+    assert.equal(collaborators.activate.calls.length, 0);
   });
 
   it('sweeps that offer in the same call: EXPIRED, session back to PENDING, teacher released', async () => {
@@ -256,55 +204,6 @@ describe('acceptOffer — expiry is asserted in code, not read off status', () =
     });
 
     await rejectsWithCode(acceptOffer(input(), collaborators), ERROR_CODES.OFFER_EXPIRED);
-  });
-});
-
-describe('acceptOffer — the races it has to lose', () => {
-  it('answers OFFER_EXPIRED and rolls back when the offer was no longer PENDING', async () => {
-    const collaborators = deps({ markResponded: spy(async () => ({ count: 0 })) });
-
-    await rejectsWithCode(acceptOffer(input(), collaborators), ERROR_CODES.OFFER_EXPIRED);
-
-    // No second `ACTIVE` session out of an already-answered offer.
-    assert.equal(collaborators.activateSession.calls.length, 0);
-    assert.equal(collaborators.takeTeacher.calls.length, 0);
-    assert.equal(collaborators.runTransaction.rolledBack, true);
-  });
-
-  it('answers SESSION_NOT_ACTIVE when the session had already moved', async () => {
-    const collaborators = deps({ activateSession: spy(async () => ({ count: 0 })) });
-
-    await rejectsWithCode(acceptOffer(input(), collaborators), ERROR_CODES.SESSION_NOT_ACTIVE);
-
-    assert.equal(collaborators.takeTeacher.calls.length, 0);
-    assert.equal(collaborators.runTransaction.rolledBack, true);
-  });
-
-  it('answers TEACHER_UNAVAILABLE when the teacher was no longer OFFER_LOCKED', async () => {
-    const collaborators = deps({ takeTeacher: spy(async () => ({ locked: false })) });
-
-    await rejectsWithCode(acceptOffer(input(), collaborators), ERROR_CODES.TEACHER_UNAVAILABLE);
-
-    assert.equal(collaborators.runTransaction.rolledBack, true);
-  });
-
-  it('announces nothing and tells nobody when the transaction rolled back', async () => {
-    const collaborators = deps({ takeTeacher: spy(async () => ({ locked: false })) });
-
-    await rejectsWithCode(acceptOffer(input(), collaborators), ERROR_CODES.TEACHER_UNAVAILABLE);
-
-    assert.equal(collaborators.announceStatus.calls.length, 0);
-    assert.equal(collaborators.notifyAccepted.calls.length, 0);
-  });
-
-  it('never compensates a failure by hand — no release on the accept path', async () => {
-    const collaborators = deps({ activateSession: spy(async () => ({ count: 0 })) });
-
-    await rejectsWithCode(acceptOffer(input(), collaborators), ERROR_CODES.SESSION_NOT_ACTIVE);
-
-    // Postgres undoes the offer write; a `catch` that put the teacher back would be a
-    // second lock implementation with worse semantics.
-    assert.equal(collaborators.releaseTeacher.calls.length, 0);
   });
 });
 
@@ -413,6 +312,76 @@ describe('both verbs — whose offer it is', () => {
     const collaborators = deps({ findOffer: spy(async () => null) });
 
     await rejectsWithCode(acceptOffer(input(), collaborators), ERROR_CODES.NOT_FOUND);
+  });
+});
+
+describe('acceptOffer — what is left of it after 6.3', () => {
+  it('hands the activation the offer row it loaded, not an id to load again', async () => {
+    const collaborators = deps();
+
+    await acceptOffer(input(), collaborators);
+
+    const [{ offer: handed, teacherId }] = collaborators.activate.calls[0];
+
+    // One read of the offer per accept. An activation taking an id would read it a
+    // second time, and the ownership check would then be guarding a different row from
+    // the one the transaction acts on.
+    assert.equal(handed.id, OFFER_ID);
+    assert.equal(handed.session.id, SESSION_ID);
+    assert.equal(teacherId, TEACHER_ID);
+  });
+
+  it('serialises the activation’s instants and drops its video promise', async () => {
+    const startedAt = new Date('2026-08-19T09:00:00.000Z');
+    const endsAt = new Date('2026-08-19T09:10:00.000Z');
+    const collaborators = deps({
+      activate: spy(async () => ({
+        sessionId: SESSION_ID,
+        status: 'ACTIVE',
+        startedAt,
+        endsAt,
+        video: Promise.resolve(true),
+      })),
+    });
+
+    const response = await acceptOffer(input(), collaborators);
+
+    assert.deepEqual(response, {
+      sessionId: SESSION_ID,
+      status: 'ACTIVE',
+      startedAt: startedAt.toISOString(),
+      endsAt: endsAt.toISOString(),
+    });
+
+    // `JSON.stringify` of a promise is `{}`. A spread of the activation's result would
+    // put that in the response body, and the teacher's client would read a key that is
+    // an empty object on a good day.
+    assert.equal('video' in response, false);
+  });
+
+  it('does not wait on the room before answering', async () => {
+    let settled = false;
+    const collaborators = deps({
+      activate: spy(async () => ({
+        sessionId: SESSION_ID,
+        status: 'ACTIVE',
+        startedAt: new Date(),
+        endsAt: new Date(),
+        video: new Promise((resolve) => {
+          setTimeout(() => {
+            settled = true;
+            resolve(true);
+          }, 20);
+        }),
+      })),
+    });
+
+    await acceptOffer(input(), collaborators);
+
+    // The `200` is written while Daily is still being asked. This is the acceptance
+    // criterion "the response does not wait on Daily", as an assertion rather than as a
+    // log line somebody has to read.
+    assert.equal(settled, false);
   });
 });
 
@@ -594,21 +563,32 @@ const respondSource = await readFile(
   'utf8',
 );
 
-describe('the two steps the accept path does not have', () => {
-  it('imports nothing from a wallet or a Zoom module', () => {
+describe('the step the accept path still does not have', () => {
+  it('imports nothing from a wallet', () => {
     const imports = respondSource.match(/^import[\s\S]*?;$/gm) ?? [];
 
-    // E5 charges nothing and creates no meeting. This is the brief's review line made
-    // mechanical: an import added in a later epic's hurry fails here rather than
-    // being noticed by whoever reads the diff.
+    // Nothing on this path charges anything, through 6.3 and up to 6.5. An import added
+    // in a later PR's hurry fails here rather than being noticed by whoever reads the
+    // diff.
     assert.equal(
-      imports.some((line) => /wallet|zoom/i.test(line)),
+      imports.some((line) => /wallet/i.test(line)),
       false,
     );
   });
 
-  it('names both absences with the epic that owns them', () => {
-    assert.ok(respondSource.includes('[E7]'), 'the opening-block charge is not marked as E7');
-    assert.ok(respondSource.includes('[E6]'), 'the Zoom meeting is not marked as E6');
+  it('names the remaining absence with the PR that owns it', () => {
+    assert.ok(respondSource.includes('[E6.5]'), 'the opening-block charge is not marked as E6.5');
+  });
+
+  it('no longer imports a block length or a status writer', () => {
+    const imports = respondSource.match(/^import[\s\S]*?;$/gm) ?? [];
+    const imported = imports.join('\n');
+
+    // The transaction left in 6.3 and took the arithmetic with it. Either name arriving
+    // back through an import is this file quietly growing the activation back. The
+    // prose above still explains where they went, which is why this reads the imports
+    // rather than the whole text.
+    assert.equal(/OPENING_BLOCKS|BLOCK_MINUTES/.test(imported), false);
+    assert.equal(/setSessionActive|setTeacherInSession/.test(imported), false);
   });
 });
