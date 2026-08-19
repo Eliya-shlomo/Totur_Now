@@ -44,7 +44,7 @@ parts that are kept:
 
 | File | E6 | Why |
 |---|---|---|
-| `server/src/config/video.js` | **Keep** | Two TTLs and the API base. Reads its numbers from `env` in 6.1 so they are settable. |
+| `server/src/config/video.js` | **Keep** | Two TTLs. Reads its numbers from `env` in 6.1 so they are settable; the API base moved into `video.daily.service.js` in the same PR, so the `api.daily.co` grep returns one file. |
 | `server/src/services/video.daily.service.js` | **Keep** | The only file in the server that says `api.daily.co`. One grep must return one file. |
 | `server/src/services/video.service.js` | **Keep**, one addition | `createSessionVideo` and `createSessionVideoAccess` are the seam, exactly as `OWNERSHIP.md` §2.1 now names them. |
 | `client/src/components/session/VideoRoom.jsx` | **Keep** | Prebuilt iframe, `useCallFrame`, join on mount, three callbacks out. The prop signature is frozen in 6.1. |
@@ -197,7 +197,7 @@ Unchanged from E5, plus one:
 | # | PR | Size | Depends on | Status |
 |---|---|---|---|---|
 | 6.0 | [Migration: `zoom_*` → `video_room_name` / `video_room_url`](PR-6.0-video-columns-migration.md) | S | E5 | ☑ |
-| 6.1 | [Import the Daily video layer — `video.service`, `VideoRoom.jsx`](PR-6.1-daily-video-import.md) | S | — | ☐ |
+| 6.1 | [Import the Daily video layer — `video.service`, `VideoRoom.jsx`](PR-6.1-daily-video-import.md) | S | — | ☑ |
 | 6.2 | [**Session state machine: transition rules, frozen routes, the E6 contract**](PR-6.2-session-state-machine.md) | **human** · L | 6.0 | ☐ |
 | 6.3 | [Session activation + `createSessionVideo` persistence](PR-6.3-session-start.md) | M | 6.1, 6.2 | ☐ |
 | 6.4 | [`getSessionVideoContext` + `GET /sessions/:id/video`](PR-6.4-session-video-endpoint.md) | S | 6.3 | ☐ |
