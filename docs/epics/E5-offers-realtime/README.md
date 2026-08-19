@@ -197,7 +197,13 @@ private window, or a second browser.
 | 5.6 | [Email to the teacher on a new offer](PR-5.6-offer-email.md) | S | 5.3 | ☑ |
 | 5.7 | [Teacher dashboard — availability toggle + incoming offer modal](PR-5.7-teacher-dashboard.md) | L | 5.2, 5.4 | ☑ |
 | 5.8 | [Student awaiting-response state + 60-second countdown](PR-5.8-awaiting-response.md) | M | 5.4 | ☑ |
-| 5.9 | [E5 close: verification + retro](PR-5.9-e5-close.md) | S | 5.2–5.8 | ☐ |
+| 5.9 | [E5 close: verification + retro](PR-5.9-e5-close.md) | S | 5.2–5.8 | ◐ |
+
+**5.9 is closed with two defects filed and six browser/two-machine items scheduled into the
+head of E6.** [`RETRO.md`](RETRO.md) carries the recorded output: ten simultaneous pairs,
+ten `201`s, ten `409`s, one `PENDING` offer every time. The two defects it found — the
+availability pill releasing a live lock, and an inbound offer stamping the teacher's
+`last_seen_at` — are each their own PR, and neither was caught by any test in the epic.
 
 §18's numbering is preserved exactly for 5.1–5.8, so the `pr="5.7"` placeholder already in
 `routes.teacher.jsx` stays correct. 5.9 is appended, as it was in E2, E3 and E4.
