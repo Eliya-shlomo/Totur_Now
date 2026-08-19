@@ -34,8 +34,11 @@ model Session {
   platformFee    Int @default(0) @map("platform_fee")
   teacherEarning Int @default(0) @map("teacher_earning")
 
-  zoomJoinUrl   String? @map("zoom_join_url")
-  zoomMeetingId String? @map("zoom_meeting_id") @db.VarChar(60)
+  // Daily's room identifier, minted with the room in 6.3 and read by 6.4 to
+  // sign a meeting token.
+  videoRoomName String? @map("video_room_name") @db.VarChar(120)
+  // The URL the client joins. Written by 6.3, alongside the name above.
+  videoRoomUrl  String? @map("video_room_url")
 
   startedAt DateTime? @map("started_at") @db.Timestamptz(6)
   endsAt    DateTime? @map("ends_at") @db.Timestamptz(6) // when the current block ends

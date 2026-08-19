@@ -31,7 +31,7 @@ import { logger } from '#utils/logger.js';
  * Nothing here charges anything. `blocks_used` stays `0` and `total_charged` stays
  * `0` after an accept, and that is the epic's boundary rather than an oversight:
  * `wallet.service.js` is E7's and §17.5 marks it human-written because a bug there
- * creates or destroys real money, and the Zoom meeting §12 lists on this endpoint is
+ * creates or destroys real money, and the video room §12 lists on this endpoint is
  * E6's. `ends_at` is written anyway, from `OPENING_BLOCKS × BLOCK_MINUTES`, so that
  * E6 has a real instant to extend rather than a null to special-case on its first
  * tick. **A session that starts and takes no money looks exactly like a billing bug
@@ -217,16 +217,17 @@ export async function acceptOffer({ offerId, teacherId }, deps = defaultDeps) {
 
     // [E7] charge the opening block — not here. `wallet.service.js` does not exist,
     //      and MVP.md §17.5 makes it human-written when it does.
-    // [E6] create the Zoom meeting  — not here. §12 lists it on this endpoint; E6
-    //      owns it, and `sessions.zoom_join_url` stays null until it does.
+    // [E6] create the video room  — not here. §12 lists it on this endpoint; E6
+    //      owns it, and `sessions.video_room_url` stays null until it does.
   });
 
   announceStatus(teacherId, 'IN_SESSION');
 
-  // **No `zoomUrl` key at all**, and not `zoomUrl: null`. §13's payload names it and
-  // E5 has no Zoom — E6 owns that — so the field is omitted rather than sent empty: a
-  // null that means "later" is indistinguishable from a null that means "failed", and
-  // 5.7 would have to guess which.
+  // **No room-URL key at all**, and not one set to null. E5 has no video — E6 owns
+  // that — so the field is omitted rather than sent empty: a null that means "later"
+  // is indistinguishable from a null that means "failed", and 5.7 would have to guess
+  // which. §13 has since settled the same way: `{offerId, sessionId}` and no room URL
+  // on the wire, because a token is per-caller and an event is not.
   notifyAccepted(offer.session.studentId, { offerId, sessionId });
 
   return {
