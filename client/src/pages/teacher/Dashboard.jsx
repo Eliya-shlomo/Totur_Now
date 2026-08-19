@@ -1,5 +1,11 @@
-import { Anchor, Badge, Card, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core';
-import { IconCoin, IconStar, IconCircleCheck, IconMessages } from '@tabler/icons-react';
+import { Alert, Anchor, Badge, Card, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import {
+  IconCoin,
+  IconStar,
+  IconCircleCheck,
+  IconMessages,
+  IconPlugOff,
+} from '@tabler/icons-react';
 import { SOCKET_EVENTS } from '@tutor/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -25,10 +31,14 @@ import { useSocketEvent } from '@/hooks/useSocketEvent';
  * prevent — would be invisible until it reached production. The client's job here is
  * to be a witness.
  *
- * **No rehydrate on reload.** A teacher who refreshes mid-offer sees no modal, and
- * that is scoped out rather than forgotten: `GET /sessions/:id` answers the teacher's
- * side of a pending offer, and wiring it is a later PR's. The offer expires on its own
- * either way and the lock is released by 5.5.
+ * **A reload no longer loses the offer, and neither does logging in late.** 5.7 scoped
+ * that out — "the offer expires on its own either way" — and end-to-end testing turned
+ * it into the bug that made the teacher's side untestable: the lock is taken, the header
+ * reads "Offer pending", and there is nothing on screen to accept. The server now
+ * re-emits `offer:new` on every teacher handshake (`sockets/handlers.offer.js`), so the
+ * modal is raised by the same event and the same payload whether the frame is the
+ * original or the replay. The only thing this screen had to learn is that a repeated
+ * `offerId` is not a second offer.
  */
 export default function Dashboard() {
   /** `TeacherMeResponse`, for the standing block. Its own read — see `loadTeacher`. */
@@ -70,11 +80,20 @@ export default function Dashboard() {
   /**
    * A student picked this teacher. The payload is `IncomingOffer` in full, including
    * the absolute `expiresAt` the countdown recomputes from.
+   *
+   * **The same `offerId` twice is a replay, not a second offer.** The server re-emits
+   * `offer:new` on every teacher handshake, so that logging in after the student
+   * pressed **Send request** — or reloading, or a socket that dropped and came back —
+   * still raises the modal. A second tab connecting therefore delivers a frame for the
+   * offer this tab is already showing, and the modal must not be rebuilt underneath a
+   * teacher who is reading it.
    */
   useSocketEvent(
     SOCKET_EVENTS.OFFER_NEW,
     useCallback((incoming) => {
       setOffer((current) => {
+        if (current && current.offerId === incoming?.offerId) return current;
+
         if (current) {
           // Loud on purpose, and not a toast: this is not something the teacher can
           // act on, it is a server-side invariant that has just been violated. The
@@ -102,6 +121,26 @@ export default function Dashboard() {
     SOCKET_EVENTS.OFFER_EXPIRED,
     useCallback((payload) => {
       setOffer((current) => (current && current.offerId === payload?.offerId ? null : current));
+    }, []),
+  );
+
+  /**
+   * `teacher:status` — this teacher's own availability, from wherever it moved.
+   *
+   * The notice below is a claim about the present, so it cannot be rendered from a value
+   * read once on mount: the toggle in the header changes it, and so do the offer lock,
+   * a session starting and both sweeps. The payload is filtered to this teacher because
+   * `emitTeacherStatus` broadcasts to everybody — the same filter, for the same reason,
+   * as `TeacherStatusToggle`.
+   */
+  useSocketEvent(
+    SOCKET_EVENTS.TEACHER_STATUS,
+    useCallback((payload) => {
+      setTeacher((current) => {
+        if (!current || payload?.teacherId !== current.id) return current;
+
+        return { ...current, status: payload.status };
+      });
     }, []),
   );
 
@@ -140,6 +179,28 @@ export default function Dashboard() {
             Use the availability control in the top bar to go online or offline. It shows your
             current status, including when the system is holding you for an offer or a session.
           </Text>
+
+          {/*
+            Said out loud, because a teacher now starts every session offline and nothing
+            else on the screen would explain the silence.
+
+            `status` used to survive the browser that set it: a teacher went online, closed
+            the laptop, and students were offered them for the next hour with nobody there
+            to answer. Availability is a statement about right now, so it is made once per
+            session — and the cost of that is a teacher who does not know they are invisible.
+            This is that cost, paid in one sentence.
+          */}
+          {teacher?.status === 'OFFLINE' && (
+            <Alert
+              icon={<IconPlugOff size={16} />}
+              color="yellow"
+              variant="light"
+              title="You are offline, so no questions will reach you"
+            >
+              You start each sign-in offline. Go online in the top bar when you are ready to answer,
+              and stay on this page — a question arrives here.
+            </Alert>
+          )}
         </Stack>
       </Card>
 

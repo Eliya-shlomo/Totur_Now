@@ -164,6 +164,37 @@ export async function findSessionForView(sessionId) {
 }
 
 /**
+ * The session a teacher is currently being held for, or `null`. **Added by the offer
+ * delivery fix on top of 5.8**, and it exists because `offer:new` is a live frame with
+ * nobody to catch it when the teacher's socket is not connected.
+ *
+ * A teacher who logs in *after* the student pressed **Send request**, or who reloads
+ * mid-offer, holds the lock — their header even says "Offer pending" — and sees no
+ * modal at all, because the only thing that raises it is a frame that was emitted
+ * before their socket existed. 5.7 scoped the rehydrate out and said so; this is the
+ * read that closes it, from the socket handshake rather than from a new endpoint.
+ *
+ * `findFirst` and not `findUnique`: no constraint says a teacher has at most one
+ * `OFFER_SENT` session, and the thing that actually guarantees it is 5.3's conditional
+ * lock. Ordered newest first so that a row left behind by a failure the lock is meant
+ * to prevent resolves to the current offer rather than to a corpse — and so that the
+ * absence of a unique index is not quietly relied on.
+ *
+ * Only the id is selected. The caller answers with `getSessionView`, which is the one
+ * place that knows how to shape an offer for a teacher.
+ *
+ * @param {string} teacherId `sessions.teacher_id`
+ * @returns {Promise<{id: string}|null>}
+ */
+export async function findOfferSessionForTeacher(teacherId) {
+  return prisma.session.findFirst({
+    where: { teacherId, status: 'OFFER_SENT' },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+}
+
+/**
  * The two fields the notification path needs and no other read in E5 returns —
  * `teacher_profiles.created_at` and the teacher's address. PR 5.6.
  *

@@ -1,6 +1,7 @@
 import { REFRESH_COOKIE_NAME } from '#config/constants/index.js';
 import { getCurrentUser, loginUser, refreshSession } from '#services/auth.session.service.js';
 import { clearRefreshCookie, setRefreshCookie } from '#services/auth.token.service.js';
+import { takeTeacherOffline } from '#services/presence.service.js';
 import { logger } from '#utils/logger.js';
 
 /**
@@ -34,6 +35,17 @@ export async function login(req, res) {
   setRefreshCookie(res, refreshToken);
 
   res.status(200).json({ success: true, data: { user, accessToken } });
+
+  // **A teacher starts every session unavailable and says when they are ready.**
+  // `status` is a column, so it survives the browser that set it: a teacher who went
+  // online and closed the laptop on Tuesday was still being offered questions on
+  // Thursday, and the offer had nobody to reach. Availability inherited from a session
+  // that no longer exists is not consent to be sent a student.
+  //
+  // The write is conditional on `ONLINE` (`setTeacherOffline`), so a teacher logging in
+  // on a second device while genuinely mid-offer or mid-session is untouched — those
+  // states belong to the system, not to a login.
+  if (user.role === 'teacher') void takeTeacherOffline(user.id);
 }
 
 /**
@@ -85,6 +97,17 @@ export async function logout(req, res) {
   logger.debug('logout', { userId: req.user?.id });
 
   res.status(200).json({ success: true, data: null });
+
+  // **A teacher who logs out stops being available, immediately.** The status column
+  // used to outlive the session that set it: they went online, left, and every match
+  // list went on offering them until §10's hour-long sweep noticed. A student sending
+  // to that row gets a countdown that can only expire.
+  //
+  // After `res`, and not awaited, for the reason 5.3's email and 5.6's notification are
+  // after their commit: logging out must succeed whatever the database says about a
+  // profile row. `takeTeacherOffline` handles its own failures and moves nobody who is
+  // `OFFER_LOCKED` or `IN_SESSION` — a live offer keeps its own clock.
+  if (req.user?.role === 'teacher') void takeTeacherOffline(req.user.id);
 }
 
 /**

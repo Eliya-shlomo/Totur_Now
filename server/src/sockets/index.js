@@ -4,7 +4,8 @@ import { env } from '#config/env.js';
 import { logger } from '#utils/logger.js';
 
 import { socketAuth } from './auth.js';
-import { registerPresenceHandlers } from './handlers.presence.js';
+import { replayOpenOffer } from './handlers.offer.js';
+import { registerPresenceHandlers, scheduleOfflineIfLastSocket } from './handlers.presence.js';
 
 /**
  * The Socket.IO server. Created in PR 5.1, and **it emits nothing until 5.2.**
@@ -68,12 +69,24 @@ export function initSockets(httpServer) {
     // boundary, rather than here where every later handler would have to repeat it.
     registerPresenceHandlers(socket);
 
+    // The offer this teacher is already holding, if there is one. `offer:new` is a
+    // live frame and nothing catches it when the teacher's socket did not exist yet —
+    // logging in after the student pressed **Send request** is the ordinary way to
+    // hold a lock with no modal on screen. Fire-and-forget, and it cannot throw: see
+    // the file's header for why a failed replay must never cost the connection.
+    replayOpenOffer(socket);
+
     socket.on('disconnect', (reason) => {
       logger.debug('Socket disconnected', {
         socketId: socket.id,
         userId: socket.data.user.id,
         reason,
       });
+
+      // A teacher whose last tab has gone stops being available — after a grace period,
+      // because a reload is also a disconnect. See the handler for why the check is
+      // "any socket left in this user's room" rather than "this one closed".
+      scheduleOfflineIfLastSocket(socket);
     });
   });
 

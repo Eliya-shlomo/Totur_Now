@@ -128,18 +128,62 @@ function teacherView({ session, offer, sessionId }) {
  *
  * A teacher row that has since been deleted degrades to `null` rather than throwing.
  * The student still owns the session and the rest of the payload is still true.
+ *
+ * **`questionId` is on the payload and `OfferResponse` has no such field.** Added in
+ * 5.8, and it is the second deviation from the frozen contract this endpoint carries —
+ * the first is the all-`null` shape described in this file's header. The reason is that
+ * the awaiting screen's recovery is a link back to `/app/ask/:questionId/teachers`, and
+ * that link is the point of the screen: a decline or an expiry is only tolerable
+ * because the student picks somebody else in one press. Nothing else can supply the id
+ * after a reload. Router state dies with the navigation, and there is no route from a
+ * session to its question — `GET /questions/:id` goes the other way, and inventing the
+ * reverse is a route E6 would have to honour for one string.
+ *
+ * `shared/api.d.ts` is frozen at 5.1, so the type is not amended; the deviation is
+ * written here and in 5.8's PR description, where a contract change belongs.
  */
 async function studentView({ session, offer, sessionId, loadTeacher }) {
   const teacher = session.teacherId ? await loadTeacher(session.teacherId) : null;
+  const status = offer ? effectiveOfferStatus(offer) : null;
 
   return {
     offerId: offer?.id ?? null,
     sessionId,
-    status: offer ? effectiveOfferStatus(offer) : null,
+    questionId: session.questionId,
+    status,
     expiresAt: offer?.expiresAt?.toISOString() ?? null,
-    teacher: teacher ? toTeacherCard(teacher) : null,
+    teacher: teacherCardFor({ teacher, status }),
     pricePerBlock: session.pricePerBlock ?? null,
   };
+}
+
+/**
+ * The teacher's card for the student's side, **and the one field this read cannot take
+ * from the row as it stands.**
+ *
+ * `toTeacherCard` computes `isOnline` as `status === 'ONLINE'`, and a teacher holding a
+ * `PENDING` offer is `OFFER_LOCKED` — locked *by this very offer*. So the card reads
+ * "Offline" on the awaiting screen, which tells the student they sent their question to
+ * somebody who is not there. They are there; they are holding it, and the countdown
+ * beside the pill is the proof.
+ *
+ * `offerView.js` already makes this call for `POST /sessions/:id/offer`, where it passes
+ * the teacher row read *before* the lock and says why in a paragraph. This read happens
+ * after the lock and has no pre-lock row to reach for, so the same answer is written
+ * here instead. Without it the two endpoints disagree about one boolean, and 5.4's whole
+ * argument for answering the student with the `OfferResponse` shape is that a reload
+ * lands on the same screen the POST produced.
+ *
+ * **Only while the offer is `PENDING`.** Once it is answered or dead the row's own status
+ * is the true one — a teacher who declined and went back to `ONLINE` is online, and one
+ * who closed their laptop is not.
+ */
+function teacherCardFor({ teacher, status }) {
+  if (!teacher) return null;
+
+  const card = toTeacherCard(teacher);
+
+  return status === OFFER_STATUS.PENDING ? { ...card, isOnline: true } : card;
 }
 
 /**

@@ -51,6 +51,41 @@ export async function touchLastSeenAt(teacherId, instant) {
 }
 
 /**
+ * Takes a teacher offline, **only from `ONLINE`.** Added by the presence fix on top of
+ * 5.8.
+ *
+ * ```sql
+ * UPDATE teacher_profiles SET status = 'OFFLINE' WHERE user_id = $1 AND status = 'ONLINE'
+ * ```
+ *
+ * The predicate is the whole point and it is the same shape `releaseTeacherLock` and
+ * `sweepIdleTeachers` use. `OFFER_LOCKED` and `IN_SESSION` are states the *system* put
+ * the teacher in, and a logout or a closed laptop must not clear them: the offer still
+ * has to expire on its own clock and 5.5 still has to release the lock. An
+ * unconditional write here would hand a student's live offer to a teacher row that
+ * claims to be available, which is the double-book this epic exists to prevent.
+ *
+ * `updateMany` for the count, because the caller emits `teacher:status` only when
+ * something actually moved — announcing `OFFLINE` for a teacher who was already
+ * offline is a frame every connected client has to process for no change.
+ *
+ * **`last_seen_at` is deliberately untouched.** Going offline is not activity, and the
+ * column has exactly one reader (5.5's sweep). Writing it here would be this path
+ * telling the auto-away job that somebody who just left is present.
+ *
+ * @param {string} teacherId `teacher_profiles.user_id`
+ * @returns {Promise<{changed: boolean}>} false when they were not `ONLINE` to begin with
+ */
+export async function setTeacherOffline(teacherId) {
+  const { count } = await prisma.teacherProfile.updateMany({
+    where: { userId: teacherId, status: 'ONLINE' },
+    data: { status: 'OFFLINE' },
+  });
+
+  return { changed: count > 0 };
+}
+
+/**
  * The auto-away sweep — PR 5.5's second job, and the one read of `last_seen_at` in
  * this codebase.
  *

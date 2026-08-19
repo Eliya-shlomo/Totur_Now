@@ -1,4 +1,4 @@
-import { touchLastSeenAt } from '#repositories/teacher.presence.repository.js';
+import { setTeacherOffline, touchLastSeenAt } from '#repositories/teacher.presence.repository.js';
 import { emitTeacherStatus } from '#sockets/events.js';
 import { logger } from '#utils/logger.js';
 
@@ -91,4 +91,56 @@ export function publishTeacherStatus(teacherId, status) {
   // promise: `recordTeacherActivity` handles its own failures and there is nothing
   // here to await.
   void recordTeacherActivity(teacherId, { force: true });
+}
+
+/**
+ * Takes a teacher offline and tells everybody — the presence fix on top of 5.8.
+ *
+ * ## What was wrong
+ *
+ * `teacher_profiles.status` outlived the session that set it. A teacher went online,
+ * closed the browser, and the column still said `ONLINE` — so students saw them on
+ * every match list, sent them offers, and got a countdown that could only expire.
+ * Nothing was broken in a way anybody could see: the list was right about the column
+ * and the column was wrong about the world.
+ *
+ * Three moments now write it, and together they make availability mean "a tab that is
+ * open and a teacher who said yes":
+ *
+ * - **logging out**, immediately — the clearest possible statement of leaving;
+ * - **logging in**, also to `OFFLINE` — presence is a deliberate act per session, and
+ *   a status inherited from a browser that was closed on Tuesday is not consent to be
+ *   sent a question on Thursday;
+ * - **the last socket going away**, after a grace period — which is what actually
+ *   catches a closed laptop, since nobody clicks logout.
+ *
+ * §10's auto-away sweep stays exactly as it was. It answers a different question — a
+ * teacher idle for an hour with the tab open — and this path answers "there is no tab".
+ *
+ * **Only from `ONLINE`.** The repository's predicate refuses to move `OFFER_LOCKED` or
+ * `IN_SESSION`, because those are states the system owns: a live offer must expire on
+ * its own clock, and a session a teacher walked out of is E6's problem to resolve, not
+ * a status this function may quietly erase.
+ *
+ * Never throws, like everything else in this file, and the event is emitted **only when
+ * the row actually moved** — an `OFFLINE` announcement for a teacher who was already
+ * offline is a frame every connected client processes for nothing.
+ *
+ * @param {string} teacherId `teacher_profiles.user_id`
+ * @returns {Promise<void>}
+ */
+export async function takeTeacherOffline(teacherId) {
+  try {
+    const { changed } = await setTeacherOffline(teacherId);
+
+    if (!changed) return;
+
+    emitTeacherStatus(teacherId, { teacherId, status: 'OFFLINE' });
+    logger.info('Teacher taken offline', { teacherId });
+  } catch (error) {
+    // Every caller is fire-and-forget — a logout that already answered 200, a socket
+    // that is already gone. A throw here would be an unhandled rejection on work
+    // nobody is waiting for.
+    logger.warn('Could not take teacher offline', { teacherId, message: error?.message });
+  }
 }

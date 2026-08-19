@@ -8,7 +8,7 @@ import {
 import { createQuestion, uploadAttachment } from '#controllers/question.intake.controller.js';
 import { authenticate } from '#middlewares/authenticate.js';
 import { authorize } from '#middlewares/authorize.js';
-import { strictLimiter } from '#middlewares/rateLimit.js';
+import { makeStrictLimiter } from '#middlewares/rateLimit.js';
 import { upload } from '#middlewares/upload.js';
 import { validate } from '#middlewares/validate.js';
 import { asyncHandler } from '#utils/asyncHandler.js';
@@ -37,10 +37,10 @@ import { createQuestionSchema } from '#validators/question.intake.schema.js';
  * **Every middleware a route will ever need is already on it.** A middleware added by
  * 3.2 or 3.5 is an edit to a frozen file, which is the failure this PR exists to
  * prevent — so `upload.single(...)` is here while it is still a pass-through
- * (`middlewares/upload.js`), and `strictLimiter` is here before anything expensive
+ * (`middlewares/upload.js`), and the rate limiter is here before anything expensive
  * runs behind it.
  *
- * **`strictLimiter` is on `POST /questions` and nowhere else.** It has been exported
+ * **The rate limiter is on `POST /questions` and nowhere else.** It has been exported
  * and deliberately unwired since PR 0.4, and its own header comment names question
  * creation as the route it was waiting for. That route is the only one in this
  * codebase that spends money per call: classification is a Vision request to
@@ -57,6 +57,17 @@ import { createQuestionSchema } from '#validators/question.intake.schema.js';
  * shared-audience route here and no reason for one.
  */
 export const questionRoutes = Router();
+
+/**
+ * This router's own budget for `POST /questions`, **not the shared `strictLimiter`.**
+ *
+ * One instance used to guard login, register and question creation at once, so the
+ * three shared a counter: a few sign-ins during a test run spent the questions a
+ * student was allowed to ask, and the ask screen answered 429 having made one request.
+ * Same window and same production number (§15.5) — what changes is that the count is
+ * about this endpoint, which is what a rate limit is supposed to mean.
+ */
+const askLimiter = makeStrictLimiter();
 
 // ── capture — DEV-A ─────────────────────────────────────────────────────────
 
@@ -86,7 +97,7 @@ questionRoutes.post(
  * 3.4 — DEV-A. Create, classify, and a `PENDING` session, in that order. 201 with a
  * `QuestionResponse`.
  *
- * `strictLimiter` runs before `validate`, so a client hammering the endpoint with
+ * `askLimiter` runs before `validate`, so a client hammering the endpoint with
  * malformed bodies is still counted and still stopped. It runs after `authenticate`
  * on purpose: the limit is per address, and a 401 should not consume the budget of a
  * student sharing a school's network.
@@ -98,7 +109,7 @@ questionRoutes.post(
   '/',
   authenticate,
   authorize('student'),
-  strictLimiter,
+  askLimiter,
   validate(createQuestionSchema),
   asyncHandler(createQuestion),
 );
@@ -125,7 +136,7 @@ questionRoutes.get(
  * together, `estimatedLevel` optionally. Returns the question in the shape `GET`
  * returns.
  *
- * No `strictLimiter`. This endpoint writes three columns and calls nothing external —
+ * No rate limiter. This endpoint writes three columns and calls nothing external —
  * the reason the limiter exists next door is the Anthropic call, which this route
  * does not make.
  */

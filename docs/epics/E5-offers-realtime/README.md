@@ -196,7 +196,7 @@ private window, or a second browser.
 | 5.5 | [Cron: offer expiry + auto-away](PR-5.5-cron-expiry-away.md) | M | 5.3 | ☑ |
 | 5.6 | [Email to the teacher on a new offer](PR-5.6-offer-email.md) | S | 5.3 | ☑ |
 | 5.7 | [Teacher dashboard — availability toggle + incoming offer modal](PR-5.7-teacher-dashboard.md) | L | 5.2, 5.4 | ☑ |
-| 5.8 | [Student awaiting-response state + 60-second countdown](PR-5.8-awaiting-response.md) | M | 5.4 | ☐ |
+| 5.8 | [Student awaiting-response state + 60-second countdown](PR-5.8-awaiting-response.md) | M | 5.4 | ☑ |
 | 5.9 | [E5 close: verification + retro](PR-5.9-e5-close.md) | S | 5.2–5.8 | ☐ |
 
 §18's numbering is preserved exactly for 5.1–5.8, so the `pr="5.7"` placeholder already in
@@ -396,6 +396,35 @@ session with no offer is what every question looks like before E4's screen is us
 `shared/api.d.ts` is frozen at 5.1 so there is no type for it. **This is a deviation
 from the contract's types, and it is written here and in 5.4's PR description rather
 than left for 5.8 to meet at runtime.**
+
+### An eleventh gap, found in verification: a teacher who walks out of an `ACTIVE` session
+
+A teacher accepts, the session goes `ACTIVE`, and the teacher logs out or closes the
+browser. Nothing in E5 notices. The session stays `ACTIVE` for ever, the teacher stays
+`IN_SESSION`, and no screen tells the student that the person they are waiting for has
+gone.
+
+**No money is at risk today, and that is the only reason this ships.** E5 charges
+nothing — 5.4's accept moves state and calls no wallet service, which is itself a
+recorded deviation from §12 — so a student cannot yet pay for a lesson nobody attended.
+The moment E7 charges the opening block on accept, this becomes a refund path rather
+than a cosmetic gap.
+
+What it needs, and where it belongs:
+
+- **E6** owns the session screen and the meter. A teacher whose last socket disappears
+  mid-session is a `session:*` event and a message on the student's screen, and E6 is the
+  epic that has a screen to put it on.
+- **§10's no-show window is already in the constants** — `NO_SHOW_WINDOW_SEC` is 60 —
+  and it is the product's answer to "the other side never showed up". Nothing reads it
+  yet.
+- The presence fix on top of 5.8 deliberately **does not** touch `IN_SESSION`:
+  `setTeacherOffline` moves a teacher only from `ONLINE`, so a walked-out session still
+  reads `IN_SESSION` and E6 inherits an honest row rather than one this fix quietly
+  cleaned up.
+
+Recorded here rather than fixed here, because a fix without E6's screen is a state
+change nobody can see.
 
 ## Contract freeze
 
