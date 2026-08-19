@@ -1,0 +1,257 @@
+# E6a — Classification Repair & the Teacher Brief
+
+| | |
+|---|---|
+| **Depends on** | E6 (merged through 6.9) |
+| **Blocks** | E7 |
+| **Definition of done** | A photographed Hebrew Bagrut question submitted through `/app/ask` comes back filed under a real subtopic, and the teacher who receives the offer reads a 3–5 line brief in Hebrew before the 60 seconds run out. |
+
+## The problem this epic has to solve
+
+**Classification has never worked.** Not since E5, not intermittently, not for photographs
+only. Every question this application has ever classified was filed under
+`topic_id = 0` — the seeded "General / Unclassified" sentinel — and every one of them
+returned `201`.
+
+The cause is one line, `classification.service.js:80`:
+
+```js
+createMessage: (params, options) => geminiClient.interactions.create(params, options),
+```
+
+`GoogleGenAI` has no `interactions` namespace. The installed SDK — `@google/genai@2.17.1`,
+the one in `package-lock.json` — exposes `models`, `live`, `batches`, `chats`, `caches`,
+`files`, `operations`, `authTokens` and `tunings`. Reading `.create` off `undefined`
+throws a `TypeError` before a socket is opened, the single `catch` at the bottom of
+`classifyQuestion` turns it into `fallback(error.message)`, and `fallbackClassification`
+returns the sentinel with the student's own words in both brief fields.
+
+Every property that file promises held. It never threw. It never returned null. It never
+logged the student's text. It never blocked matching. It also never classified anything,
+and nothing anywhere said so — which is the same failure `llm.prompt.js` warned about one
+layer up: *"valid JSON, plausible fields, nonsense answers, and nothing red anywhere."*
+`isPromptReady` was built to fail closed against exactly that, at the prose layer. There
+is no equivalent at the transport layer. E6a builds one.
+
+### It is not an E5 regression
+
+`git log` on the four files involved:
+
+```
+dc17a59  2026-08-16  feat(questions)!: classify with Gemini instead of Anthropic (PR 3.3)
+273cabb  2026-08-16  feat(questions): classify questions with Anthropic, schema and fallback (PR 3.3)
+f339616  2026-08-16  feat(questions): freeze the question router, repository and classification seam (PR 3.1)
+```
+
+Nothing has touched `classification.service.js`, `llm.prompt.js`, `config/gemini.js` or
+`constants/llm.js` since 16 August. The vendor swap is where it broke and where it stayed
+broken. Working classification observed during E5 was PR 5.1's **seeded** questions —
+`prisma/seed/questions.js` writes one row at `llmConfidence: 0.92` by hand.
+
+## What is actually wrong
+
+The entry point is the smallest of it. The request is written against a different API
+entirely — the shape reads like the REST or Python surface, not this SDK.
+
+| Written | `@google/genai` 2.17.1 |
+|---|---|
+| `interactions.create(params, options)` | `models.generateContent({ model, contents, config })` |
+| `system_instruction` | `config.systemInstruction` |
+| `input: [...]` | `contents: [{ role: 'user', parts: [...] }]` |
+| `response_format.{mime_type, schema}` | `config.responseMimeType` + `config.responseJsonSchema` |
+| `generation_config.max_output_tokens` | `config.maxOutputTokens` |
+| `thinking_level: 'low'` | `config.thinkingConfig.thinkingLevel: 'LOW'` — the enum is uppercase |
+| 2nd argument `{ timeout, maxRetries, fetchOptions.signal }` | `config.abortSignal`, `config.httpOptions.{timeout, retryOptions}` |
+| `response.output_text` | `response.text` — a getter, `string \| undefined` |
+| `LLM_MODEL = 'gemini-3.5-flash-lite'` | no such model; `gemini-3.7-flash` in the same comment is not one either |
+
+And one break that survives the repair. `llm.prompt.js` states:
+
+> `imageUrls` are Cloudinary URLs from `POST /questions/attachments` (3.2), sent as URLs
+> rather than base64 — Gemini fetches public HTTPS URLs itself, so the bytes never come
+> back through this server
+
+It does not. An image part carries `inlineData` (base64 bytes) or `fileData` (a Files API
+URI, which is Gemini's own storage, not anyone's CDN). `{ type: 'image', uri: url }`
+reaches nothing. **The photograph is the primary path** — §4.1's student says "I don't
+know how to start" and the exercise is the picture — so fixing the call alone leaves the
+product's main flow classifying nothing. That is 6a.2, and it is not optional.
+
+## Why this is an epic and not a hotfix
+
+Three reasons the one-line fix is not the work.
+
+1. **Nothing here has ever been observed working.** The model id was never resolved
+   against a live account, the request shape was never accepted by a server, the image
+   path was never exercised. A repair that is not measured against real material is
+   another set of plausible-looking code. Hence 6a.3, and hence the epic's threshold is
+   set from a recorded run rather than picked in advance.
+2. **The test suite is not the safety net here.** `classification.test.js` is 548 lines
+   and covers every fallback mode, and it passed throughout. It injects `createMessage`,
+   so what it asserts is that the code builds the object the code intends to build. It
+   cannot tell that no SDK accepts that object. The bench is the missing layer, and it
+   lives outside `npm test` on purpose — see "Test strategy".
+3. **The teacher brief was going to land on this code anyway.** Adding `how_to_start` to
+   a call that never runs would have shipped a second unverifiable field. Doing the
+   repair and the feature in one epic means the feature's acceptance criteria are the
+   first honest measurement either has had.
+
+## The shared files, named up front
+
+| File | Rule | Set by |
+|---|---|---|
+| `server/src/services/classification.service.js` | 6a.1, 6a.2 and 6a.4 all edit it. **Sequential, one lineage.** Do not run 6a.2 and 6a.4 in parallel branches. | 6a.1 |
+| `server/src/services/llm.prompt.js` | 6a.1 takes the return shape. 6a.2 takes the image parts. **6a.4 takes the prose and nothing else** — §17.5 | 6a.1 |
+| `server/src/config/constants/llm.js` | 6a.1 only. Model id, thinking level, token ceiling all move together | 6a.1 |
+| `server/src/validators/classification.schema.js` | 6a.4 only. The contract was never wrong — only its transport was | 6a.4 |
+| `shared/api.d.ts` | Append-only, 6a.4 only: `Classification` gains one field | 6a.4 |
+| `package.json` → `"test"` | **Frozen.** `npm test` stays hermetic. The bench gets its own script entry | — |
+
+## Before anything starts
+
+1. A real `GEMINI_API_KEY` in `server/.env`, on an account with quota. Everything in this
+   epic that matters is unverifiable without one, and the last time this code was
+   "verified" the account had run out of credit — which is how the vendor swap happened
+   in the first place (E3 README, deviations table).
+2. `npm run db:up && npm run db:migrate && npm run db:seed`. The taxonomy is production
+   data (`prisma/seed/topics.js`), and `isKnownPair` validates against it on every call.
+3. Cloudinary configured. 6a.2 and 6a.3 both go through the real attachment path.
+4. Read `docs/epics/E3-question-intake/RETRO.md` before 6a.1. It records the fallback
+   firing twice in development and reading as noise. That is the observability gap this
+   epic hands to E7.
+
+## Order
+
+| # | PR | Size | Depends on | Status |
+|---|---|---|---|---|
+| 6a.1 | [Repair the Gemini request, the response read, and the model id](PR-6a.1-gemini-request-repair.md) | M | E6 | ☐ |
+| 6a.2 | [Images: fetch the bytes, send `inlineData`](PR-6a.2-image-bytes.md) | M | 6a.1 | ☐ |
+| 6a.3 | [The 50-question bench: fixture, harness, scored report](PR-6a.3-bagrut-bench.md) | M | 6a.2 | ☐ |
+| 6a.4 | [**The brief the teacher reads: `how_to_start`**](PR-6a.4-teacher-brief.md) | **human** · M | 6a.1 | ☐ |
+| 6a.5 | [Surfacing the brief, and the RTL the client never got](PR-6a.5-brief-ui-rtl.md) | M | 6a.4 | ☐ |
+| 6a.6 | [E6a close: bench re-run, verification, retro](PR-6a.6-e6a-close.md) | S | 6a.3, 6a.5 | ☐ |
+
+Status: ☐ not started · ◐ partial · ☑ done. Size: S (<2h) · M (2–4h) · L (half day+).
+Bold + **human** marks a PR written without an agent, per `MVP.md` §17.5.
+
+## Parallelism map
+
+```
+  6a.1  repair the call
+    │
+    ├──────────────┐
+    │              │
+  6a.2           6a.4  how_to_start   ← both edit classification.service.js
+  images         (human)                 rebase, do not fork
+    │              │
+  6a.3           6a.5  the teacher's screen
+  bench            │
+    │              │
+    └──────┬───────┘
+           │
+         6a.6  close
+```
+
+The fork after 6a.1 is a scheduling convenience, not an isolation claim. 6a.2 and 6a.4
+touch the same two files; whichever lands second rebases.
+
+## Contract freeze
+
+Appended to `shared/api.d.ts` in 6a.4. One field, and the only contract change in the
+epic:
+
+```ts
+export interface Classification {
+  // ... every existing field is unchanged ...
+
+  /**
+   * The opening move, for the teacher who is about to teach it. 1–3 lines, in the
+   * student's language. Null when the fallback ran — `teacherBrief` echoes the
+   * student's own words because there are words to echo, and there is no fallback
+   * opening move to invent.
+   */
+  howToStart: string | null;
+}
+```
+
+The teacher-facing brief is three parts across two fields, totalling 3–5 lines:
+
+| Lines | Field | What it answers |
+|---|---|---|
+| 1–2 | `teacherBrief`, first sentences | What the question asks |
+| 1–2 | `teacherBrief`, closing sentences | What the student is likely stuck on |
+| 1–3 | `howToStart` | How to begin |
+
+`teacherBrief` carries two of the three because it already exists, is already on the row,
+and is already what E5's offer email renders. Splitting it into a third column would be a
+migration and a serializer change to move prose between two fields the same model writes
+in the same call.
+
+**Column:** `questions.how_to_start`, nullable text, beside `teacher_brief` — same
+producer, same failure mode, the argument `questions.prisma` already makes for
+`student_confirmation`.
+
+## Deliberate deviations from `MVP.md` §18
+
+| §18 said | We do | Why |
+|---|---|---|
+| E7 follows E6 | E6a follows E6 | §18 never planned for the classifier being dead. E7's scope assumes questions have topics |
+| §8.1 fixes the LLM output at eight fields | Nine — `how_to_start` joins them | §8.1 wrote `teacher_brief` for a teacher with time to read. E5 gave them 60 seconds |
+| §8.1: the classifier sends image URLs | The server fetches the bytes and inlines them | The API §8.1 assumed does not exist. Recorded here rather than left as prose in `llm.prompt.js` describing a design that never ran |
+| §17.4's review is the quality gate | Plus `bench:classify` on 50 real questions | §17.4 caught none of this in three epics. The gap is not review discipline; it is that no assertion in the repo requires a real request to succeed |
+
+## Risks
+
+- **The model id is unknown.** Two model names appear in `constants/llm.js` and neither
+  exists. Both were written without a successful call. 6a.1 resolves it from
+  `models.list()` against the real key and records what was rejected — guessing a third
+  name is how the first two got there.
+- **Inlining bytes eats the latency budget.** Three phone photographs fetched
+  server-side, base64'd and uploaded sit inside the same 8 seconds §8.1 allows and the
+  2–4 seconds §4.1 promises. The Cloudinary transform in 6a.2 is the mitigation; 6a.3's
+  p95 is where it is proven or is not.
+- **`how_to_start` grows the response.** Hebrew tokenizes worse than English, and a cap
+  that truncates mid-JSON turns a good classification into a parse failure and a
+  fallback. `LLM_MAX_OUTPUT_TOKENS` moves in 6a.1, before the field that needs it.
+- **Model-proposed ground truth bakes in today's mistakes.** The bench's expectations
+  start as the model's own answers. The `reviewed: false` gate is the entire defence and
+  the scorer must refuse to run without it.
+- **The bench costs money and is not deterministic.** 50 vision calls per run. Hence a
+  threshold rather than exact match, and hence it never joins `npm test`.
+- **Three PRs edit one service.** 6a.1, 6a.2, 6a.4. Sequential lineage, stated again in
+  the shared-files table because this is the one thing in the epic that a parallel branch
+  makes expensive.
+
+## Test strategy
+
+**Unit (`npm test`, hermetic — no network, no database).** `classification.test.js` keeps
+every existing assertion and gains one class it did not have: the request-building tests
+at `:306-401` currently assert an object shape, and after 6a.1 they assert the argument
+`models.generateContent` receives, by the names that SDK reads. A test written against
+the old shape must fail. The suite still runs with no `GEMINI_API_KEY` and no network,
+because that property is what makes it runnable at all.
+
+**The bench (`npm run bench:classify`, real key, run by hand).** 50 rendered Bagrut pages
+through the real attachment and classification path, scored on parent accuracy, leaf
+accuracy, fallback rate and latency percentiles. Precedent is `scripts/lock.mjs` — E5's
+teacher-lock race harness, also real, also manual, also outside `npm test`.
+
+This is the layer that was missing. The unit suite proves the code does what the code
+means; only the bench proves the vendor agrees. It runs at minimum before any PR that
+touches the request shape, the model id, or the prompt — and 6a.6 names the rule.
+
+**Manual.** The end-to-end walk in 6a.6: photograph a real exercise, submit it, watch the
+subtopic come back in Hebrew, take the offer as a teacher, read the brief.
+
+---
+
+## Checklist before writing the PR briefs
+
+- [x] Every PR names exactly one owner — DEV-B (rotem) throughout; E6a is single-developer, as E6 was
+- [x] No two in-flight PRs edit the same file — the 6a.2 / 6a.4 overlap is named and serialized, not wished away
+- [x] Any shared file is either frozen, append-only, or split by domain
+- [x] Human-written items from `MVP.md` §17.5 are marked as such — 6a.4 is prompt prose
+- [x] Each PR has an allowlist and a denylist
+- [x] Each PR has acceptance criteria a human can check in under five minutes
+- [x] Both developers have server and client work — n/a, single developer; client work is 6a.5
+- [x] There is filler work for whoever finishes first — n/a
