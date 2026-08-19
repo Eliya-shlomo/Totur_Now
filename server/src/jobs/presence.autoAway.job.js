@@ -1,6 +1,9 @@
-import { AUTO_AWAY_MINUTES } from '#config/constants/index.js';
-import { sweepIdleTeachers } from '#repositories/teacher.presence.repository.js';
-import { emitTeacherStatus } from '#sockets/events.js';
+import { AUTO_AWAY_MINUTES, AUTO_AWAY_WARNING_MINUTES } from '#config/constants/index.js';
+import {
+  findTeachersDueForAwayWarning,
+  sweepIdleTeachers,
+} from '#repositories/teacher.presence.repository.js';
+import { emitTeacherAwayWarning, emitTeacherStatus } from '#sockets/events.js';
 import { logger } from '#utils/logger.js';
 
 /**
@@ -38,14 +41,24 @@ import { logger } from '#utils/logger.js';
  * this job is built to detect: stamping the column for a teacher whose silence is the
  * entire reason they are being swept, and doing it in the one job that reads it.
  *
- * ## `AUTO_AWAY_WARNING_MINUTES` is not implemented here
+ * ## `AUTO_AWAY_WARNING_MINUTES`, and the one thing 6.5 reopened this file for
  *
- * The epic README's gap 8 was amended to say 5.5 owns both numbers — the 55-minute
- * "Still there?" prompt as well as the 60-minute sweep. PR-5.5's own brief scopes two
- * jobs and mentions neither the constant nor a warning, and `SOCKET_EVENTS` is
- * append-only with no name that carries "you are still `ONLINE` and we are asking".
- * The two documents disagree; **the brief wins, the constant stays unused, and the
- * conflict is in this PR's description** rather than resolved by inventing an event.
+ * 5.5 shipped without the 55-minute "still there?" prompt and said why: the blocker was
+ * never the query, it was that `SOCKET_EVENTS` had no name carrying "you are still
+ * `ONLINE` and we are asking", and appending one is a contract change rather than a job.
+ * 6.2 appended the E6 block anyway, so `teacher:away_warning` cost one line — and what is
+ * left is a predicate and an emit.
+ *
+ * **That is the whole of 6.5's change to this file, and the 60-minute sweep below it is
+ * untouched.** The reopen is argued in 6.5's brief and in the epic README rather than
+ * discovered in the diff.
+ *
+ * The warning is bounded on both sides — older than `AUTO_AWAY_WARNING_MINUTES`, newer
+ * than `AUTO_AWAY_MINUTES` — so the tick that takes a teacher `OFFLINE` does not also ask
+ * them whether they are there. And it is idempotent against `last_seen_at` held in
+ * memory, for the block warning's reason exactly: a ten-second tick across a five-minute
+ * window is thirty prompts, and what makes it one is remembering the beat that was warned
+ * about. A restart re-asks once, which is a toast and not a state change.
  *
  * Collaborators through the second argument, 5.3's idiom, so `jobs.test.js` runs with
  * no database.
@@ -53,10 +66,28 @@ import { logger } from '#utils/logger.js';
 const defaultDeps = {
   sweepIdle: sweepIdleTeachers,
   announceStatus: emitTeacherStatus,
+  findDueForWarning: findTeachersDueForAwayWarning,
+  warnIdle: emitTeacherAwayWarning,
 };
 
 /** `AUTO_AWAY_MINUTES` as milliseconds. The constant, never the number. */
 const AUTO_AWAY_MS = AUTO_AWAY_MINUTES * 60 * 1000;
+
+/** `AUTO_AWAY_WARNING_MINUTES` as milliseconds. Unread since E0 until 6.5. */
+const AUTO_AWAY_WARNING_MS = AUTO_AWAY_WARNING_MINUTES * 60 * 1000;
+
+/**
+ * The `last_seen_at` each teacher was last warned about, as epoch milliseconds.
+ *
+ * Per-process and allowed to be: forgetting it costs one extra prompt after a restart,
+ * and the alternative is a column for a toast.
+ */
+const warned = new Map();
+
+/** Test seam — module state shared across a suite is order-dependence waiting to happen. */
+export function resetAwayWarnings() {
+  warned.clear();
+}
 
 /**
  * One tick's worth of auto-away. Called by the scheduler, and directly by the tests.
@@ -82,6 +113,11 @@ export async function runAutoAway(deps = defaultDeps) {
   const { sweepIdle, announceStatus } = { ...defaultDeps, ...deps };
 
   try {
+    // Before the sweep, and against the same instant: a teacher who has crossed the
+    // 60-minute line is going `OFFLINE` on this tick, and the window's lower bound is
+    // what keeps them out of the prompt.
+    await warnIdleTeachers(deps);
+
     const teacherIds = await sweepIdle(new Date(Date.now() - AUTO_AWAY_MS));
 
     // Silent on an empty tick — the acceptance criterion, and the arithmetic behind it
@@ -100,5 +136,67 @@ export async function runAutoAway(deps = defaultDeps) {
     logger.error('Auto-away sweep failed', { message: error?.message, stack: error?.stack });
 
     return { swept: 0 };
+  }
+}
+
+/**
+ * "Still there?" — one `teacher:away_warning` per quiet stretch, addressed to the teacher.
+ *
+ * Addressed to them rather than broadcast: it is about that teacher's idleness, and a
+ * student has no business being told the person they might pick looks asleep.
+ *
+ * Its failures are swallowed here rather than in `runAutoAway`, so that a warning query
+ * that fails cannot stop the sweep that follows it. The sweep is the one with a state
+ * change behind it; this one is a prompt.
+ *
+ * @param {typeof defaultDeps} [deps]
+ * @returns {Promise<{warned: number}>}
+ */
+async function warnIdleTeachers(deps) {
+  const { findDueForWarning, warnIdle } = { ...defaultDeps, ...deps };
+
+  try {
+    const now = Date.now();
+
+    prune(now);
+
+    const due = await findDueForWarning(
+      new Date(now - AUTO_AWAY_MS),
+      new Date(now - AUTO_AWAY_WARNING_MS),
+    );
+
+    if (due.length === 0) return { warned: 0 };
+
+    let sent = 0;
+
+    for (const teacher of due) {
+      const lastSeen = teacher.lastSeenAt.getTime();
+
+      // Warned about this same beat already. They have not moved since, and asking again
+      // every ten seconds is how a prompt becomes noise.
+      if (warned.get(teacher.userId) === lastSeen) continue;
+
+      warnIdle(teacher.userId, {
+        minutesUntilAway: AUTO_AWAY_MINUTES - AUTO_AWAY_WARNING_MINUTES,
+      });
+
+      warned.set(teacher.userId, lastSeen);
+      sent += 1;
+    }
+
+    if (sent > 0) logger.info('Away warnings sent', { count: sent });
+
+    return { warned: sent };
+  } catch (error) {
+    logger.error('Away warning sweep failed', { message: error?.message, stack: error?.stack });
+
+    return { warned: 0 };
+  }
+}
+
+/** Forgets teachers whose warned beat is already past the away line — they are being swept. */
+function prune(now) {
+  for (const [teacherId, lastSeen] of warned) {
+    if (lastSeen <= now - AUTO_AWAY_MS) warned.delete(teacherId);
   }
 }

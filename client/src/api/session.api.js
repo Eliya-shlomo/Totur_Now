@@ -106,3 +106,35 @@ export function getSession(sessionId) {
 export function getSessionVideo(sessionId) {
   return api.get(`/sessions/${sessionId}/video`);
 }
+
+/**
+ * Buy one more block — `POST /sessions/:id/extend`. PR 6.5, §5.1.
+ *
+ * **No arguments beyond the session, and that is enforced on both ends.** One block —
+ * `EXTENSION_BLOCKS` — is the only thing an extension can buy; a quantity here would be a
+ * way to overrun the budget cap in a single request, and the server's schema is
+ * `.strict()` with an empty body so it would be refused at the door anyway.
+ *
+ * **Not a countdown's replacement.** The response carries the new absolute `endsAt`,
+ * server-issued like `expiresAt` was in E5, so the screen recomputes rather than counts.
+ * The teacher's tab learns the same fact from `session:extended`, which is emitted after
+ * the charge commits — they have no response coming.
+ *
+ * **Do not press it twice.** The server matches on `ends_at` as this caller read it, so a
+ * double tap buys one block and the second request rejects `SESSION_NOT_ACTIVE`. That is
+ * the intended answer and not a transient failure: it must not be retried, and the screen
+ * should disable the button until the response lands.
+ *
+ * Three rejections the caller has to tell apart, all `ApiError` with `.is(code)`:
+ *
+ * - `BUDGET_CAP_REACHED` (402) — the session hit the ceiling the student set. Nothing was
+ *   charged, and no amount of retrying changes it
+ * - `INSUFFICIENT_CREDIT` (402) — the balance moved since the warning was computed
+ * - `SESSION_NOT_ACTIVE` (409) — it ended, or somebody already extended it
+ *
+ * @param {string} sessionId
+ * @returns {Promise<import('@tutor/shared').ExtendResponse>}
+ */
+export function extendSession(sessionId) {
+  return api.post(`/sessions/${sessionId}/extend`);
+}

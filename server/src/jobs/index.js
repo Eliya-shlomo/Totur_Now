@@ -5,16 +5,24 @@ import { logger } from '#utils/logger.js';
 
 import { runOfferExpiry } from './offer.expiry.job.js';
 import { runAutoAway } from './presence.autoAway.job.js';
+import { runAutoEnd } from './session.autoEnd.job.js';
+import { runBlockWarning } from './session.blockWarning.job.js';
 
 /**
  * The scheduler. **One `node-cron` registration in the whole server**, started from
  * `index.js` once the HTTP server is listening and stopped in the `SIGTERM` handler.
  * PR 5.5, MVP.md §13.
  *
- * Two jobs on the tick, and §13's other two are E6's: Block Warning and Session
- * Auto-End both read `ends_at` as a live billing deadline, and nothing in E5 charges a
- * block or moves that value after the accept. Writing them here would be writing two
- * jobs against a clock that does not tick.
+ * **All four of §13's jobs, since 6.5.** E5 shipped two and left the other two out on the
+ * grounds that Block Warning and Session Auto-End both read `ends_at` as a live billing
+ * deadline, and nothing in E5 charged a block or moved that value after the accept. 6.5
+ * is the PR that made the clock tick: the opening block is charged inside the activation
+ * transaction and `POST /sessions/:id/extend` moves the deadline.
+ *
+ * The order in the tick is the order of the money. Expiry settles offers that were never
+ * answered, the warning asks whether a running block should become two, the auto-end
+ * closes the ones nobody answered, and the presence sweep is about teachers rather than
+ * sessions and goes last.
  *
  * ## Stopped before Prisma disconnects, and that ordering is the point
  *
@@ -27,15 +35,15 @@ import { runAutoAway } from './presence.autoAway.job.js';
  * mid-flight. `stopJobs` awaits the in-flight tick as well, which is what makes the
  * ordering claim true rather than approximately true.
  *
- * ## One registration, both jobs, and no overlap
+ * ## One registration, every job, and no overlap
  *
- * A single schedule rather than one per job, because two registrations would be two
- * places to stop and the second one forgotten is the error above. The jobs are awaited
- * in sequence inside it; `Promise.all` would be the wrong tool, because they contend
- * for the same connection pool and neither is urgent to the millisecond.
+ * A single schedule rather than one per job, because four registrations would be four
+ * places to stop and the one forgotten is the error above. The jobs are awaited in
+ * sequence inside it; `Promise.all` would be the wrong tool, because they contend for the
+ * same connection pool and none is urgent to the millisecond.
  *
  * **Overlap prevention is `noOverlap`, the library's own.** Ten seconds is plenty for
- * both jobs against 22 teachers, but an instance waking from Render's sleep has a
+ * four sweeps against 22 teachers, but an instance waking from Render's sleep has a
  * backlog and a slow first tick. Without the guard the ticks stack, each holding
  * transactions the previous one is still using. With it, a tick arriving while the
  * last is still going is skipped — which costs nothing, because the work is a sweep of
@@ -81,7 +89,7 @@ let inFlight = null;
 export function startJobs() {
   if (task) return;
 
-  task = cron.schedule(TICK_EXPRESSION, tick, { name: 'e5-sweeps', noOverlap: true });
+  task = cron.schedule(TICK_EXPRESSION, tick, { name: 'session-sweeps', noOverlap: true });
 
   logger.info('Background jobs started', { tick: TICK_EXPRESSION });
 }
@@ -117,8 +125,8 @@ export async function stopJobs() {
 /**
  * One tick: both jobs, in sequence, never throwing.
  *
- * Nothing is logged here. Each job logs its own count when it did something and stays
- * silent when it did not — see either file for the arithmetic on why an empty tick has
+ * Nothing is logged here. Each of the four logs its own count when it did something and
+ * stays silent when it did not — see either file for the arithmetic on why an empty tick has
  * to be silent at this interval.
  *
  * The promise is published to `inFlight` for `stopJobs` to await. **`runTick` swallows
@@ -135,14 +143,16 @@ async function tick() {
   inFlight = null;
 }
 
-/** Both jobs, in order, and never a rejection. */
+/** Every job, in order, and never a rejection. */
 async function runTick() {
   try {
-    // Neither call needs a `catch` of its own: `runOfferExpiry` and `runAutoAway` both
-    // handle their failures by contract. This one is for what neither anticipated — a
-    // programming error in the job itself — so that a bad tick is one quiet sweep
-    // rather than a scheduler in an unknown state.
+    // None of these needs a `catch` of its own: all four handle their failures by
+    // contract and resolve to a count. This one is for what none of them anticipated — a
+    // programming error in the job itself — so that a bad tick is one quiet sweep rather
+    // than a scheduler in an unknown state.
     await runOfferExpiry();
+    await runBlockWarning();
+    await runAutoEnd();
     await runAutoAway();
   } catch (error) {
     logger.error('Background tick failed', { message: error?.message, stack: error?.stack });

@@ -4,6 +4,7 @@ import { ERROR_CODES } from '#config/errors/codes.js';
 import { markOfferResponded } from '#repositories/offer.repository.js';
 import {
   findSessionForMeter,
+  recordBlock,
   setSessionActive,
   setSessionVideoRoom,
   setTeacherInSession,
@@ -11,6 +12,7 @@ import {
 import { publishTeacherStatus } from '#services/presence.service.js';
 import { assertTransition } from '#services/session.state.js';
 import { createSessionVideo } from '#services/video.service.js';
+import { chargeStudent } from '#services/wallet.service.js';
 import { emitOfferAccepted } from '#sockets/events.js';
 import { AppError } from '#utils/AppError.js';
 import { logger } from '#utils/logger.js';
@@ -37,12 +39,11 @@ import { logger } from '#utils/logger.js';
  *     4. session → ACTIVE, startedAt, endsAt
  *                                 count 0 => SESSION_NOT_ACTIVE, roll back
  *     5. teacher → IN_SESSION     locked false => TEACHER_UNAVAILABLE, roll back
+ *     6. chargeStudent(OPENING_BLOCKS × price)   => INSUFFICIENT_CREDIT, roll back
+ *     7. recordBlock(#1, OPENING_BLOCKS × BLOCK_MINUTES)
  *   COMMIT
- *     6. teacher:status IN_SESSION, then offer:accepted to the student
- *     7. createSessionVideo → setSessionVideoRoom    ← never awaited
- *
- *   [E6.5] charge the opening block — not here, one PR later. `wallet.service.js`
- *          does not exist yet, and §17.5 makes it human-written when it does.
+ *     8. teacher:status IN_SESSION, then offer:accepted to the student
+ *     9. createSessionVideo → setSessionVideoRoom    ← never awaited
  * ```
  *
  * **Step 7 is outside the transaction, and that is the single most important line in
@@ -64,13 +65,29 @@ import { logger } from '#utils/logger.js';
  * at accept time costs nothing permanent as long as it has ended by the time somebody
  * presses join.
  *
- * ## `blocks_used` and `total_charged` stay `0`
+ * ## The opening block, and why it is inside the transaction — 6.5
  *
- * **This PR charges nothing.** `setSessionActive` is called without either argument and
- * writes the zeros 5.4 wrote. An unbilled `ACTIVE` session looks exactly like a billing
- * bug to anyone who has not read this paragraph, which is why it is here, in
- * `session.repository.js`, and in the epic README. 6.5 passes both and deletes all
- * three notes.
+ * §5.1 sells the first ten minutes up front, so `OPENING_BLOCKS × price_per_block` leaves
+ * the student's wallet in the transaction that starts the session. **Not after it.** A
+ * session that goes `ACTIVE` and then fails to charge is free tutoring, and a charge that
+ * lands against a session that failed to start is theft; one transaction is the only
+ * arrangement where neither is reachable.
+ *
+ * The amount is computed from the **locked** row's `price_per_block` — the snapshot 5.3
+ * wrote at offer time, so a teacher who changed tier while the modal was open cannot
+ * reprice a block the student was quoted.
+ *
+ * **`INSUFFICIENT_CREDIT` rolls the accept back rather than starting a free session.**
+ * E5 checks affordability at offer time as a read and the balance is allowed to have
+ * moved since; this is the write, and it is the one that decides. The rollback leaves the
+ * offer `PENDING` and the teacher `OFFER_LOCKED` — untouched, because Postgres undoes all
+ * four writes together — so the offer lives out its TTL and 5.5's sweep releases the
+ * teacher. Nothing here compensates by hand.
+ *
+ * `recordBlock` writes block 1 in the same transaction, for the same reason
+ * `setSessionActive` carries the two counters: `total_charged` and the sum of a session's
+ * blocks are reconciled against each other, and a window where they disagree is a window
+ * where the answer depends on when you looked.
  *
  * ## Every collaborator arrives through the second argument
  *
@@ -94,6 +111,8 @@ const defaultDeps = {
   notifyAccepted: emitOfferAccepted,
   createRoom: createSessionVideo,
   saveRoom: setSessionVideoRoom,
+  chargeCredits: chargeStudent,
+  saveBlock: recordBlock,
 };
 
 /**
@@ -136,8 +155,15 @@ const OPENING_BLOCK_MS = OPENING_BLOCKS * BLOCK_MINUTES * 60 * 1000;
  */
 export async function activateAcceptedOffer({ offer, teacherId }, deps = defaultDeps) {
   const collaborators = { ...defaultDeps, ...deps };
-  const { runTransaction, lockSession, markResponded, activateSession, takeTeacher } =
-    collaborators;
+  const {
+    runTransaction,
+    lockSession,
+    markResponded,
+    activateSession,
+    takeTeacher,
+    chargeCredits,
+    saveBlock,
+  } = collaborators;
 
   const sessionId = offer.session.id;
   const startedAt = new Date();
@@ -177,9 +203,29 @@ export async function activateAcceptedOffer({ offer, teacherId }, deps = default
       );
     }
 
-    // Step 4. No `blocksUsed`, no `totalCharged` — 6.3 charges nothing, and the
-    // defaults are the zeros 5.4 wrote by omission. 6.5 passes both.
-    const { count: activated } = await activateSession({ sessionId, startedAt, endsAt }, tx);
+    // **The price is the locked row's, never the offer's and never the request's.** 5.3
+    // snapshots `price_per_block` onto the session when the offer goes out, precisely so
+    // that a tier change while the modal is open cannot reprice a block the student was
+    // quoted. A null here is a session that reached `OFFER_SENT` without one, which is a
+    // data problem rather than a free lesson.
+    const amount = OPENING_BLOCKS * locked.pricePerBlock;
+
+    if (!Number.isInteger(amount) || amount <= 0) {
+      logger.error('Accept found a session with no usable price', {
+        sessionId,
+        pricePerBlock: locked.pricePerBlock,
+      });
+
+      throw AppError.internal();
+    }
+
+    // Step 4. `blocksUsed` and `totalCharged` are written with the status — 6.5. The
+    // charge two statements down is what pays for them, in this same transaction, so
+    // there is no instant at which an `ACTIVE` session reads as unbilled.
+    const { count: activated } = await activateSession(
+      { sessionId, startedAt, endsAt, blocksUsed: OPENING_BLOCKS, totalCharged: amount },
+      tx,
+    );
 
     // The assert above refuses an edge that was never legal; this refuses a row that
     // moved between the lock and the write. Either alone leaves one of the two failures
@@ -211,6 +257,35 @@ export async function activateAcceptedOffer({ offer, teacherId }, deps = default
         'You are no longer available for this request.',
       );
     }
+
+    // Step 6. **The money, last, and inside.** `chargeStudent` takes the `tx` and opens
+    // nothing of its own: it locks the wallet row, asserts the balance against what that
+    // lock returned, moves the balance and appends the ledger row. `INSUFFICIENT_CREDIT`
+    // (402) throws out of the callback like every other failure here and Postgres undoes
+    // the three writes above with it — no compensation, no half-started session, and no
+    // ledger row for a session that never ran.
+    //
+    // Last because it is the only step that touches a second person's row: a charge that
+    // succeeded and then hit `TEACHER_UNAVAILABLE` would be undone by the same rollback,
+    // but it would also have held a lock on the student's wallet across the teacher's
+    // write for no reason.
+    await chargeCredits(
+      { userId: offer.session.studentId, sessionId, amount, note: 'Opening block' },
+      tx,
+    );
+
+    // Step 7. Block 1, in the same transaction as the charge that bought it. `minutes` is
+    // `OPENING_BLOCKS × BLOCK_MINUTES` — the constants, never the number, so the day the
+    // appendix is tuned this moves with it.
+    await saveBlock(
+      {
+        sessionId,
+        blockNumber: 1,
+        minutes: OPENING_BLOCKS * BLOCK_MINUTES,
+        amount,
+      },
+      tx,
+    );
   });
 
   collaborators.announceStatus(teacherId, 'IN_SESSION');

@@ -198,6 +198,48 @@ ignores the boolean deliberately: `false` means either "somebody else minted it 
 "Daily failed again", and both are answered by re-reading the row and believing it. One
 persisted room per session, and the loser of a race answers with the winner's.
 
+**6. `wallet.service.js` was written by an agent, and §17.5 says it must not be.** The
+rule reads "Human-written. Agent may write tests for it", and 6.5's own header repeats it.
+The repository owner was asked before a line was written, was shown the alternative — the
+wallet left as a stub for a human, with the tests waiting red — and chose to have the
+agent write all of it and review the money code as a stranger's. **Recorded here rather
+than in a commit message, because §17.5 is still the rule and the next PR that touches
+this file should not read this one as a precedent.** The three critical transactions in
+that same table are still owed their two-browser run: the brief's manual test is the
+acceptance criterion for this PR and no part of it has been performed.
+
+**7. The extend guard needs a read taken *before* the transaction, and the brief's
+sequence does not have one.** 6.2 wrote `extendSession` to match on `ends_at` "as the
+caller read it", and 6.5's brief supplies that value from the locked read. Under
+`SELECT … FOR UPDATE` that is a tautology: the second of two simultaneous requests blocks
+on the lock, wakes after the first commits, reads the `ends_at` the first one just wrote,
+and matches its own expectation — two taps, two blocks, and every sequential test still
+green. So `session.meter.service.js` reads the session once, unlocked, before `BEGIN`, and
+that instant is what the `where` matches on. Both taps of a double tap carry the same one
+and exactly one of them matches. `findSessionForView` is reused for the read rather than
+adding an eighth function to a frozen repository.
+
+**8. `teacher.presence.repository.js` was reopened for one read-only function.** 6.5's
+allowlist has the auto-away *job* and not its repository, but the 55-minute predicate is a
+query and a job that ran its own `prisma` call would be the layering rule broken to keep an
+allowlist intact. `findTeachersDueForAwayWarning` is appended at the end of the file,
+reads, writes nothing, and returns `lastSeenAt` beside the id — which the job needs,
+because idempotence for the prompt is held in memory against that instant.
+
+**9. Two E5-era test files were updated, and neither is in 6.5's allowlist.**
+`session.activate.test.js` asserted that the accept charges nothing — 6.5 is the PR that
+made that false — and `jobs.test.js`'s auto-away stubs did not know about the two new
+collaborators, so its suite reached a real `prisma` client through the default. Both are
+mechanical consequences of the PR rather than new coverage; the new coverage is in
+`wallet.service.test.js` and `session.meter.test.js`.
+
+**10. The auto-end sweep ends sessions without paying anybody, and that is 6.5's shape
+rather than an omission.** `end_reason = 'no_extension'`, `session:ended` to both sides,
+and no `creditTeacher`, no `platform_fee`, no `teacher_earning`, and no presence change for
+the teacher — all of that is 6.6's termination path, which replaces the sweep's one call.
+Until 6.6 lands, an auto-ended session leaves its teacher `IN_SESSION` and its teacher
+unpaid. A test asserts the absence so that it stays deliberate.
+
 ## What E6 inherits from E5, and when
 
 E5 closed with two defects fixed and four checks outstanding. Its retro scheduled them
@@ -248,7 +290,7 @@ Unchanged from E5, plus one:
 | 6.2 | [**Session state machine: transition rules, frozen routes, the E6 contract**](PR-6.2-session-state-machine.md) | **human** · L | 6.0 | ☑ |
 | 6.3 | [Session activation + `createSessionVideo` persistence](PR-6.3-session-start.md) | M | 6.1, 6.2 | ☑ |
 | 6.4 | [`getSessionVideoContext` + `GET /sessions/:id/video`](PR-6.4-session-video-endpoint.md) | S | 6.3 | ☑ |
-| 6.5 | [**Wallet service, opening charge, extend, and the meter crons**](PR-6.5-billing-and-meter.md) | **human** · L | 6.3 | ☐ |
+| 6.5 | [**Wallet service, opening charge, extend, and the meter crons**](PR-6.5-billing-and-meter.md) | **human** · L | 6.3 | ☑ |
 | 6.6 | [**Termination, no-show refund, rating → `RATED`**](PR-6.6-end-and-rating.md) | **human** · M | 6.5 | ☐ |
 | 6.7 | [The session room — one screen, both roles, the call embedded](PR-6.7-session-room-ui.md) | L | 6.4, 6.5, 6.6 | ☐ |
 | 6.8 | [Error-state hardening and the end-to-end lifecycle tests](PR-6.8-error-hardening-e2e.md) | M | 6.7 | ☐ |
