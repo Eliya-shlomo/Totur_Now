@@ -966,3 +966,61 @@ export async function findSessionForVideo(sessionId) {
     },
   });
 }
+
+/**
+ * The teacher, after the session is over — 6.6, and **the exact inverse of
+ * `setTeacherInSession` above.**
+ *
+ * It lives beside that function rather than in a file of its own for one reason: the two
+ * write the same column in opposite directions, and a `where` that drifts apart from its
+ * inverse is a teacher left `IN_SESSION` for ever, invisible to E4's first hard filter.
+ * One file, one pair, one `git blame`.
+ *
+ * **Two statements, and they are deliberately not one.**
+ *
+ * The release is conditional on `IN_SESSION`, exactly like every other write to this
+ * column since 5.3: a teacher who went `OFFLINE` mid-session stays `OFFLINE`, and an
+ * unconditional write would put them back in E4's candidate pool while they are asleep.
+ * `locked: false` is that case and it is not an error.
+ *
+ * The counters are not conditional, because **a session that happened counts whether or
+ * not the teacher was still connected when it ended.** Folding them into the release
+ * would silently drop a lesson from `sessions_count` for any teacher who closed their
+ * laptop first — and `sessions_count` is the denominator E4's Bayesian smoothing divides
+ * by, so losing one is not a cosmetic loss.
+ *
+ * **Which counters move is the service's decision, never this function's.** A normal end
+ * passes `sessionsCount: 1`; a no-show passes `noShowCount: 1` and nothing else, because
+ * nobody taught anything. A repository that branched on an `endReason` would be a second
+ * place the product rule lives.
+ *
+ * @param {object} params
+ * @param {string} params.teacherId
+ * @param {number} [params.sessionsCount=0] `1` on a normal end, `0` on a no-show
+ * @param {number} [params.noShowCount=0]   `1` on a no-show, `0` otherwise
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @returns {Promise<{released: boolean}>} `false` means they were no longer `IN_SESSION`
+ */
+export async function releaseTeacherAfterSession(
+  { teacherId, sessionsCount = 0, noShowCount = 0 },
+  tx,
+) {
+  const { count } = await tx.teacherProfile.updateMany({
+    where: { userId: teacherId, status: 'IN_SESSION' },
+    data: { status: 'ONLINE' },
+  });
+
+  if (sessionsCount || noShowCount) {
+    await tx.teacherProfile.update({
+      where: { userId: teacherId },
+      data: {
+        sessionsCount: { increment: sessionsCount },
+        noShowCount: { increment: noShowCount },
+      },
+    });
+  }
+
+  // `=== 1` rather than `> 0`, matching `releaseTeacherLock`: `userId` is the primary
+  // key, so a match of two cannot happen and the stricter comparison says so.
+  return { released: count === 1 };
+}

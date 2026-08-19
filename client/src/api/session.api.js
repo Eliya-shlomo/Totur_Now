@@ -138,3 +138,67 @@ export function getSessionVideo(sessionId) {
 export function extendSession(sessionId) {
   return api.post(`/sessions/${sessionId}/extend`);
 }
+
+/**
+ * Stop the session — `POST /sessions/:id/end`. PR 6.6, §10.
+ *
+ * **Either participant may press it and both write `student_ended`.** §11.2's reason set
+ * has no `teacher_ended` value; the column says why the session is over, not who was
+ * holding the mouse. Whoever did not press it learns from `session:ended`, which carries
+ * the actor.
+ *
+ * The money moves in the same transaction: the teacher is credited once, at the end, net
+ * of §5.3's fee, for the blocks actually consumed. There is no per-block payout to undo.
+ *
+ * `SESSION_NOT_ACTIVE` (409) means somebody got there first — the other participant, or
+ * the auto-end sweep at `ends_at + GRACE_SECONDS`. It is not a failure worth a toast: the
+ * session is over either way and `session:ended` has already said so.
+ *
+ * @param {string} sessionId
+ * @returns {Promise<{sessionId: string, status: 'ENDED', endReason: string, endedAt: string}>}
+ */
+export function endSession(sessionId) {
+  return api.post(`/sessions/${sessionId}/end`);
+}
+
+/**
+ * The teacher never arrived — `POST /sessions/:id/report-no-show`. PR 6.6, §5.1.
+ *
+ * **Student only, and only within `NO_SHOW_WINDOW_SEC` of the session starting.** After
+ * that the remedy is the end button, which charges. The window is the server's and is not
+ * repeated here; a `409` is what a late report looks like.
+ *
+ * The refund is the full `total_charged` with no fee taken out of it, and the teacher is
+ * credited nothing. `NO_SHOW` is terminal and is **not** rated — 6.7 sends the student
+ * back to the match list rather than to the rating screen.
+ *
+ * @param {string} sessionId
+ * @returns {Promise<{sessionId: string, status: 'NO_SHOW', endReason: string,
+ *   endedAt: string, balance: number|null}>}
+ */
+export function reportNoShow(sessionId) {
+  return api.post(`/sessions/${sessionId}/report-no-show`);
+}
+
+/**
+ * The rating — `POST /sessions/:id/review`. PR 6.6, §6.2 and §10.
+ *
+ * **`isResolved` is required and `stars` is not**, and the difference is deliberate: the
+ * KPI is whether the question got answered, and a student who does not want to rate a
+ * person should not be made to. A review with no stars moves `resolved_count` and leaves
+ * every average exactly where it was.
+ *
+ * This is the only way out of an `ENDED` session. Until it succeeds the session has not
+ * reached a terminal state and `isRated` is `false`.
+ *
+ * `SESSION_NOT_ACTIVE` (409) covers both "already rated" — including the double-tapped
+ * submit the unique constraint catches — and "this session is not `ENDED`". Neither is
+ * worth retrying.
+ *
+ * @param {string} sessionId
+ * @param {import('@tutor/shared').ReviewRequest} review
+ * @returns {Promise<{sessionId: string, status: 'RATED', isRated: true}>}
+ */
+export function submitReview(sessionId, review) {
+  return api.post(`/sessions/${sessionId}/review`, review);
+}
