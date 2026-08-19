@@ -608,10 +608,67 @@ And with a teacher's token, three rejections that protect the matching engine an
 wallet — `{"status":"IN_SESSION"}`, `{"pricePerBlock":21}`, `{}` — each a
 `VALIDATION_ERROR` naming the field.
 
+### 11. Socket.IO transport
+
+**Measured on 2026-08-19 against the deployed build: WebSocket. It upgrades.**
+
+This was E5's one real unknown. Nothing before E5 opened a persistent connection to the
+deployed API, and a fallback to long-polling was a plausible outcome that the retro said
+should be known rather than discovered during a demo. It is now known.
+
+What the teacher dashboard produced, DevTools → **Network** → **WS**, at
+`/teach` on the deployed client:
+
+```
+socket.io/?EIO=4&transport=websocket&sid=ZnNKv9qZHYS4sser…   101   websocket
+```
+
+Three things in that line are the result, and all three have to be there:
+
+- **`101`** — Switching Protocols. The upgrade was accepted. Render's free plan does not
+  strip it.
+- **`transport=websocket`** — not `transport=polling`.
+- **`sid=…`** — this request carries the session id from the *earlier* polling handshake,
+  which is what makes it an upgrade rather than a separate connection. Socket.IO always
+  opens on polling and upgrades a moment later, so **one polling request before this one
+  is correct and is not a fallback.** The fallback is polling that never stops.
+
+**`Size 0.0 kB` and `Time: Pending` are also correct** and are the thing most likely to
+be misread as a hang. A live WebSocket has no response body and does not complete; the
+frames are under its **Messages** tab, not in the size column.
+
+#### Why this was worth measuring
+
+E6's meter is built on it. `session:block_warning` fires at `ends_at - WARNING_SECONDS`
+and asks the student to spend money inside a 60-second window, so an event delivered a
+polling interval late is a modal that arrives with less time on it than the server thinks
+it has. On WebSocket that gap is gone and 6.7's screen can treat the clock as live.
+
+**Had it read polling, the consequence was a product change and not a tuning knob**: the
+session screen would have had to say its countdown may lag, and 6.5's warning would have
+needed to fire earlier to compensate. It does not, so neither does.
+
+#### Re-checking it
+
+Worth re-running after any change to the Render service, the client's socket options, or
+a move off the free plan.
+
+1. Warm the instance first — `curl https://tutor-now-api.onrender.com/health` twice. A
+   cold-start timeout on the first request looks exactly like a transport failure.
+2. Log in on the deployed client **as a teacher**. The teacher dashboard is what opens the
+   socket; a student's screen does not.
+3. DevTools → Network → **WS** filter → reload with it open.
+4. Read the three fields above.
+
+Do not measure this from a local `npm run dev`. Local hits Express directly with nothing
+in front of it, so it will read `websocket` regardless of what the deployed path does —
+the whole question is what Render's proxy layer permits.
+
 ### Troubleshooting
 
 | Symptom | Cause |
 |---|---|
+| Socket connects but events arrive seconds late; Network → WS shows repeating `transport=polling` and no `101` | The WebSocket upgrade is being refused somewhere in front of the app. §11. Re-check after a warm-up; if it persists, E6's block warning arrives late and the session screen must say so |
 | `prisma: not found` in build | `NPM_CONFIG_INCLUDE=dev` missing |
 | `Could not find a schema.prisma` | Build command running from `server/`, not the repo root |
 | Build hangs at `migrate deploy` | Pooled connection string — switch to direct |
