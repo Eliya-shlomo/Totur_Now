@@ -1,5 +1,7 @@
 import { getSessionView } from '#services/session.view.service.js';
+import { getSessionVideoContext } from '#services/session.video.service.js';
 import { AppError } from '#utils/AppError.js';
+import { createSessionVideoAccess } from '#services/video.service.js';
 import { sendOffer as sendSessionOffer } from '#services/session.offer.service.js';
 
 /**
@@ -142,9 +144,36 @@ export async function getSession(req, res) {
  * **`userName` comes from the database.** It is what goes on the tile, and the endpoint
  * 6.1 deleted took it from the request body — so a stranger could walk in *and* choose
  * the name they walked in under.
+ *
+ * **Filled in by 6.4, and it opened no frozen file to do it.** Nothing here reads
+ * `req.body` or `req.query` — `sessionByIdSchema` is `.strict()` with an empty body, so
+ * the id in the path and the id in the token are the only two things this handler takes
+ * off the wire, and neither the room name nor the display name is among them.
  */
-export async function getSessionVideo() {
-  throw AppError.notImplemented('The session video endpoint');
+export async function getSessionVideo(req, res) {
+  const context = await getSessionVideoContext(req.params.id, req.user.id);
+
+  const access = await createSessionVideoAccess({
+    roomName: context.roomName,
+    userId: req.user.id,
+    userName: context.userName,
+  });
+
+  res.json({
+    success: true,
+    data: {
+      roomUrl: context.roomUrl,
+      token: access.token,
+      // **The one transformation in this handler.** `SessionVideoResponse` types
+      // `expiresAt` as ISO 8601 and DEV-C's seam answers in epoch seconds, which is what
+      // Daily's `exp` property is. The conversion is here rather than in
+      // `video.service.js` because that file is frozen at 6.1 and provider-shaped by
+      // design, and rather than in the service because `getSessionVideoContext` never
+      // sees a token — `OWNERSHIP.md` §2.1 gives it three fields and none of them is
+      // this one.
+      expiresAt: new Date(access.expiresAt * 1000).toISOString(),
+    },
+  });
 }
 
 /**

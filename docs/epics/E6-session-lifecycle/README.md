@@ -174,6 +174,30 @@ written before 6.2 was implemented, and 6.2 wrote the body along with the rest o
 set. 6.3 therefore touches that function not at all. Recorded because a reviewer holding
 the brief will look for a diff that is correctly absent.
 
+**3. The same is true of `findSessionForVideo`, and 6.4 therefore opened no repository
+at all.** 6.4's allowlist reads "ONLY `findSessionForVideo`'s body — 6.2's gap"; 6.2 wrote
+that body with the rest of the E6 read set, already selecting both participants' names and
+both video columns without a `where` on status — which is exactly what the endpoint needs
+in order to tell three failures apart in the log while answering all three the same way.
+`session.repository.js` keeps the two `git log` entries this epic has given it.
+
+**4. `SessionVideoResponse.expiresAt` is ISO 8601 and the provider answers in epoch
+seconds, so 6.4's controller converts.** 6.1's `createSessionVideoAccess` returns Daily's
+own `exp` — a unix timestamp — and the frozen contract types the field as a string, so the
+brief's three-call sketch (`{ roomUrl: ctx.roomUrl, ...access }`) would have put a number
+on the wire. The conversion is one expression in the handler rather than a change to either
+end: `video.service.js` is frozen at 6.1 and provider-shaped on purpose, and
+`getSessionVideoContext` never sees a token — `OWNERSHIP.md` §2.1 gives it three fields and
+none of them is this one. No contract change; the shape 6.7 receives is the one that was
+frozen.
+
+**5. 6.4's repair path calls 6.3's `attachSessionVideo` rather than repeating its two
+statements.** 6.3 exported it for this. It creates the room, persists it through the
+conditional `setSessionVideoRoom`, never rejects, and resolves to a boolean — and 6.4
+ignores the boolean deliberately: `false` means either "somebody else minted it first" or
+"Daily failed again", and both are answered by re-reading the row and believing it. One
+persisted room per session, and the loser of a race answers with the winner's.
+
 ## What E6 inherits from E5, and when
 
 E5 closed with two defects fixed and four checks outstanding. Its retro scheduled them
@@ -223,7 +247,7 @@ Unchanged from E5, plus one:
 | 6.1 | [Import the Daily video layer — `video.service`, `VideoRoom.jsx`](PR-6.1-daily-video-import.md) | S | — | ☑ |
 | 6.2 | [**Session state machine: transition rules, frozen routes, the E6 contract**](PR-6.2-session-state-machine.md) | **human** · L | 6.0 | ☑ |
 | 6.3 | [Session activation + `createSessionVideo` persistence](PR-6.3-session-start.md) | M | 6.1, 6.2 | ☑ |
-| 6.4 | [`getSessionVideoContext` + `GET /sessions/:id/video`](PR-6.4-session-video-endpoint.md) | S | 6.3 | ☐ |
+| 6.4 | [`getSessionVideoContext` + `GET /sessions/:id/video`](PR-6.4-session-video-endpoint.md) | S | 6.3 | ☑ |
 | 6.5 | [**Wallet service, opening charge, extend, and the meter crons**](PR-6.5-billing-and-meter.md) | **human** · L | 6.3 | ☐ |
 | 6.6 | [**Termination, no-show refund, rating → `RATED`**](PR-6.6-end-and-rating.md) | **human** · M | 6.5 | ☐ |
 | 6.7 | [The session room — one screen, both roles, the call embedded](PR-6.7-session-room-ui.md) | L | 6.4, 6.5, 6.6 | ☐ |
