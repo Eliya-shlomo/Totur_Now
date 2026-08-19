@@ -77,3 +77,32 @@ export function sendOffer(sessionId, { teacherId }) {
 export function getSession(sessionId) {
   return api.get(`/sessions/${sessionId}`);
 }
+
+/**
+ * The room and a token for it — **the only way a client learns either value.** PR 6.4.
+ *
+ * The session's own payload carries `hasVideo` and nothing more: a room URL is a join
+ * capability, so it leaves the server here, once, beside a token minted for one caller.
+ *
+ * **Called again on every join and on every reload, never cached.** The token names one
+ * user and one room and expires in an hour; two people in a session hold two different
+ * tokens. A module that stored one and handed it out again would be the
+ * `POST /video/access` endpoint 6.1 deleted, wearing a different name — and the caller
+ * that would have benefited is the one who should not have it.
+ *
+ * No room name and no display name are sent. The server reads both off the session row,
+ * which is what stops a caller choosing the name on their own tile.
+ *
+ * Two rejections the caller has to tell apart, both `ApiError` with `.is(code)`:
+ *
+ * - `NOT_FOUND` (404) — no such session, not this caller's, or no longer `ACTIVE`. One
+ *   answer for all three, deliberately: `FORBIDDEN` would confirm the id is real
+ * - `EXTERNAL_SERVICE_ERROR` (502) — the provider is down. The session is still running
+ *   and 6.7's screen renders everything except the call
+ *
+ * @param {string} sessionId
+ * @returns {Promise<import('@tutor/shared').SessionVideoResponse>}
+ */
+export function getSessionVideo(sessionId) {
+  return api.get(`/sessions/${sessionId}/video`);
+}
