@@ -4,7 +4,7 @@
 |---|---|
 | **Epic** | E4 — Matching Engine |
 | **Owner** | DEV-B (rotem) |
-| **Size** | S |
+| **Sizea** | S |
 | **Written by** | Agent |
 | **Depends on** | 4.1 (merged) |
 | **Blocks** | 4.6 |

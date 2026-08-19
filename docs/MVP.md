@@ -110,7 +110,7 @@ The closed loop: every question is LLM-classified → every rating attaches to t
 | Questions | Free text + image upload (external storage), automatic LLM classification |
 | Matching | Ranking algorithm + selection screen showing 5 teachers |
 | Offers | One live offer at a time, 60s TTL, atomic teacher locking |
-| Sessions | Automatic Zoom meeting creation, block timer, consent-based extension, auto-end |
+| Sessions | Automatic Daily room creation, an **embedded** call, block timer, consent-based extension, auto-end |
 | Money | Internal credit wallet, charge at block start, append-only ledger, teacher earnings balance |
 | Feedback | "Resolved? yes/no" + stars + free text → per-topic rating update |
 | Real-time | Socket.IO for presence, offers, timer, session end |
@@ -155,7 +155,7 @@ The last three were in MVP until the 8/11 revision. They were the platform decid
 ### 4.2 The session
 
 ```
-T=0    Charge 2 blocks (10 min) · create Zoom · start timer
+T=0    Charge 2 blocks (10 min) · create Daily room · start timer
 T=9:00 Modal to student: "One minute left. Extend by 5 minutes (+₪12)?"
        ├─ Yes → charge one block · timer +5:00
        └─ No / no response → T=10:00 · 30s grace → auto-end
@@ -490,7 +490,7 @@ async function matchTeachers(question, student, N = 5) {
    reject /   │            │ teacher accepted
    timeout    │            ▼
               │     ┌──────────────┐
-              │     │    ACTIVE    │  Zoom created · 2 blocks charged · timer running
+              │     │    ACTIVE    │  room created · 2 blocks charged · timer running
               │     └──────┬───────┘
               │            │ end / no credit / no extension / disconnect
               ▼            ▼
@@ -586,7 +586,8 @@ CREATE TABLE teacher_profiles (
                         CHECK (price_per_block BETWEEN 5 AND 20),   -- §5.2
   status              teacher_status DEFAULT 'OFFLINE',
   level_max           SMALLINT       DEFAULT 3,   -- self-declared, §6.1
-  zoom_personal_link  TEXT,
+  zoom_personal_link  TEXT,   -- §18's escape hatch, unread. Kept under its old name
+                              --   on purpose: see E6's README, "the column we did not rename"
   -- denormalized aggregates for performance
   sessions_count      INTEGER DEFAULT 0,
   resolved_count      INTEGER DEFAULT 0,
@@ -672,8 +673,8 @@ CREATE TABLE sessions (
   total_charged    INTEGER DEFAULT 0,
   platform_fee     INTEGER DEFAULT 0,
   teacher_earning  INTEGER DEFAULT 0,
-  zoom_join_url    TEXT,
-  zoom_meeting_id  VARCHAR(60),
+  video_room_url   TEXT,                   -- the Daily room URL the client joins
+  video_room_name  VARCHAR(120),           -- Daily's room id, needed to mint tokens
   started_at       TIMESTAMPTZ,
   ends_at          TIMESTAMPTZ,            -- when the current block ends
   ended_at         TIMESTAMPTZ,
@@ -867,9 +868,10 @@ COMMIT;
 | Method | Path | Description |
 |---|---|---|
 | POST | `/sessions/:id/offer` | `{teacherId}` → atomic lock + socket + email |
-| POST | `/offers/:id/accept` | ← teacher. Creates Zoom, charges 2 blocks, `ACTIVE` |
+| POST | `/offers/:id/accept` | ← teacher. Creates the Daily room, charges 2 blocks, `ACTIVE` |
 | POST | `/offers/:id/reject` | ← teacher. Releases lock, appends to `rejected_by` |
 | GET | `/sessions/:id` | Full state + time remaining |
+| GET | `/sessions/:id/video` | `{roomUrl, token}` — a short-lived meeting token for **this** caller. `404` unless they are a participant in an `ACTIVE` session |
 | POST | `/sessions/:id/extend` | ← student. Charge block + extend `ends_at` |
 | POST | `/sessions/:id/end` | Manual end |
 | POST | `/sessions/:id/report-no-show` | ← student, within 60s. Full refund |
@@ -917,7 +919,7 @@ COMMIT;
 |---|---|---|
 | `offer:new` | teacher | `{offerId, questionTitle, brief, topic, level, expectedEarning, expiresAt}` |
 | `offer:expired` | teacher | `{offerId}` |
-| `offer:accepted` | student | `{sessionId, zoomUrl, teacherName, endsAt}` |
+| `offer:accepted` | student | `{offerId, sessionId}`. **No room URL on the wire** — the student's screen fetches `GET /sessions/:id/video`, because a token is per-caller and an event is not |
 | `offer:rejected` | student | `{sessionId}` |
 | `session:block_warning` | student | `{secondsLeft: 60, extensionPrice, balanceAfter}` |
 | `session:extended` | both | `{blocksUsed, endsAt, totalCharged}` |
@@ -1020,7 +1022,7 @@ This screen determines whether the product works. Worth more investment than any
 │  🎥 In session with Dana              ⏱  03:42        │
 │  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░  block 1 of 2                 │
 │                                                      │
-│  [ Open Zoom call ↗ ]                                │
+│  [ the call, embedded — Daily prebuilt iframe ]      │
 │                                                      │
 │  💰 Charged so far: ₪32  ·  Balance: ₪64             │
 │  🎯 Budget cap: ₪40                                   │
@@ -1061,7 +1063,7 @@ Mobile-first. The student arrives from a phone while working from a notebook.
 | DB | PostgreSQL 16 + **Prisma** |
 | Storage | Cloudinary (question images) |
 | AI | Anthropic Claude API (Vision + JSON mode) |
-| Video | Zoom API (Server-to-Server OAuth) |
+| Video | **Daily** — REST (`/rooms`, `/meeting-tokens`) server-side, `@daily-co/daily-js` + `@daily-co/daily-react` prebuilt iframe on the client |
 | Email | Resend / Nodemailer |
 | Deploy | Client → Vercel · Server → Render · DB → Neon |
 
@@ -1072,7 +1074,7 @@ Mobile-first. The student arrives from a phone while working from a notebook.
 ```
 server/
 ├── src/
-│   ├── config/            env, db, zoom, cloudinary
+│   ├── config/            env, db, video, cloudinary
 │   ├── routes/            route definitions only
 │   ├── controllers/       req/res only. Zero business logic
 │   ├── services/          ★ all business logic
@@ -1081,7 +1083,7 @@ server/
 │   │   ├── session.service.js       ← the state machine
 │   │   ├── wallet.service.js        ← all money. Single entry point
 │   │   ├── llm.service.js
-│   │   ├── zoom.service.js
+│   │   ├── video.service.js
 │   │   └── rating.service.js
 │   ├── repositories/      DB access only
 │   ├── middlewares/       auth, role, validate, errorHandler, rateLimit
@@ -1165,7 +1167,7 @@ Things built correctly now that won't need rewriting:
 
 ### 15.5 Security
 
-bcrypt (12 rounds) · 15-minute access token + 7-day refresh in an httpOnly cookie · `authorize(...roles)` middleware · rate limiting on login/register/questions · Helmet + CORS whitelist · Prisma (prevents SQL injection) · file type and size limits · **no secrets on the client** — Zoom, LLM, and Cloudinary calls go through the server only
+bcrypt (12 rounds) · 15-minute access token + 7-day refresh in an httpOnly cookie · `authorize(...roles)` middleware · rate limiting on login/register/questions · Helmet + CORS whitelist · Prisma (prevents SQL injection) · file type and size limits · **no secrets on the client** — Daily, LLM, and Cloudinary calls go through the server only, and a meeting token is minted per caller and never reused
 
 ---
 
@@ -1197,7 +1199,7 @@ bcrypt (12 rounds) · 15-minute access token + 7-day refresh in an httpOnly cook
 | Requirement | Implementation |
 |---|---|
 | Deployment | Vercel + Render + Neon |
-| External API | **Zoom API** (meeting creation) + **Cloudinary** + email service |
+| External API | **Daily API** (room + meeting-token creation) + **Cloudinary** + email service |
 | AI Integration | **Claude API** — question classification (Vision + JSON) and teacher briefs |
 | Innovation | The algorithm: a closed LLM→rating→matching loop. Not CRUD |
 
@@ -1272,12 +1274,12 @@ Everything else — screens, controllers, repositories, forms, tables, cron jobs
 
 | Track | Owner A | Owner B |
 |---|---|---|
-| Primary | **Client** — React, Router, Zustand, Mantine, all screens, responsive, error UX | **Server + Integrations** — Express MVC, Prisma, auth, wallet, LLM, Zoom, Socket.IO, cron, matching, deployment |
+| Primary | **Client** — React, Router, Zustand, Mantine, all screens, responsive, error UX | **Server + Integrations** — Express MVC, Prisma, auth, wallet, LLM, video, Socket.IO, cron, matching, deployment |
 | Also owns | Client contracts (`api.d.ts` consumption), demo script | DB schema, `constants.js`, `AppError` |
 
 Track B is heavier, so **client PRs are the ones to hand to agents most aggressively** — screens are the most agent-friendly work in the repo, and Owner A spends their time on review and on the two screens that actually matter (teacher selection, active session).
 
-> **If there is a third team member:** split Track B into **Server** (Express, Prisma, auth, wallet, admin) and **Integrations** (LLM, Zoom, Socket.IO, cron, matching, deployment). Epics E4, E5, E6, and the LLM parts of E3 move to the Integrations owner. The epic list below is written to make this split clean — each epic already sits on one side of that line.
+> **If there is a third team member:** split Track B into **Server** (Express, Prisma, auth, wallet, admin) and **Integrations** (LLM, video, Socket.IO, cron, matching, deployment). Epics E4, E5, E6, and the LLM parts of E3 move to the Integrations owner. The epic list below is written to make this split clean — each epic already sits on one side of that line.
 
 ### 17.7 Conflict avoidance
 
@@ -1394,30 +1396,28 @@ MVP (§6.1), so this epic is now profile, topics, price and standing.
 ---
 
 ### E6 — Session Lifecycle & Video
-**Owner:** B · **Depends on:** E5, E7
+**Owner:** B, wearing all three hats · **Depends on:** E5 (5.1–5.11 merged) · **Does not depend on E7** — see the amendment below
 
 | # | PR | Size | Notes |
 |---|---|---|---|
-| 6.1 | `zoom.service` — Server-to-Server OAuth + create meeting | L | **Highest-risk PR in the project** |
-| 6.2 | `session.service` — full state machine | L | **Human-written** |
-| 6.3 | Session start: charge opening block + create Zoom + set `ends_at` | M | |
-| 6.4 | `POST /sessions/:id/extend` + budget cap enforcement | M | |
-| 6.5 | Cron: block warning at T-60s + auto-end at T+30s | M | |
-| 6.6 | No-show reporting + refund path | M | |
-| 6.7 | Active session screen (student) — timer, charges, extend modal | L | Agent. `ends_at` is server truth |
-| 6.8 | Active session screen (teacher) — brief, image, earnings, end | M | Agent |
+| 6.0 | Migration: `zoom_*` → `video_room_name` / `video_room_url` | S | Hand-edited `RENAME COLUMN`, not Prisma's drop-and-add |
+| 6.1 | Import `origin/dev-c/daily-video` — `video.service`, `VideoRoom.jsx` | S | **Not L.** The provider code is written and reviewed; this PR carries it and drops its two unauthenticated endpoints |
+| 6.2 | `session.service` — full state machine, frozen routes and repository | L | **Human-written.** The epic's blocking core PR |
+| 6.3 | Session activation + `createSessionVideo` persistence | M | Room created **after** commit, never inside the transaction |
+| 6.4 | `getSessionVideoContext` + `GET /sessions/:id/video` | S | The seam. `404`, never `403`, for a non-participant |
+| 6.5 | `wallet.service` + opening charge + `POST /sessions/:id/extend` + the two meter crons | L | **Human-written.** Money |
+| 6.6 | End, no-show refund, review → `RATED`, teacher earning credited | M | **Human-written.** Money |
+| 6.7 | The session room — one screen, both roles, `<VideoRoom/>` mounted | L | Agent. `ends_at` is server truth |
+| 6.8 | Error-state hardening (`SESSION_NOT_ACTIVE`, no API key, dead token, walk-out) + E2E lifecycle tests | M | Agent |
+| 6.9 | E6 close: verification + retro, and E5's four deferred items | S | Human |
 
-**Acceptance:** a full session runs end to end: Zoom opens, the timer counts down, the extension modal appears at T-60s, declining ends the session, and the charge matches what was displayed.
+**Acceptance:** a full session runs end to end: the two participants see and hear each other **inside the page**, the timer counts down, the extension modal appears at T-60s, declining ends the session, the charge matches what was displayed, and the rating moves the teacher's aggregates.
 
-**Fallback if 6.1 slips past half a day:** drop to a static personal Zoom room link stored on the teacher profile. 3 days → 2 hours, with almost no demo impact.
+**Amendment 1 — the provider is Daily, not Zoom, and it is already written.** `origin/dev-c/daily-video` creates private rooms and mints per-caller meeting tokens against Daily's REST API, and embeds the call with `@daily-co/daily-react`. 6.1 imports it rather than writing it, which is why E6 is a *smaller* epic than §18 first estimated and why the "highest-risk PR in the project" label is retired (§20). The seam between the video layer and the session layer is `OWNERSHIP.md` §2.1.
 
-**Amendment — the video half of E6 is DEV-C's (amit).** The provider is Daily, not
-Zoom: 6.1 becomes `video.service` (room create + join tokens) and 6.3's "create Zoom"
-becomes "create room". C owns the provider and the room endpoints; B keeps the state
-machine, the timer, the charging, and both session screens. The seam between them is
-written down in `OWNERSHIP.md` §2.1. Work in progress on `feature/daily-video`.
+**Amendment 2 — E6 does not wait for E7, it creates the part of E7 it needs.** §18 wrote E6 as depending on E7, and E7 does not exist. Rather than block the epic or fake the charge, **6.5 creates `wallet.service.js` with exactly three operations** — charge a student for a block, credit a teacher's earning, refund a session — each one transaction against `wallets` plus one append to `wallet_transactions`. It is human-written per §17.5. E7 then adds top-up, the ledger endpoints and the wallet screen **on top of** that service rather than beside it.
 
----
+**Amendment 3 — a minimal review write is E6's, not E8's.** §10's diagram makes `ENDED → RATED` mandatory, so a session cannot reach its terminal state without one. 6.6 writes the `reviews` row and bumps `resolved_count`, `rating_sum` and `rating_count`. **E8 keeps everything that reads them** — the badge, the history screen, the reputation surfaces — and E6 adds no screen beyond the modal that blocks the way out of a session.
 
 ### E7 — Wallet & Billing
 **Owner:** B · **Depends on:** E1 · **Highest-care epic**
@@ -1491,21 +1491,23 @@ written down in `OWNERSHIP.md` §2.1. Work in progress on `feature/daily-video`.
 | 11.3 | Full E2E smoke test on production | M | Both developers, two laptops |
 | 11.4 | Demo script + slide deck | M | |
 
-**Demo narrative (7 minutes):** two laptops · student photographs an exercise → classification → 5 ranked teachers → teacher receives the brief → accepts → Zoom opens → extension modal → end → credit moves → rating → the teacher's integrals ranking visibly changes.
+**Demo narrative (7 minutes):** two laptops · student photographs an exercise → classification → 5 ranked teachers → teacher receives the brief → accepts → the call opens in the page → extension modal → end → credit moves → rating → the teacher's integrals ranking visibly changes.
 
 ---
 
 ### Epic dependency graph
 
 ```
-E0 ──┬── E1 ──┬── E2 ──┬── E4 ── E5 ── E6 ── E8 ── E10 ── E11
-     │        │        │              │
-     │        ├── E3 ──┘              │
-     │        │                       │
-     │        └── E7 ─────────────────┘
-     │
-     └────────────────── E9 (parallel, low priority)
+E0 ──┬── E1 ──┬── E2 ──┬── E4 ── E5 ── E6 ──┬── E7 ── E10 ── E11
+     │        │        │                     │
+     │        ├── E3 ──┘                     └── E8 ──┘
+     │        │
+     └────────┴───────── E9 (parallel, low priority)
 ```
+**The E6 ← E7 arrow is reversed as of E6's planning.** §18's E6 block has the reasoning:
+E7 did not exist when E6 needed to charge a block, so 6.5 creates the three wallet
+operations a session needs and E7 builds its top-up, ledger and screen on top of them.
+E8 likewise now follows E6 rather than needing to precede its rating write.
 
 **Critical path:** E0 → E1 → E3 → E4 → E5 → E6 → E8. Anything off this path is cuttable.
 
@@ -1522,7 +1524,7 @@ E0 ──┬── E1 ──┬── E2 ──┬── E4 ── E5 ── E6 
 | **Thu 8/13** | **E4.5 — teacher selection screen** | E4.1–4.4 — matching engine |
 | **Fri–Sat** | Buffer / catch-up | Buffer / catch-up |
 | **Sun 8/16** | E5.7–5.8 — teacher dashboard, awaiting screen | E5.1–5.6 — sockets, offers, atomic lock, cron |
-| **Mon 8/17** | E6.7–6.8 — session screens, timer | E6.1–6.6, E7.1–7.4 — Zoom, state machine, wallet |
+| **Mon 8/17** | E6.7–6.8 — session screens, timer | E6.1–6.6, E7.1–7.4 — video, state machine, wallet |
 | **Tue 8/18** | E8.4–8.6, E7.7–7.8 — rating, wallet, history | E7.5–7.6, E8.1–8.3, E9 — billing, ratings, admin |
 | **Wed 8/19** | **E10 — responsive + error UX** | **E11.1–11.3 — deploy + E2E** · **FEATURE CLOSE** |
 | **Thu 8/20** | Bug fixes · demo seed · rehearsals · slide deck | |
@@ -1539,12 +1541,13 @@ E0 ──┬── E1 ──┬── E2 ──┬── E4 ── E5 ── E6 
 
 | Risk | Severity | Mitigation |
 |---|---|---|
-| Zoom API harder than expected | 🔴 High | Fallback: static personal room link on the teacher profile. 3 days → 2 hours |
+| ~~Zoom API harder than expected~~ **— retired.** The provider is Daily and the integration is written | 🟢 Low | `origin/dev-c/daily-video` already creates rooms and mints meeting tokens against Daily's REST API in ~150 lines. E6 imports it (PR 6.1). The fallback — a static room link on `teacher_profiles.zoom_personal_link` — is still there and is now genuinely unlikely to be needed |
 | Race condition in offers | 🔴 High | `UPDATE ... WHERE status='ONLINE'` + `rowCount`. Manually test with two browsers |
 | Wallet bug (money duplicated/lost) | 🔴 High | Single transaction + `FOR UPDATE` + `CHECK (balance >= 0)` + reconciliation query |
 | Two agents colliding in the same folder | 🔴 High | One epic in flight per owner. Daily contract sync |
 | Inconsistent LLM classification | 🟡 Medium | JSON mode + Zod + `topic_id=0` fallback. The flow **never** blocks |
 | Demo with no real teachers | 🟡 Medium | Seed 15 teachers with history. Script to flip a teacher online on demand |
+| `DAILY_API_KEY` unset or Daily unreachable at accept time | 🟡 Medium | The room is created **after** the accept commits, never inside the transaction. A failure logs, leaves `video_room_*` null, and the session still starts; `GET /sessions/:id/video` retries the creation once on first join. Same shape as E5's email fallback (§17.3) |
 | Timer desync | 🟡 Medium | **`ends_at` on the server is the source of truth.** Client only renders `ends_at - now` |
 | LLM classification latency | 🟢 Low | Animated waiting screen. 3 seconds with visual feedback feels fine |
 | Schedule overrun | 🟡 Medium | Checkpoints on 8/13 and 8/17 with a predefined cut list |

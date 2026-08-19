@@ -57,7 +57,7 @@ infrastructure files. Sections 2–4 exist to pay that cost.
 | `server/src/middlewares/` | DEV-A for `errorHandler`/`validate` (0.3); DEV-B for auth middleware (1.1) | Security-critical. Human-written per `MVP.md` §17.5. |
 | `server/src/services/wallet.service.js` | DEV-B | Human-written, no agent. Per `MVP.md` §17.5. |
 | `server/src/services/video.*.service.js` | DEV-C | The provider SDK lives here and nowhere else. |
-| `server/src/routes/video.routes.js`, `controllers/video.*` | DEV-C | Room access endpoints. |
+| ~~`server/src/routes/video.routes.js`, `controllers/video.*`~~ | — | **Deleted in E6 (PR 6.1) and not replaced.** Room access is `GET /sessions/:id/video` on the session router — see §2.1, rule 3. |
 | `server/src/config/video.js`, video env vars | DEV-C | Provider credentials. Add to `.env.example` with the rest. |
 | `client/src/components/session/VideoRoom*` | DEV-C | The embedded call surface. The screen around it belongs to the session epic's owner. |
 | `client/src/router/routes.*.jsx` | split by area — see §3 | Edit only your area file. |
@@ -73,19 +73,62 @@ infrastructure files. Sections 2–4 exist to pay that cost.
 ### 2.1 The video seam
 
 Video is the one place where an owner's code is called by another owner's code in
-every epic that uses it. So the seam is a written contract, not a convention:
+every epic that uses it. So the seam is a written contract, not a convention.
 
-**DEV-C provides** a service function that takes a session id and returns the room
-access a client needs to join. **The session owner calls it** and stores whatever it
-returns. Nobody outside `services/video.*` imports the provider SDK, and DEV-C does
-not read or write the `sessions` table — the session owner passes in what the room
-needs and persists the result.
+**As of E6 the contract has names.** Two functions, both in
+`server/src/services/video.service.js`, both DEV-C's:
 
-If the shape of that return value changes, it is a chat message before the code, the
-same rule as the E1 contract freeze.
+```js
+// DEV-C. Creates the room. Returns what the caller must persist.
+createSessionVideo(sessionId)
+  → { provider, roomName, roomUrl, expiresAt }
+
+// DEV-C. Mints one short-lived meeting token for one person.
+createSessionVideoAccess({ roomName, userId, userName })
+  → { token, expiresAt }
+```
+
+And one function that is **not** DEV-C's, because it reads the database:
+
+```js
+// DEV-B, in session.video.service.js. Answers "may this user join, and to what".
+getSessionVideoContext(sessionId, userId)
+  → { roomName, roomUrl, userName }
+```
+
+The rules that fall out of that split:
+
+1. **DEV-C never reads or writes the `sessions` table.** Not through Prisma, not
+   through a repository, not "just to check". The session owner passes in what the
+   room needs and persists what comes back — in E6 that is `sessions.video_room_name`
+   and `sessions.video_room_url`, written by PR 6.3.
+2. **Nobody outside `services/video.*` imports the provider SDK or calls the provider's
+   REST API.** One grep — `api.daily.co` — must return one file.
+3. **The endpoint is the session owner's, not the video owner's.** `GET
+   /sessions/:id/video` lives on DEV-B's session router. It calls
+   `getSessionVideoContext` to decide *whether*, then `createSessionVideoAccess` to
+   mint the token. There is **no** router under `/video`, and this is a correction
+   rather than a preference: the room-access endpoints on `dev-c/daily-video` took a
+   `roomName` from the request body behind nothing but `authenticate`, so any logged-in
+   user could mint a token for any room whose name they had seen. Authorisation about a
+   session belongs where the session is.
+4. **Authorisation failure is `404 NOT_FOUND`, never `403`.** A `403` on a session id
+   confirms the session exists, which is the same leak `GET /sessions/:id` refuses.
+5. **The client mounts, the screen owner surrounds.** `<VideoRoom roomUrl=... token=.../>`
+   is DEV-C's component with a fixed prop signature; the layout, the timer, the charges
+   and the buttons around it belong to the epic that owns the screen.
+
+If the shape of any of the three return values changes, it is a chat message before the
+code, the same rule as the E1 contract freeze.
 
 Branches are `dev-c/*`. The one-PR-in-flight rule counts per developer, so three PRs
 may be open at once — one each.
+
+**When one person wears all three hats** — which is the case from E5 onward — the seam
+stops preventing merge conflicts and starts doing something else: it is the only thing
+stopping the video code from growing a `prisma` import the afternoon it would be
+convenient. Keep the branch prefixes (`dev-c/E6.1-…`) so `git log` still says which hat
+was on.
 
 ---
 
