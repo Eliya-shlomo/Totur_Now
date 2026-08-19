@@ -1,8 +1,8 @@
 # E5 — Retro
 
 | **Closed** | 2026-08-19 |
-| **Verified by** | Rotem (DEV-B), local database, one machine |
-| **Result** | ◐ **Closed with two defects filed and the two-machine half not run.** Everything a single machine can prove is proved below with its output; the browser half and the deployed half are named at the bottom with the reason and the plan in the same sentence |
+| **Verified by** | Rotem (DEV-B), local database, one machine — server-side pass and browser pass both |
+| **Result** | ◐ **Closed with two defects filed and four items outstanding.** The server-side half and the browser half both ran and are recorded below with their output; the two-machine half, the deployed half, two countdown cases and F4 are named at the bottom with the reason and the plan in the same sentence |
 
 E5 is the first epic in this project with one developer. Its closing PR was written to be
 the only review any code in the epic receives, and it found two defects. Both are recorded
@@ -60,9 +60,12 @@ Four statements in one `BEGIN`/`COMMIT`, both writes that matter carrying their 
 the `WHERE`, and no external call between them — the email and the socket emit are both
 outside. That is §11.3-A as written.
 
-**What is still owed: two browsers and two machines.** Two processes on one host share a
-kernel and a loopback interface. The result above is strong evidence and it is not the same
-experiment as two people clicking.
+**Two browsers confirmed it; two machines are still owed.** Two processes on one host share
+a kernel and a loopback interface, so the run above is strong evidence and not the same
+experiment as two people clicking. That experiment was then run — see "The browser half" —
+and gave the same answer on the screens: one student on the countdown, the other holding a
+graceful unavailable notice. What remains is the third form of it, from two physical
+machines across a real network, which is scheduled at the head of E6.
 
 ## Did the freeze hold a fifth time, with nobody to conflict with?
 
@@ -390,38 +393,64 @@ PR's allowlist does not include E4's files, and re-running E4's pass is its own 
 E5's first PR, by whichever developer is not closing E5". E5 had no such developer. It is
 now two epics old.
 
-## What was not run, with the reason and the plan in the same sentence
+## The browser half, as run
 
-- **Two browsers, two students clicking at once** — the pass ran from one shell on one
-  machine and a second browser profile was not available in the session, so it runs as the
-  first item of E6's opening session using the two seeded students already topped up for it.
-- **The countdown under a backgrounded tab, a reload at second 30, and a killed network for
-  the last 20 seconds** — all four are browser-only behaviours with no server-side proxy, so
-  they run in the same sitting as the two-browser test, against the same local server.
-- **375px and `scrollWidth === clientWidth` on both screens** — same sitting, same reason.
-- **F4, the header pill updating on a server-side lock without a navigation** — same
-  sitting; note that defect 1 above must be fixed first or the test is meaningless, since
-  the pill's own toggle is the thing that breaks the lock.
+Run by Rotem on 2026-08-19, after the server-side pass above and against the same local
+server. Four of the six deferred items came back, all passing.
+
+- **Two browsers, two students, one teacher.** Pass. One student lands on the countdown and
+  the other gets the unavailable notice, delivered as a graceful message rather than an
+  error. That is the same outcome the ten-pair process run produced, now confirmed on the
+  screens where it actually matters — which was the whole reason this item could not be
+  retired by the harness.
+- **The flow end to end.** Pass. **Send request** → live countdown → the teacher's modal →
+  accept and decline both routing correctly.
+- **The countdown under a backgrounded tab, and a reload at second 30.** Pass. The timer
+  preserved elapsed time accurately across both. This is the box most likely to fail — a
+  countdown seeded once from a duration rather than recomputed from `expiresAt` fails
+  exactly here — and it held.
+- **375px on both screens.** Pass. No horizontal overflow.
+
+### Still outstanding, and honestly so
+
+Four items remain, and they are listed separately rather than folded into the passes above
+because **nobody reported them and a checklist that infers results is worth nothing.** Two
+were deferred by decision; two simply were not among the results returned.
+
 - **The two-machine lock run** — one machine and one person were available on 2026-08-19, so
   it is scheduled against the Render URL with the second operator on their own laptop at the
-  start of E6.
+  start of E6. Deferred by decision, confirmed at close.
 - **The deployed read-only half, the cold start timing, and the Socket.IO transport through
-  Render** — these need the two-machine sitting's second operator and a deployed build
-  carrying E5, so they run together with the item above and the transport is recorded in
-  `DEPLOYMENT.md` then.
+  Render** — these need that second operator and a deployed build carrying E5, so they run
+  in the same sitting and the transport is recorded in `DEPLOYMENT.md` then. Deferred by
+  decision, confirmed at close. This is the epic's one real unknown: nothing before E5
+  opened a persistent connection to the deployed API, and a fallback to long-polling is a
+  plausible outcome that should be known rather than discovered during a demo.
+- **The countdown's other two cases — a killed network for the last 20 seconds, and no
+  request being sent by either side at zero** — not among the results returned, so they run
+  in the two-machine sitting alongside the items above, on the same screens that already
+  passed the other two timing cases.
+- **F4, the header pill updating on a server-side lock without a navigation** — not among
+  the results returned, and it is the one item with a prerequisite: PR 5.10 must be merged
+  first, because until it is, the pill's own toggle is the thing that breaks the lock and
+  the test measures the defect rather than the feature. It runs immediately after 5.10
+  lands.
 
-Six items, one sitting, scheduled at the head of E6 rather than left open. **This is the
-half of the pass that E2 closed provisionally on and that has not happened since; it does
-not become a habit here.** The distinction that matters: nothing above is unrun because it
-was skipped, and every one of them is a browser or a second host, not a gap in judgement.
+**This is where E2 closed provisionally, and it is not becoming a habit.** The distinction
+that matters is unchanged: nothing above is unrun because it was skipped or because judgement
+was substituted for evidence. Two need a second host, and two need somebody to run four
+minutes of clicking that nobody has run yet — which is a scheduling fact, not a verdict.
 
 ## Carried into E6
 
 1. **Two defects are filed and fixed in their own PRs before E6's first feature PR.**
    Defect 1 blocks the F4 check and undermines the epic's headline guarantee, so it goes
    first.
-2. **The two-machine and two-browser sitting opens E6**, ahead of feature work, with the
-   `lock.sh` harness and the six items listed above.
+2. **The two-machine sitting opens E6**, ahead of feature work, with the `lock.sh` harness
+   and the four items still outstanding above. It is a smaller sitting than this retro
+   first anticipated: the two-browser run, the flow, two of the four countdown cases and
+   375px all came back passing on 2026-08-19, so what is left needs a second host, a
+   deployed build, and F4 once 5.10 has merged.
 3. **The freeze works; the fix commit is the hole.** Four of five files were untouched and
    three of four reopens were argued in writing. The one that was not entered a frozen
    repository ten minutes after its PR merged. E6 should treat a post-merge fix as needing
