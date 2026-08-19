@@ -1,4 +1,4 @@
-import { BLOCK_MINUTES, OFFER_STATUS, OPENING_BLOCKS } from '#config/constants/index.js';
+import { OFFER_STATUS } from '#config/constants/index.js';
 import { prisma } from '#config/db.js';
 import { ERROR_CODES } from '#config/errors/codes.js';
 import {
@@ -6,14 +6,10 @@ import {
   findOfferForRespond,
   markOfferResponded,
 } from '#repositories/offer.repository.js';
-import {
-  releaseTeacherLock,
-  setSessionActive,
-  setSessionPending,
-  setTeacherInSession,
-} from '#repositories/session.repository.js';
+import { releaseTeacherLock, setSessionPending } from '#repositories/session.repository.js';
 import { publishTeacherStatus } from '#services/presence.service.js';
-import { emitOfferAccepted, emitOfferRejected } from '#sockets/events.js';
+import { activateAcceptedOffer } from '#services/session.activate.service.js';
+import { emitOfferRejected } from '#sockets/events.js';
 import { AppError } from '#utils/AppError.js';
 import { logger } from '#utils/logger.js';
 
@@ -25,18 +21,27 @@ import { logger } from '#utils/logger.js';
  * terminal state and the same assertion in front of them. Splitting them would be two
  * places to forget `expiresAt`.
  *
- * ## `ACTIVE` in E5 means "the offer was accepted". It does not mean the meter is
- * running.
+ * ## What happens when the answer is yes is no longer in this file — 6.3
  *
- * Nothing here charges anything. `blocks_used` stays `0` and `total_charged` stays
- * `0` after an accept, and that is the epic's boundary rather than an oversight:
- * `wallet.service.js` is E7's and §17.5 marks it human-written because a bug there
- * creates or destroys real money, and the video room §12 lists on this endpoint is
- * E6's. `ends_at` is written anyway, from `OPENING_BLOCKS × BLOCK_MINUTES`, so that
- * E6 has a real instant to extend rather than a null to special-case on its first
- * tick. **A session that starts and takes no money looks exactly like a billing bug
- * to anyone who has not read this paragraph**, which is why it is here, in the epic
- * README, and in 5.9's retro.
+ * `acceptOffer` still owns everything up to the decision: whose offer it is, whether
+ * the instant has passed, and the tidy-up a late answer performs on its way out. The
+ * transaction that starts a session, the emit that follows it and the room that follows
+ * that are `session.activate.service.js`'s, and this file reaches them through one
+ * call.
+ *
+ * **The split is by concern, not by size.** Answering an offer is this service; what
+ * becomes of the *session* when the answer is yes is about to acquire a charge (6.5), a
+ * meter (6.5) and an end (6.6), and none of those belongs beside a rejection. The
+ * suffix rule since E3, and the reason `git log --oneline -- <file>` still names one PR
+ * per change.
+ *
+ * `blocks_used` and `total_charged` still stay `0` after an accept, and that is still
+ * the boundary rather than an oversight — `wallet.service.js` is 6.5's and §17.5 marks
+ * it human-written because a bug there creates or destroys real money. **A session that
+ * starts and takes no money looks exactly like a billing bug to anyone who has not read
+ * this paragraph**, which is why it is here, in `session.activate.service.js`, in the
+ * epic README, and in 5.9's retro. The other absence E5 named here — the video room —
+ * is filled by 6.3 and its comment is gone.
  *
  * ## Expiry is asserted in code, never read off `status`
  *
@@ -73,13 +78,14 @@ import { logger } from '#utils/logger.js';
  * ## Socket emits are after `COMMIT`, never inside the callback
  *
  * Each is a side effect of a transaction that has already succeeded, and every
- * emitter swallows its own transport failure by contract (`sockets/events.js`). An
- * accept that 500s because a socket server hiccuped is a worse product than an accept
- * whose notification was missed. `teacher:status` rides along with both — E4's first
- * hard filter is `status = 'ONLINE'`, so a teacher who has just been released or has
- * just gone `IN_SESSION` is a card every open match list is now rendering wrongly.
- * 5.3 announces the lock the same way, through `publishTeacherStatus` rather than the
- * emitter, so that a status change has one shape however it moved.
+ * emitter swallows its own transport failure by contract (`sockets/events.js`). A
+ * reject that 500s because a socket server hiccuped is a worse product than a reject
+ * whose notification was missed. `teacher:status` rides along — E4's first hard filter
+ * is `status = 'ONLINE'`, so a teacher who has just been released is a card every open
+ * match list is now rendering wrongly. 5.3 announces the lock the same way, through
+ * `publishTeacherStatus` rather than the emitter, so that a status change has one shape
+ * however it moved. **The accept's two announcements are the same rule, one file
+ * across**, below the commit in `session.activate.service.js`.
  *
  * **This service imports `prisma` for `$transaction` and nothing else**, on 5.3's
  * terms and for 5.3's reason: `session.repository.js` is frozen and a
@@ -96,48 +102,41 @@ const defaultDeps = {
   findOffer: findOfferForRespond,
   runTransaction: (fn) => prisma.$transaction(fn),
   markResponded: markOfferResponded,
-  activateSession: setSessionActive,
   resetSession: setSessionPending,
-  takeTeacher: setTeacherInSession,
   releaseTeacher: releaseTeacherLock,
   appendRejection: appendRejectedBy,
   announceStatus: publishTeacherStatus,
-  notifyAccepted: emitOfferAccepted,
   notifyRejected: emitOfferRejected,
+  activate: activateAcceptedOffer,
 };
 
 /**
- * The opening block's duration in milliseconds.
- *
- * **Neither `2` nor `5` appears anywhere in this file**, which is the brief's review
- * line and 4.8's lesson before it: a test or a service that typed the number would go
- * on passing the day somebody tunes the appendix, and would be wrong.
- */
-const OPENING_BLOCK_MS = OPENING_BLOCKS * BLOCK_MINUTES * 60 * 1000;
-
-/**
- * `POST /offers/:id/accept` — the teacher taking the question. One transaction, four
- * steps, and the two it does not have are named in this file's header.
+ * `POST /offers/:id/accept` — the teacher taking the question. **Three decisions and a
+ * delegation.**
  *
  * ```
- *   pre-flight (one read)
+ *   pre-flight (one read), and the whole of what this file still owns
  *     1. the offer, or NOT_FOUND — another teacher's is also NOT_FOUND
  *     2. expiresAt <= now  =>  sweep it, release the teacher, then OFFER_EXPIRED
- *   BEGIN
- *     3. markOfferResponded ACCEPTED  -> count 0  =>  OFFER_EXPIRED, roll back
- *     4. setSessionActive             -> count 0  =>  SESSION_NOT_ACTIVE, roll back
- *     5. setTeacherInSession          -> locked false => TEACHER_UNAVAILABLE, roll back
- *   COMMIT
- *     6. teacher:status IN_SESSION, then offer:accepted to the student
+ *     3. activateAcceptedOffer  — the transaction, the emit, and 6.3's room
  * ```
  *
- * **The failure path rolls back; it never compensates.** There is no `catch` here
- * that puts a teacher back by hand — that would be a second lock implementation with
- * worse semantics. Every throw inside the callback aborts the transaction and
- * Postgres undoes all three writes together.
+ * Everything from `BEGIN` onwards moved to `session.activate.service.js` in 6.3, along
+ * with the `OPENING_BLOCKS × BLOCK_MINUTES` arithmetic that decides `ends_at`. **Neither
+ * `2` nor `5` appears anywhere in this file any more, and neither does a status write.**
  *
- * `startedAt` and `endsAt` are computed once, before the transaction, so the column
- * and any future reader see one instant rather than two clocks.
+ * **The `deps` object is passed straight through rather than merged here.** The
+ * activation has its own defaults for the collaborators this file no longer names —
+ * the locked read, the room, the emit — and merging would mean this service deciding
+ * them by omission. One test object can still override both halves, because each side
+ * spreads over its own defaults.
+ *
+ * **The expiry check stays on this side of the call, and stays first.** It is a fact
+ * about the *offer*, the activation is about the *session*, and a late accept must be
+ * refused before anything takes a row lock. The activation's own `assertTransition` is
+ * the second guard rather than a substitute for this one: an offer that died forty
+ * minutes ago still sits on a session that reads `OFFER_SENT`, which is a perfectly
+ * legal edge.
  *
  * @param {object} input
  * @param {string} input.offerId a uuid, already shape-checked by `offerByIdSchema`
@@ -146,15 +145,7 @@ const OPENING_BLOCK_MS = OPENING_BLOCKS * BLOCK_MINUTES * 60 * 1000;
  * @returns {Promise<{sessionId: string, status: string, startedAt: string, endsAt: string}>}
  */
 export async function acceptOffer({ offerId, teacherId }, deps = defaultDeps) {
-  const {
-    findOffer,
-    runTransaction,
-    markResponded,
-    activateSession,
-    takeTeacher,
-    announceStatus,
-    notifyAccepted,
-  } = { ...defaultDeps, ...deps };
+  const { findOffer, activate } = { ...defaultDeps, ...deps };
 
   const offer = await loadOwnOffer({ offerId, teacherId, findOffer });
 
@@ -167,74 +158,22 @@ export async function acceptOffer({ offerId, teacherId }, deps = defaultDeps) {
     );
   }
 
-  const startedAt = new Date();
-  const endsAt = new Date(startedAt.getTime() + OPENING_BLOCK_MS);
-  const sessionId = offer.session.id;
+  // [E6.5] charge the opening block — not here, and not there either. The activation
+  //        below leaves `blocks_used` and `total_charged` at `0`; 6.5 charges inside
+  //        that same transaction, because a session that goes `ACTIVE` in one statement
+  //        and acquires its first block in another is a window where the meter reads
+  //        zero on a session that has been paid for.
+  const session = await activate({ offer, teacherId }, deps);
 
-  await runTransaction(async (tx) => {
-    const { count } = await markResponded({ offerId, status: OFFER_STATUS.ACCEPTED }, tx);
-
-    // Zero means the row was not `PENDING` when this transaction reached it: the
-    // sweeper beat it, or the teacher double-clicked and the first click won. Both
-    // are `OFFER_EXPIRED` to the caller, and this is what stops a second `ACTIVE`
-    // session being created out of an already-`ACCEPTED` offer.
-    if (count === 0) {
-      throw new AppError(
-        ERROR_CODES.OFFER_EXPIRED,
-        'That request has expired. The student has been sent back to their list.',
-      );
-    }
-
-    const { count: activated } = await activateSession({ sessionId, startedAt, endsAt }, tx);
-
-    // The offer was answerable but the session had moved — cancelled, or swept back to
-    // `PENDING` by a reject that raced this accept. 409 rather than 404: nothing is
-    // missing, the request collided with a state.
-    if (activated === 0) {
-      throw new AppError(
-        ERROR_CODES.SESSION_NOT_ACTIVE,
-        'This session is no longer waiting for an answer.',
-      );
-    }
-
-    const { locked } = await takeTeacher(teacherId, tx);
-
-    // `OFFER_LOCKED` → `IN_SESSION`, conditional like every other write to this
-    // column. `false` means the teacher was no longer locked — they went `OFFLINE`
-    // while the modal was open, or they are already `IN_SESSION` with somebody else —
-    // and an unconditional write would put them in two sessions at once and count the
-    // acceptance twice. `info` rather than `error`: refusing this is the product
-    // working, and `errorHandler` logs operational errors below the production
-    // threshold, so this is the one line that would explain the 409 under load.
-    if (!locked) {
-      logger.info('Accept found the teacher no longer locked', { offerId, teacherId, sessionId });
-
-      throw new AppError(
-        ERROR_CODES.TEACHER_UNAVAILABLE,
-        'You are no longer available for this request.',
-      );
-    }
-
-    // [E7] charge the opening block — not here. `wallet.service.js` does not exist,
-    //      and MVP.md §17.5 makes it human-written when it does.
-    // [E6] create the video room  — not here. §12 lists it on this endpoint; E6
-    //      owns it, and `sessions.video_room_url` stays null until it does.
-  });
-
-  announceStatus(teacherId, 'IN_SESSION');
-
-  // **No room-URL key at all**, and not one set to null. E5 has no video — E6 owns
-  // that — so the field is omitted rather than sent empty: a null that means "later"
-  // is indistinguishable from a null that means "failed", and 5.7 would have to guess
-  // which. §13 has since settled the same way: `{offerId, sessionId}` and no room URL
-  // on the wire, because a token is per-caller and an event is not.
-  notifyAccepted(offer.session.studentId, { offerId, sessionId });
-
+  // **Field by field, never a spread.** The activation returns the room's promise on
+  // its result so the test can await it; `JSON.stringify` of a promise is `{}`, and a
+  // spread here would put that in the response body. The two instants are serialised
+  // here and computed there, so the columns and the wire carry one clock.
   return {
-    sessionId,
-    status: 'ACTIVE',
-    startedAt: startedAt.toISOString(),
-    endsAt: endsAt.toISOString(),
+    sessionId: session.sessionId,
+    status: session.status,
+    startedAt: session.startedAt.toISOString(),
+    endsAt: session.endsAt.toISOString(),
   };
 }
 

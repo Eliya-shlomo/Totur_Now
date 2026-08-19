@@ -127,7 +127,7 @@ column answers "may a later PR open this?".
 | `server/src/config/video.js` | **6.1 only.** The two TTLs move from literals to `env` with defaults. | 6.1 |
 | `client/src/components/session/VideoRoom.jsx` | **DEV-C's, imported in 6.1.** The prop signature `{ roomUrl, token, onJoined, onLeft, onError }` is frozen at import so 6.7 can build around it. 6.7 may not edit this file — the screen goes around it. | 6.1 |
 | `server/src/routes/session.routes.js` | **Unfrozen once, in 6.2, then frozen again.** Five routes appended in their final shape — `/:id/video`, `/:id/extend`, `/:id/end`, `/:id/report-no-show`, `/:id/review` — every one fully wired against a controller that throws `NOT_IMPLEMENTED`. E5 froze this file at 5.1 and E6 is the only epic that reopens it. A middleware added in 6.5 would be an edit to a frozen file. | 6.2 |
-| `server/src/repositories/session.repository.js` | **E5's, and 6.2 appends the epic's whole read/write set at once.** Twelve functions exist already; the state transitions, the block writes and the video-column write are added in one PR and none is added later. This file has three PRs in its `git log` and E5's retro named that as the discipline slipping — E6 adds exactly one more. | 6.2 |
+| `server/src/repositories/session.repository.js` | **E5's, and 6.2 appends the epic's whole read/write set at once.** Twelve functions exist already; the state transitions, the block writes and the video-column write are added in one PR and none is added later. This file has three PRs in its `git log` and E5's retro named that as the discipline slipping — E6 adds exactly one more. **6.3 makes it two: `findSessionForView`'s `select` is widened** — see *Gaps found while implementing*, item 1. No function is added and none is reordered. | 6.2, 6.3 |
 | `server/src/repositories/wallet.repository.js` | **New, and frozen after 6.5.** Balance read with a row lock, balance write, ledger append. Nothing outside `wallet.service.js` imports it. | 6.5 |
 | `server/src/services/wallet.service.js` | **New in 6.5. Human-written, no agent — `MVP.md` §17.5.** Three exported functions and no fourth without a line in this table. | 6.5 |
 | `server/src/sockets/rooms.js` | **6.2 only.** One appended function, `sessionRoom(sessionId)`, and the header comment predicting it is replaced with the real thing. | 6.2 |
@@ -151,6 +151,28 @@ Services stay suffixed by concern, as they have since E3: `session.activate.serv
 `session.review.service.js`. **Never one `session.service.js` that five PRs open** — which
 is what §18 literally asked for in 6.2, and is the one line of §18 this epic overrules on
 sight.
+
+## Gaps found while implementing
+
+Written here as they are found, in the epic README rather than in a comment — the
+procedure `session.repository.js`'s own header sets out.
+
+**1. `findSessionForView` could not answer `SessionState`, and 6.3 widened it.** 5.4's
+select carries the offer's columns and the question's; the contract also asks for
+`blocks_used`, `total_charged`, `budget_cap`, `ended_at`, `end_reason`, whether a room
+exists, and the counterpart's name and avatar. None of them was there, and no other read
+in the file covers it — `findSessionForMeter` needs a `tx` and returns no names.
+**Widened rather than duplicated**: the two consumers want the same row at two points in
+its life, and a second `select` would be a second place to remember a column. Nothing is
+removed, nothing is reordered, no function is added, and `video_room_url` is deliberately
+left out — the URL is a join capability and leaves through 6.4's endpoint alone. This is
+the file's fourth `git log` entry and the second in this epic.
+
+**2. 6.3's brief calls `setSessionVideoRoom` a gap that 6.2 left; 6.2 shipped it
+complete.** The brief's allowlist reads "ONLY `setSessionVideoRoom`'s body — 6.2's gap",
+written before 6.2 was implemented, and 6.2 wrote the body along with the rest of the E6
+set. 6.3 therefore touches that function not at all. Recorded because a reviewer holding
+the brief will look for a diff that is correctly absent.
 
 ## What E6 inherits from E5, and when
 
@@ -200,7 +222,7 @@ Unchanged from E5, plus one:
 | 6.0 | [Migration: `zoom_*` → `video_room_name` / `video_room_url`](PR-6.0-video-columns-migration.md) | S | E5 | ☑ |
 | 6.1 | [Import the Daily video layer — `video.service`, `VideoRoom.jsx`](PR-6.1-daily-video-import.md) | S | — | ☑ |
 | 6.2 | [**Session state machine: transition rules, frozen routes, the E6 contract**](PR-6.2-session-state-machine.md) | **human** · L | 6.0 | ☑ |
-| 6.3 | [Session activation + `createSessionVideo` persistence](PR-6.3-session-start.md) | M | 6.1, 6.2 | ☐ |
+| 6.3 | [Session activation + `createSessionVideo` persistence](PR-6.3-session-start.md) | M | 6.1, 6.2 | ☑ |
 | 6.4 | [`getSessionVideoContext` + `GET /sessions/:id/video`](PR-6.4-session-video-endpoint.md) | S | 6.3 | ☐ |
 | 6.5 | [**Wallet service, opening charge, extend, and the meter crons**](PR-6.5-billing-and-meter.md) | **human** · L | 6.3 | ☐ |
 | 6.6 | [**Termination, no-show refund, rating → `RATED`**](PR-6.6-end-and-rating.md) | **human** · M | 6.5 | ☐ |

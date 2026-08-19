@@ -123,6 +123,33 @@ export async function findSessionForOffer(sessionId) {
  * query. It is nullable in the schema and null on the sentinel path, which is a legal
  * question and not an error.
  *
+ * ## Widened in 6.3, and it is this file's fourth entry in `git log` — deliberately
+ *
+ * From 6.3 this same read also answers `SessionState` for a session at `ACTIVE` or
+ * past it, and the 5.4 select could not: the contract asks for `blocksUsed`,
+ * `totalCharged`, `budgetCap`, `endedAt`, `endReason`, whether a room exists, and the
+ * counterpart's name and avatar, and none of those was here. **Nothing is removed and
+ * nothing is reordered** — every 5.4 consumer reads exactly what it read before, and
+ * the columns below it are additions.
+ *
+ * The alternative was a second read beside this one, which is the arrangement 3.1, 4.1
+ * and 5.1 each chose when two consumers wanted genuinely different *shapes*. These two
+ * want the same row at two points in its life, which is one shape read twice; a second
+ * `select` would be a second place to remember a column the day one is added. The
+ * reopen is in 6.3's PR description and in the epic README's gap list, which is the
+ * header's own procedure rather than an edit in passing.
+ *
+ * **`videoRoomUrl` is deliberately not selected and `videoRoomName` is.** The name
+ * answers `SessionState.hasVideo`, a boolean; the URL is a join capability and leaves
+ * the server through `GET /sessions/:id/video` alone, beside a token minted for one
+ * caller. A row that carried the URL into this serializer would be one `...session`
+ * away from publishing it.
+ *
+ * **`student` and `teacher` are selected as rows, not just as ids.** `SessionState`'s
+ * `counterpart` is whichever of the two is not the caller, so both come back and the
+ * service picks. `onDelete: Restrict` on both relations is what makes the chosen one
+ * present rather than merely likely.
+ *
  * @param {string} sessionId
  * @returns {Promise<object|null>}
  */
@@ -138,6 +165,15 @@ export async function findSessionForView(sessionId) {
       pricePerBlock: true,
       startedAt: true,
       endsAt: true,
+      budgetCap: true,
+      blocksUsed: true,
+      totalCharged: true,
+      teacherEarning: true,
+      videoRoomName: true,
+      endedAt: true,
+      endReason: true,
+      student: { select: { id: true, fullName: true, avatarUrl: true } },
+      teacher: { select: { id: true, fullName: true, avatarUrl: true } },
       question: {
         select: {
           teacherBrief: true,

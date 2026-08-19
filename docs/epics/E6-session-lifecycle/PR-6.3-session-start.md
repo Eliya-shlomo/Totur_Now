@@ -102,16 +102,16 @@ client/**                                     6.7's
 ## Acceptance criteria
 
 - [ ] Accepting an offer moves the session to `ACTIVE` and, within a second or two, `video_room_name` and `video_room_url` are both non-null
-- [ ] `blocks_used` is `0` and `total_charged` is `0` after activation — **6.3 charges nothing**
-- [ ] `started_at` is set and `ends_at` is exactly `OPENING_BLOCKS × BLOCK_MINUTES` later
+- [x] `blocks_used` is `0` and `total_charged` is `0` after activation — **6.3 charges nothing**
+- [x] `started_at` is set and `ends_at` is exactly `OPENING_BLOCKS × BLOCK_MINUTES` later
 - [ ] With `DAILY_API_KEY` unset the accept still returns `200`, the session is still `ACTIVE`, both video columns are null, and one `error` line names the session id
 - [ ] With the key set but Daily unreachable — point `DAILY_API_URL` at a dead host — the same
-- [ ] The accept's HTTP response does not wait on Daily: the `200` and the room write are separately observable in the log, in that order
-- [ ] No `fetch`, no `createSessionVideo`, and no import from `services/video.*` appears inside a `prisma.$transaction` callback anywhere in the server
-- [ ] `GET /sessions/:id` answers `SessionState` for an `ACTIVE` session, with `balance` null for the teacher and `teacherEarning` null for the student
-- [ ] `GET /sessions/:id` still answers `OfferResponse` / `IncomingOffer` for a session at `OFFER_SENT`, and 5.8's awaiting screen still works untouched
-- [ ] `assertTransition` is called against the value read under the lock, not one read before it
-- [ ] `npm run lint`, `npx prettier --check .`, `npm test` all pass
+- [x] The accept's HTTP response does not wait on Daily: the `200` and the room write are separately observable in the log, in that order
+- [x] No `fetch`, no `createSessionVideo`, and no import from `services/video.*` appears inside a `prisma.$transaction` callback anywhere in the server
+- [x] `GET /sessions/:id` answers `SessionState` for an `ACTIVE` session, with `balance` null for the teacher and `teacherEarning` null for the student
+- [x] `GET /sessions/:id` still answers `OfferResponse` / `IncomingOffer` for a session at `OFFER_SENT`, and 5.8's awaiting screen still works untouched
+- [x] `assertTransition` is called against the value read under the lock, not one read before it
+- [x] `npm run lint`, `npx prettier --check .`, `npm test` all pass
 
 ## Manual test
 

@@ -1,9 +1,10 @@
 import { OFFER_STATUS } from '#config/constants/index.js';
-import { findSessionForView } from '#repositories/session.repository.js';
+import { findSessionForView, findWalletBalance } from '#repositories/session.repository.js';
 import { findTeacherById } from '#repositories/teacher.repository.js';
 import { AppError } from '#utils/AppError.js';
 import { platformFeeRate } from '#utils/commission.js';
 import { toIncomingOffer } from '#utils/offerView.js';
+import { toSessionState } from '#utils/sessionView.js';
 import { toTeacherCard } from '#utils/teacherView.js';
 
 /**
@@ -43,12 +44,32 @@ import { toTeacherCard } from '#utils/teacherView.js';
  */
 
 /**
- * Both collaborators arrive through the second argument, 3.3's idiom — which is what
- * lets the test assert that a stranger's request never reads a teacher row at all.
+ * ## The third shape — `SessionState`, from 6.3
+ *
+ * Once the session is `ACTIVE` this endpoint stops answering an *offer* and starts
+ * answering a *session*: one shape for both roles, `role` saying which side got it, and
+ * the two role-only fields nulled rather than omitted. 6.7 renders one screen from it.
+ *
+ * **Below `ACTIVE` nothing changes at all.** A session at `PENDING` or `OFFER_SENT`
+ * still answers 5.4's `OfferResponse` / `IncomingOffer`, byte for byte, and that is why
+ * 5.8's awaiting screen survives this PR untouched — it only ever reads a session while
+ * an offer is out, and it switches on the offer's status either way.
+ *
+ * `CANCELLED` keeps the offer shapes too. §12 has no cancel endpoint and no code path
+ * in E6 writes the value, so the state is unreachable; sending it down the session
+ * branch would be inventing a rendering for a row nothing produces.
+ */
+const SESSION_STATE_STATUSES = new Set(['ACTIVE', 'ENDED', 'RATED', 'NO_SHOW']);
+
+/**
+ * Every collaborator arrives through the second argument, 3.3's idiom — which is what
+ * lets the test assert that a stranger's request never reads a teacher row at all, and
+ * that a teacher's request never reads a wallet.
  */
 const defaultDeps = {
   loadSession: findSessionForView,
   loadTeacher: findTeacherById,
+  loadBalance: findWalletBalance,
 };
 
 /**
@@ -58,10 +79,10 @@ const defaultDeps = {
  * @param {string} input.sessionId a uuid, already shape-checked by `sessionByIdSchema`
  * @param {string} input.userId the caller, from `req.user.id`
  * @param {object} [deps]
- * @returns {Promise<import('@tutor/shared').IncomingOffer|object>}
+ * @returns {Promise<import('@tutor/shared').SessionState|import('@tutor/shared').IncomingOffer|object>}
  */
 export async function getSessionView({ sessionId, userId }, deps = defaultDeps) {
-  const { loadSession, loadTeacher } = { ...defaultDeps, ...deps };
+  const { loadSession, loadTeacher, loadBalance } = { ...defaultDeps, ...deps };
 
   const session = await loadSession(sessionId);
 
@@ -70,6 +91,13 @@ export async function getSessionView({ sessionId, userId }, deps = defaultDeps) 
   // 4.5 and 5.3 before this.
   if (!session || (session.studentId !== userId && session.teacherId !== userId)) {
     throw AppError.notFound('Session');
+  }
+
+  // The ownership check above is what makes this branch safe to take before either
+  // per-role function: by here the caller is one of the two participants, so `role` is
+  // decided by which one rather than by anything on the wire.
+  if (SESSION_STATE_STATUSES.has(session.status)) {
+    return sessionStateView({ session, userId, loadBalance });
   }
 
   // `take: 1` on `createdAt desc` in the repository, so this is the current attempt
@@ -82,6 +110,31 @@ export async function getSessionView({ sessionId, userId }, deps = defaultDeps) 
   }
 
   return studentView({ session, offer, sessionId, loadTeacher });
+}
+
+/**
+ * `SessionState`, for a session at `ACTIVE` or past it — 6.3.
+ *
+ * **The wallet is read for the student and for nobody else.** `balance` is `null` on the
+ * teacher's payload by contract, so a read on their behalf would be a query whose result
+ * is thrown away — and on a screen that re-fetches while a meter runs, one thrown-away
+ * query per tick per teacher.
+ *
+ * `findWalletBalance` answers `null` rather than `0` for a missing row, and that
+ * distinction survives to the wire: every registered student has a wallet, so its
+ * absence is a data problem and not a poor student. 6.7 shows a balance it was given
+ * and says nothing where it was given nothing.
+ *
+ * No teacher-profile read on this path. `SessionState` carries the counterpart's name
+ * and avatar, both of which are on `users` and come back with the session row — a
+ * teacher *card*, with its rating and its price tier, is E4's shape for choosing
+ * somebody, and the choosing is over by the time anybody reads this.
+ */
+async function sessionStateView({ session, userId, loadBalance }) {
+  const role = session.teacherId === userId ? 'teacher' : 'student';
+  const balance = role === 'student' ? await loadBalance(userId) : null;
+
+  return toSessionState({ session, role, balance });
 }
 
 /**
