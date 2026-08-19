@@ -451,10 +451,21 @@ Every hand-written row this pass made, so it can be re-run.
 | 1 | `wallets.balance` = 1200 for avi.student and noya.student | Both students must afford `pricePerBlock × OPENING_BLOCKS`; noya held 24 against dana's 16 per block, so student B was returning a legitimate `402 INSUFFICIENT_CREDIT` and never reached the lock at all | `npm run db:seed` |
 | 2 | `teacher_profiles.status` and `last_seen_at`, direct `UPDATE`, several teachers | Parking teachers in `ONLINE`/`OFFER_LOCKED`/`IN_SESSION`/null to test the sweep predicate, and isolating the sweep from the login-to-`OFFLINE` behaviour | `npm run db:seed` |
 | 3 | `offers.expires_at` pushed into the past on one offer | The lazy-expiry accept path, which cannot be reached by waiting without also letting the sweeper win the race | truncate `offers` |
-| 4 | ~35 questions, their sessions, and the offers on them | The lock test needs a fresh `PENDING` session per student per run, ten runs | truncate `offers`, then re-seed |
+| 4 | 67 questions, their sessions, and the offers on them | The lock test needs a fresh `PENDING` session per student per run, ten runs, and every other probe needed one too | delete the questions, then re-seed — see below |
 | 5 | `.env` — `RESEND_API_KEY` and `EMAIL_FROM` set to a bogus key and an unroutable sender, then reverted | Measuring that the `201` is not delayed by an unreachable provider, which is unmeasurable with the key unset because the email path never runs | restored from backup; both lines are commented out again |
 
-Reset:
+Reset — and **`truncate offers` alone is not enough**, which is worth writing down because
+it is the obvious thing to reach for and it silently leaves the mess behind. `offers` has a
+foreign key to `sessions`, not the other way round, so truncating it removes the offers and
+leaves every probe session standing: 69 sessions and 67 questions survived the first attempt
+at this. The questions are the root — `sessions.question_id` is `ON DELETE CASCADE` — so
+deleting them takes the sessions with them.
 
     docker exec tutor_now_db psql -U tutor -d tutor_now -c "truncate offers cascade"
+    docker exec tutor_now_db psql -U tutor -d tutor_now \
+      -c "delete from questions where raw_text like '%probe%' or raw_text like '%reproduction%'"
     npm run db:seed
+
+Verified back to the seed baseline afterwards — `0 offers, 2 sessions, 2 questions` — with
+the two students left topped up at 1200, because the two-browser run still owes that test
+and noya's seeded 24 is what blocked it the first time.
