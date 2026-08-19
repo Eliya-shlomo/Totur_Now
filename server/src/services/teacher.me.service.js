@@ -3,6 +3,7 @@ import {
   findTeacherById,
   updateTeacherProfile,
 } from '#repositories/teacher.repository.js';
+import { assertStatusChangeAllowed } from '#services/teacher.status.rules.js';
 import { AppError } from '#utils/AppError.js';
 import { toTeacherMe } from '#utils/teacherView.js';
 
@@ -125,7 +126,7 @@ export async function getTeacherMe(userId) {
  * @param {string} userId  from `req.user.id`
  * @param {import('@tutor/shared').TeacherUpdateRequest} payload  validated, non-empty
  * @returns {Promise<import('@tutor/shared').TeacherMeResponse>}
- * @throws {AppError} NOT_FOUND, VALIDATION_ERROR
+ * @throws {AppError} NOT_FOUND, VALIDATION_ERROR, TEACHER_UNAVAILABLE
  */
 export async function updateTeacherMe(userId, payload = {}) {
   const existing = await findTeacherById(userId);
@@ -133,6 +134,8 @@ export async function updateTeacherMe(userId, payload = {}) {
   if (!existing) {
     throw AppError.notFound('Teacher profile');
   }
+
+  assertStatusChangeAllowed(existing.status, payload.status);
 
   const { topicIds } = payload;
 
