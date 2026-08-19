@@ -13,8 +13,7 @@ import {
 } from '#repositories/session.repository.js';
 import { findTeacherById } from '#repositories/teacher.repository.js';
 import { sendOfferEmail } from '#services/notification.service.js';
-import { publishTeacherStatus } from '#services/presence.service.js';
-import { emitOfferNew } from '#sockets/events.js';
+import { emitOfferNew, emitTeacherStatus } from '#sockets/events.js';
 import { AppError } from '#utils/AppError.js';
 import { platformFeeRate } from '#utils/commission.js';
 import { logger } from '#utils/logger.js';
@@ -102,7 +101,16 @@ const defaultDeps = {
   countOffer: incrementOffersReceived,
   loadSessionView: findSessionForView,
   loadTeacherContact: findTeacherForNotification,
-  announceStatus: publishTeacherStatus,
+  // `emitTeacherStatus` directly, not `publishTeacherStatus` — the same choice
+  // `offer.expiry.job.js` and `presence.autoAway.job.js` each make, and for the same
+  // reason. The service wrapper also calls `recordTeacherActivity(force)`, which writes
+  // `last_seen_at = now`. Every caller that is entitled to do so has the **teacher** as
+  // the actor: they toggled a pill, accepted an offer, opened a socket. Here the actor
+  // is a **student**, and an offer arriving is not evidence that the teacher is at their
+  // desk. Stamping it here told the auto-away job a teacher was present, so the teacher
+  // that job exists to sweep — tab open, nobody there — had their idle clock reset by
+  // other people's offers and was never swept. Found by PR 5.9's verification pass.
+  announceStatus: (teacherId, status) => emitTeacherStatus(teacherId, { teacherId, status }),
   notifyTeacher: emitOfferNew,
   emailTeacher: sendOfferEmail,
 };
@@ -295,12 +303,34 @@ function assertCanAffordOpeningBlock({ balance, pricePerBlock }) {
  *
  * **`teacher:status`** first, because E4's first hard filter is `status = 'ONLINE'` and
  * a locked teacher has just left the candidate pool. Every student with a match list
- * open is looking at a card that is now wrong. It goes through `publishTeacherStatus`
- * rather than the emitter directly so that a status change has one shape and one
- * emitter however it moved — 5.2 owns that decision and says 5.3 calls it. It also
- * counts the lock as activity and refreshes `last_seen_at`, which postpones auto-away
- * by at most one offer: harmless, and better than sweeping a teacher offline while they
- * are looking at a modal.
+ * open is looking at a card that is now wrong.
+ *
+ * **It goes through `emitTeacherStatus` directly, and not through
+ * `publishTeacherStatus`.** 5.3 originally called the wrapper, so that a status change
+ * had one shape however it moved, and accepted the `last_seen_at` write that comes with
+ * it on the grounds that it "postpones auto-away by at most one offer: harmless, and
+ * better than sweeping a teacher offline while they are looking at a modal".
+ *
+ * PR 5.9's pass found that neither half of that holds:
+ *
+ * - **It is not at most one offer.** Being `ONLINE` is what makes a teacher eligible for
+ *   the next offer, and every offer re-stamps the column, so the postponement renews
+ *   itself for as long as students keep picking them. It does not decay.
+ * - **The modal case was already covered.** A teacher with the tab open is heartbeating,
+ *   and `PRESENCE_WRITE_INTERVAL_MS` is half `AUTO_AWAY_MINUTES`, so an open tab cannot
+ *   go stale enough to be swept. The stamp is redundant exactly when it is safe.
+ *
+ * What it is not redundant for is the case the sweep exists to catch: a teacher whose
+ * socket died without a clean disconnect, or who disconnected while `OFFER_LOCKED` —
+ * where `takeTeacherOffline` deliberately refuses to move them. Their offer expires,
+ * the release puts them back to `ONLINE`, and from then on they are an absent teacher
+ * with no socket whose idle clock is reset by other people's offers, collecting requests
+ * that can only expire. Auto-away is the mechanism meant to remove them, and this write
+ * was the thing preventing it from ever firing.
+ *
+ * So this is the same call `offer.expiry.job.js` and `presence.autoAway.job.js` both
+ * make, for the reason they both give: **the two jobs share one column and must not
+ * write each other's inputs**, and neither may a request whose actor is a student.
  *
  * **Then the two reads, together.** The enrichment read exists for one field —
  * `findSessionForOffer` selects `topicId` and `subtopicId` but no names, and
