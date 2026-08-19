@@ -272,7 +272,20 @@ and where it comes from:
 | `CORS_ORIGINS` | `https://<vercel-production-domain>` | The production URL from PR 0.8. No trailing slash. |
 | `CLOUDINARY_*` | 3 values | cloudinary.com → Dashboard → Product Environment Credentials |
 | `GEMINI_API_KEY` | the AI Studio key | aistudio.google.com → API keys. Renamed from `ANTHROPIC_API_KEY` in PR 3.3 when classification changed vendor — **an existing deployment must set the new name or it will not boot.** |
-| `ZOOM_*`, `RESEND_API_KEY`, `EMAIL_FROM` | leave blank | E5 / E6. `env.js` treats them as optional. |
+| `ZOOM_*`, `RESEND_API_KEY`, `EMAIL_FROM` | leave blank | E5 / E6. `env.js` treats them as optional. **When you do set `EMAIL_FROM`, see below — the obvious value does not boot.** |
+
+**`EMAIL_FROM` must be a bare address, not the display-name form.** Found in PR 5.9's
+verification pass. Resend's own documentation writes the sender as `Name <addr@domain>`,
+and `env.js` validates the variable as an email, so copying that form stops the server
+at boot with no email ever attempted:
+
+    Invalid environment. Fix .env and restart.
+
+      EMAIL_FROM: Invalid email
+
+Use `EMAIL_FROM=noreply@yourdomain.com`. Both this and `RESEND_API_KEY` may stay blank —
+5.9 measured the whole offer flow working with the key unset, and the boot line says
+`Email is disabled: RESEND_API_KEY or EMAIL_FROM is not set` when it is.
 
 `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` are **not** in that list: `render.yaml`
 marks them `generateValue: true`, so Render generates them and nobody ever sees them.
