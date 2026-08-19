@@ -111,6 +111,11 @@ function expiryDeps(overrides = {}) {
 const awayDeps = (overrides = {}) => ({
   sweepIdle: spy(async () => [TEACHER_ID]),
   announceStatus: spy(),
+  // 6.5 reopened this job for the 55-minute warning. Stubbed to an empty window here so
+  // 5.5's assertions stay about the 60-minute sweep and nothing in this file reaches a
+  // database; the warning itself is asserted in `session.meter.test.js`.
+  findDueForWarning: spy(async () => []),
+  warnIdle: spy(),
   ...overrides,
 });
 

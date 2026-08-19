@@ -1,4 +1,5 @@
 import { getSessionView } from '#services/session.view.service.js';
+import { extendSessionBlock } from '#services/session.meter.service.js';
 import { getSessionVideoContext } from '#services/session.video.service.js';
 import { AppError } from '#utils/AppError.js';
 import { createSessionVideoAccess } from '#services/video.service.js';
@@ -190,9 +191,19 @@ export async function getSessionVideo(req, res) {
  * read. `assertTransition` is not called — this is `ACTIVE` → `ACTIVE`, which is not an
  * edge — and the `ends_at` match is what makes a double-tapped button buy one block
  * instead of two.
+ *
+ * **Filled in by 6.5, and it opened no frozen file to do it.** One service call and the
+ * envelope. The caller is `req.user.id` rather than anything the request carries, and
+ * there is no third argument: the quantity is `EXTENSION_BLOCKS` and a body that could
+ * name one would be a way to overrun the budget cap in a single request.
  */
-export async function extendSession() {
-  throw AppError.notImplemented('Extending a session');
+export async function extendSession(req, res) {
+  const extended = await extendSessionBlock({
+    sessionId: req.params.id,
+    studentId: req.user.id,
+  });
+
+  res.json({ success: true, data: extended });
 }
 
 /**

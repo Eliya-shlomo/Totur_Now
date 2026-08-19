@@ -159,3 +159,41 @@ export async function sweepIdleTeachers(instant) {
 
   return ids;
 }
+
+/**
+ * Teachers who are about to be swept — 6.5's "still there?" prompt, and the first reader
+ * `AUTO_AWAY_WARNING_MINUTES` has ever had.
+ *
+ * **Read-only, and the one function in this file that writes nothing.** A warning is an
+ * emit: the teacher is still `ONLINE` and stays that way, which is the whole difference
+ * between this and `sweepIdleTeachers` below it. The sweep five minutes later is the
+ * write, and it is untouched by this PR.
+ *
+ * The predicate is the sweep's window shifted earlier and bounded on both sides:
+ * `last_seen_at` older than the warning threshold but newer than the away threshold. The
+ * upper bound is what keeps the two jobs from arguing — a teacher past
+ * `AUTO_AWAY_MINUTES` is being taken `OFFLINE` on this same tick, and asking them whether
+ * they are still there in the same breath is a question with a stale answer.
+ *
+ * `status = 'ONLINE'` and `last_seen_at IS NOT NULL` for the reasons written against the
+ * sweep above, unchanged: an `OFFER_LOCKED` teacher is reading a modal, an `IN_SESSION`
+ * teacher is teaching, and a teacher who has never connected is new rather than idle.
+ *
+ * **`lastSeenAt` comes back with the id, and the caller needs it.** Idempotence for the
+ * warning is held in memory against that instant — a teacher warned once is not warned
+ * again until they beat and go quiet a second time — so a read that returned ids alone
+ * would make the job ask every ten seconds for five minutes.
+ *
+ * Both instants are computed by the caller. Deciding how long a teacher may be quiet is
+ * `constants/session.js`'s job, exactly as it is for the sweep.
+ *
+ * @param {Date} from teachers last seen **after** this are not warned — the away line
+ * @param {Date} to   teachers last seen **before** this are warned — the warning line
+ * @returns {Promise<{userId: string, lastSeenAt: Date}[]>}
+ */
+export async function findTeachersDueForAwayWarning(from, to) {
+  return prisma.teacherProfile.findMany({
+    where: { status: 'ONLINE', lastSeenAt: { gt: from, lte: to } },
+    select: { userId: true, lastSeenAt: true },
+  });
+}

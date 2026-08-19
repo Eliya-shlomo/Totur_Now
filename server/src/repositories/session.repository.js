@@ -462,14 +462,14 @@ export async function setSessionOfferSent({ sessionId, teacherId, pricePerBlock 
 }
 
 /**
- * `OFFER_SENT` → `ACTIVE`. Step 3 of the accept transaction (5.4).
+ * `OFFER_SENT` → `ACTIVE`. Step 3 of the accept transaction (5.4), and **since 6.5 the
+ * statement that starts the meter as well as the session.**
  *
- * **`ACTIVE` in E5 means "the offer was accepted". It does not mean the meter is
- * running.** Nothing is charged here, `blocks_used` stays 0 and `total_charged` stays
- * 0 — the opening block is E7's charge and the Zoom meeting is E6's. Both absences
- * are named in `offer.controller.js` rather than left to be inferred, and 5.9's retro
- * says it again in plain words, because a session that starts and takes no money
- * looks exactly like a billing bug.
+ * `blocks_used` and `total_charged` arrive as arguments and are the opening block: the
+ * charge that pays for them is `chargeStudent`, in this same transaction, two statements
+ * later. E5 shipped this write with both at zero and said in three places that an
+ * unbilled `ACTIVE` session was not a billing bug; that stopped being true here, and the
+ * paragraph saying it is gone rather than left to age.
  *
  * `endsAt` is written anyway, from `OPENING_BLOCKS × BLOCK_MINUTES`, so that E6 has a
  * real deadline to extend rather than a null to special-case on its first tick. The
@@ -491,9 +491,6 @@ export async function setSessionOfferSent({ sessionId, teacherId, pricePerBlock 
  * statement produces is a function of its arguments and not of what the column happens
  * to default to. A caller that means "no blocks yet" and a caller that forgot the
  * parameter must not be the same call.
- *
- * The paragraph above about nothing being charged stops being true in 6.5, and 6.5's
- * brief says it deletes it. Until then it is still the truth about this file.
  *
  * @param {object} params
  * @param {string} params.sessionId

@@ -42,6 +42,7 @@ process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret-at-least-32-characters';
 
 const { BLOCK_MINUTES, OFFER_STATUS, OPENING_BLOCKS } = await import('#config/constants/index.js');
 const { ERROR_CODES } = await import('#config/errors/codes.js');
+const { AppError } = await import('#utils/AppError.js');
 const { activateAcceptedOffer, attachSessionVideo } =
   await import('#services/session.activate.service.js');
 const { getSessionView } = await import('#services/session.view.service.js');
@@ -130,6 +131,11 @@ function deps(overrides = {}) {
     notifyAccepted: spy(),
     createRoom: spy(async () => room()),
     saveRoom: spy(async () => ({ count: 1 })),
+    // 6.5's two. `chargeCredits` is `wallet.service.js`'s `chargeStudent`, which takes
+    // the `tx` and opens nothing of its own — stubbed here so the accept's five steps
+    // are still assertable with no wallet, no ledger and no database.
+    chargeCredits: spy(async () => ({ balanceAfter: BALANCE - OPENING_BLOCKS * PRICE_PER_BLOCK })),
+    saveBlock: spy(async () => ({ id: 'block-1' })),
     ...overrides,
   };
 
@@ -211,18 +217,77 @@ describe('activateAcceptedOffer — the five steps', () => {
     assert.equal(result.status, 'ACTIVE');
   });
 
-  it('charges nothing — no blocksUsed, no totalCharged, no wallet call anywhere', async () => {
+  it('charges the opening block inside the transaction, and writes both counters', async () => {
     const collaborators = deps();
 
     const result = await activateAcceptedOffer(input(), collaborators);
     await result.video;
 
+    const amount = OPENING_BLOCKS * PRICE_PER_BLOCK;
     const [written] = collaborators.activateSession.calls[0];
+    const [charge, chargeTx] = collaborators.chargeCredits.calls[0];
+    const [block, blockTx] = collaborators.saveBlock.calls[0];
 
-    // 6.5 passes both, inside this same transaction. 6.3 passes neither and the
-    // repository's defaults write the zeros 5.4 wrote by omission.
-    assert.equal('blocksUsed' in written, false);
-    assert.equal('totalCharged' in written, false);
+    // 6.3 passed neither and said an unbilled `ACTIVE` session was not a billing bug.
+    // 6.5 is the PR that made that sentence false.
+    assert.equal(written.blocksUsed, OPENING_BLOCKS);
+    assert.equal(written.totalCharged, amount);
+
+    // The student, the session, a positive amount — and the `tx`, which is what makes
+    // the charge and the state change one transaction rather than two.
+    assert.equal(charge.userId, STUDENT_ID);
+    assert.equal(charge.sessionId, SESSION_ID);
+    assert.equal(charge.amount, amount);
+    assert.equal(chargeTx, TX);
+
+    assert.equal(block.blockNumber, 1);
+    assert.equal(block.minutes, OPENING_BLOCKS * BLOCK_MINUTES);
+    assert.equal(block.amount, amount);
+    assert.equal(blockTx, TX);
+  });
+
+  it('rolls the whole accept back when the student cannot afford the opening block', async () => {
+    const collaborators = deps({
+      chargeCredits: spy(async () => {
+        throw new AppError(ERROR_CODES.INSUFFICIENT_CREDIT, 'You do not have enough credits.');
+      }),
+    });
+
+    const error = await activateAcceptedOffer(input(), collaborators).catch((thrown) => thrown);
+
+    // The offer stays `PENDING` and the teacher stays `OFFER_LOCKED` because Postgres
+    // undoes all three writes above with the charge — nothing here compensates by hand,
+    // and 5.5's sweep releases the teacher when the offer runs out.
+    assert.equal(error.code, ERROR_CODES.INSUFFICIENT_CREDIT);
+    assert.equal(collaborators.runTransaction.rolledBack, true);
+    assert.equal(collaborators.saveBlock.calls.length, 0);
+    assert.equal(collaborators.announceStatus.calls.length, 0);
+    assert.equal(collaborators.notifyAccepted.calls.length, 0);
+  });
+
+  it('prices the block off the locked row, never off the offer', async () => {
+    const collaborators = deps({ lockSession: spy(async () => lockedRow({ pricePerBlock: 7 })) });
+
+    const result = await activateAcceptedOffer(input(), collaborators);
+    await result.video;
+
+    const [charge] = collaborators.chargeCredits.calls[0];
+
+    // 5.3 snapshots `price_per_block` onto the session at offer time precisely so a tier
+    // change while the modal is open cannot reprice a block the student was quoted.
+    assert.equal(charge.amount, OPENING_BLOCKS * 7);
+  });
+
+  it('refuses to charge a session that reached OFFER_SENT with no price', async () => {
+    const collaborators = deps({
+      lockSession: spy(async () => lockedRow({ pricePerBlock: null })),
+    });
+
+    const error = await activateAcceptedOffer(input(), collaborators).catch((thrown) => thrown);
+
+    assert.equal(error.code, ERROR_CODES.INTERNAL_ERROR);
+    assert.equal(collaborators.chargeCredits.calls.length, 0);
+    assert.equal(collaborators.runTransaction.rolledBack, true);
   });
 
   it('announces IN_SESSION and tells the student, after the commit', async () => {
@@ -701,20 +766,30 @@ describe('the line this PR is most likely to get wrong', () => {
     assert.equal(/createRoom|createSessionVideo|saveRoom/.test(callback), false);
   });
 
-  it('imports nothing from a wallet and appends no billing row', () => {
+  it('charges through the wallet service and never touches the ledger itself', () => {
     const imports = activateSource.match(/^import[\s\S]*?;$/gm) ?? [];
 
-    // The counters themselves are asserted through the call — `setSessionActive` is
-    // handed neither of them, above. This one is about the imports, because a charge
-    // arrives as a dependency before it arrives as an argument.
+    // The charge arrives as a dependency, from `wallet.service.js` — §17.5's
+    // human-written file — and never as a `walletTransaction.create` in this service. A
+    // second place that appends a ledger row is a second place the row lock is missing
+    // from.
     assert.equal(
-      imports.some((line) => /wallet/i.test(line)),
-      false,
+      imports.some((line) => /wallet\.service/.test(line)),
+      true,
     );
-    assert.equal(/recordBlock/.test(activateSource), false);
+    assert.equal(/walletTransaction|wallet\.repository/.test(activateSource), false);
   });
 
-  it('names the absent charge with the PR that owns it', () => {
-    assert.ok(activateSource.includes('[E6.5]'), 'the opening-block charge is not marked as E6.5');
+  it('charges inside the transaction callback, where the rollback can reach it', () => {
+    const callback = activateSource.slice(
+      activateSource.indexOf('await runTransaction('),
+      activateSource.indexOf('collaborators.announceStatus('),
+    );
+
+    // The opposite requirement to the room above, and for the same reason stated the
+    // other way round: a charge outside this callback is money that survives a rolled
+    // back accept.
+    assert.match(callback, /await chargeCredits\(/);
+    assert.match(callback, /await saveBlock\(/);
   });
 });
