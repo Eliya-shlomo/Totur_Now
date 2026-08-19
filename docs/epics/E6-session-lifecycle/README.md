@@ -159,8 +159,9 @@ against E6's opening.
 
 | Item | Where it lands |
 |---|---|
-| The two-machine lock run against Render | **Before 6.0.** Not a PR — a sitting, with `lock.sh` and a second operator. It is E5's evidence, not E6's feature, and it does not gate 6.0. |
-| The deployed read-only half, cold start, Socket.IO transport through Render | Same sitting. The transport result is written into `DEPLOYMENT.md` there. **E6 has a real interest in the answer**: if Socket.IO falls back to long-polling on Render, 6.5's block warning arrives late on the deployed build and the session screen needs to say so. |
+| The two-machine lock run against Render | **Before 6.0.** Not a PR — a sitting, with `scripts/lock.mjs` and a second operator. It is E5's evidence, not E6's feature, and it does not gate 6.0. |
+| ~~Socket.IO transport through Render~~ | **Done, 2026-08-19 — it upgrades to WebSocket.** Recorded in `DEPLOYMENT.md` §11 with the recipe for re-checking it. It did not need the second operator after all: a deployed build and one browser answer it, and it was pulled forward out of the sitting for that reason. **This was E6's real interest in that sitting** — a fallback to long-polling would have made 6.5's block warning arrive late and forced 6.7's screen to say its countdown may lag. It does not, so 6.5 and 6.7 are written against a live clock. |
+| The deployed read-only half and the cold start | Still the sitting. |
 | The countdown's killed-network and nothing-sent-at-zero cases | Same sitting. |
 | F4 — the header pill updating on a server-side lock | Same sitting; 5.10 has merged, so its prerequisite is met. |
 | Gap 11 — a teacher who walks out of an `ACTIVE` session | **6.8.** It needed a screen to be visible on, and 6.7 builds one. |
@@ -198,7 +199,7 @@ Unchanged from E5, plus one:
 |---|---|---|---|---|
 | 6.0 | [Migration: `zoom_*` → `video_room_name` / `video_room_url`](PR-6.0-video-columns-migration.md) | S | E5 | ☑ |
 | 6.1 | [Import the Daily video layer — `video.service`, `VideoRoom.jsx`](PR-6.1-daily-video-import.md) | S | — | ☑ |
-| 6.2 | [**Session state machine: transition rules, frozen routes, the E6 contract**](PR-6.2-session-state-machine.md) | **human** · L | 6.0 | ☐ |
+| 6.2 | [**Session state machine: transition rules, frozen routes, the E6 contract**](PR-6.2-session-state-machine.md) | **human** · L | 6.0 | ☑ |
 | 6.3 | [Session activation + `createSessionVideo` persistence](PR-6.3-session-start.md) | M | 6.1, 6.2 | ☐ |
 | 6.4 | [`getSessionVideoContext` + `GET /sessions/:id/video`](PR-6.4-session-video-endpoint.md) | S | 6.3 | ☐ |
 | 6.5 | [**Wallet service, opening charge, extend, and the meter crons**](PR-6.5-billing-and-meter.md) | **human** · L | 6.3 | ☐ |

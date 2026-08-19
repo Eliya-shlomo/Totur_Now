@@ -443,17 +443,38 @@ export async function setSessionOfferSent({ sessionId, teacherId, pricePerBlock 
  * Conditional on `OFFER_SENT`, so an accept that races the expiry sweep loses rather
  * than resurrecting a session the student has already left.
  *
+ * **Widened in 6.2, and the widening changes nothing for E5's caller.** `blocksUsed`
+ * and `totalCharged` default to `0`, which is exactly what this function already wrote
+ * by leaving them to the column defaults — 5.4 passes neither and the row it produces
+ * is byte-identical. 6.5 passes both, because the opening block is charged inside this
+ * same transaction and a session that goes `ACTIVE` in one statement and acquires its
+ * first block in another is a window where the meter reads zero on a session that has
+ * been paid for.
+ *
+ * They are written explicitly rather than omitted-when-undefined, so that the row this
+ * statement produces is a function of its arguments and not of what the column happens
+ * to default to. A caller that means "no blocks yet" and a caller that forgot the
+ * parameter must not be the same call.
+ *
+ * The paragraph above about nothing being charged stops being true in 6.5, and 6.5's
+ * brief says it deletes it. Until then it is still the truth about this file.
+ *
  * @param {object} params
  * @param {string} params.sessionId
  * @param {Date} params.startedAt
  * @param {Date} params.endsAt        `startedAt + OPENING_BLOCKS × BLOCK_MINUTES`
+ * @param {number} [params.blocksUsed=0]   `OPENING_BLOCKS` from 6.5; 5.4 passes nothing
+ * @param {number} [params.totalCharged=0] the opening charge from 6.5; 5.4 passes nothing
  * @param {import('@prisma/client').Prisma.TransactionClient} tx
  * @returns {Promise<{count: number}>}
  */
-export async function setSessionActive({ sessionId, startedAt, endsAt }, tx) {
+export async function setSessionActive(
+  { sessionId, startedAt, endsAt, blocksUsed = 0, totalCharged = 0 },
+  tx,
+) {
   return tx.session.updateMany({
     where: { id: sessionId, status: 'OFFER_SENT' },
-    data: { status: 'ACTIVE', startedAt, endsAt },
+    data: { status: 'ACTIVE', startedAt, endsAt, blocksUsed, totalCharged },
   });
 }
 
@@ -522,4 +543,393 @@ export async function findWalletBalance(userId) {
   });
 
   return wallet?.balance ?? null;
+}
+
+// ── E6 ───────────────────────────────────────────────────────────────────────
+//
+// The epic's whole read/write set, added at once in PR 6.2 and **not added to
+// again**. This file already has three PRs in its `git log` and E5's retro named that
+// as the discipline slipping; E6 adds exactly one more entry to that log. Everything
+// 6.3 through 6.6 needs is written here, before any of it is called, so that a query
+// discovered missing mid-6.5 is a conversation rather than an edit in passing.
+//
+// The three rules in this file's header still hold, and one of them carries the whole
+// epic:
+//
+// **Nothing here contains a product rule about when a transition is legal.** That is
+// `session.state.js`'s `assertTransition`, called by the service, inside the
+// transaction, against the value the lock just read. The writers below take their
+// arguments already decided.
+//
+// **The conditional writes are the second half of that guarantee and not a
+// substitute for it.** `extendSession`, `endSession` and `setSessionRated` are
+// `updateMany` returning a `count`, never `update`, and every caller checks the
+// count. `assertTransition` refuses an edge that was never legal; a `count` of zero
+// says somebody moved the row between the caller's read and its write. Either alone
+// leaves one of the two failures silent, and both of them are money.
+//
+// **No literal status string is written by anything outside this file.** 6.2's
+// acceptance criteria have a `grep` behind that.
+
+/**
+ * The room Daily minted for a session — 6.3 after its transaction commits, and 6.4's
+ * repair path when 6.3's `fetch` failed.
+ *
+ * **No `tx`, and it is the one writer here without one.** 6.3 calls it *after* COMMIT,
+ * deliberately: `createSessionVideo` is a `fetch` across the public internet, and
+ * inside the transaction it would hold the teacher's row and the session's for as long
+ * as Daily takes to answer. Nothing about the room needs to be atomic with the state
+ * change — a room with no session expires in 24 hours, and a session with no room is
+ * the degraded case 6.3 is designed to survive.
+ *
+ * **Conditional on `video_room_name IS NULL`, and that is 6.4's requirement rather
+ * than 6.3's.** Two participants pressing join in the same second against a session
+ * whose columns are null would otherwise create two rooms and persist the second over
+ * the first, leaving one of them alone in a room the other cannot see. The loser
+ * matches zero rows and re-reads the winner's. A room is minted at most once per
+ * session, and the `count` is how the caller finds out which it was.
+ *
+ * `status` is not in the `where`. 6.4 repairs an `ACTIVE` session and checks that
+ * itself, before it decides to create anything; putting the status here would make a
+ * repair on a session that ended mid-call indistinguishable from a lost race.
+ *
+ * @param {object} params
+ * @param {string} params.sessionId
+ * @param {string} params.roomName Daily's room identifier — `sessions.video_room_name`
+ * @param {string} params.roomUrl  the URL the client joins
+ * @returns {Promise<{count: number}>} `0` means somebody else minted it first
+ */
+export async function setSessionVideoRoom({ sessionId, roomName, roomUrl }) {
+  return prisma.session.updateMany({
+    where: { id: sessionId, videoRoomName: null },
+    data: { videoRoomName: roomName, videoRoomUrl: roomUrl },
+  });
+}
+
+/**
+ * The session, **locked**, as the input to every guard in 6.5 and 6.6.
+ *
+ * `SELECT … FOR UPDATE`, and it is the reason this function is raw SQL rather than a
+ * `findUnique`. Prisma's query API has no row lock, and without one the meter is
+ * read-then-decide-then-write with a gap in the middle: two concurrent extensions both
+ * read `ACTIVE` with the same `ends_at`, both pass `assertTransition`, and both charge.
+ * Every caller's step 1 is this function, and every caller's step 2 is
+ * `assertTransition(session.status, …)` against what it returned.
+ *
+ * **`FOR UPDATE OF s` and not a bare `FOR UPDATE`.** The teacher's `users` row is
+ * joined for `platformFeeRate`'s `teacherCreatedAt` — §5.3's rate is computed from when
+ * the teacher joined, and 6.6 needs it in the same transaction — and a bare `FOR
+ * UPDATE` would lock that row too. Locking a user row for the duration of a billing
+ * transaction means two of that teacher's sessions ending at once serialise on a column
+ * that never changes.
+ *
+ * The join rides along on the same statement rather than in a second read. E2's N+1
+ * lesson, and this one is on the hot path of every charge the epic makes.
+ *
+ * Returns `null` for a missing session rather than throwing, the contract every read in
+ * this file keeps. The caller answers `NOT_FOUND` — and for a stranger it answers the
+ * same `NOT_FOUND`, because `FORBIDDEN` would confirm the id is real.
+ *
+ * @param {string} sessionId
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @returns {Promise<object|null>} camel-cased, or `null`
+ */
+export async function findSessionForMeter(sessionId, tx) {
+  const rows = await tx.$queryRaw`
+    SELECT s.id,
+           s.status,
+           s.student_id      AS "studentId",
+           s.teacher_id      AS "teacherId",
+           s.price_per_block AS "pricePerBlock",
+           s.budget_cap      AS "budgetCap",
+           s.blocks_used     AS "blocksUsed",
+           s.total_charged   AS "totalCharged",
+           s.started_at      AS "startedAt",
+           s.ends_at         AS "endsAt",
+           s.ended_at        AS "endedAt",
+           s.end_reason      AS "endReason",
+           t.created_at      AS "teacherCreatedAt"
+      FROM sessions s
+      LEFT JOIN users t ON t.id = s.teacher_id
+     WHERE s.id = ${sessionId}::uuid
+       FOR UPDATE OF s
+  `;
+
+  return rows[0] ?? null;
+}
+
+/**
+ * One row in `session_blocks` — the opening block at activation (6.5) and one per
+ * extension after it.
+ *
+ * **Append-only, like the ledger it sits beside.** A block that was billed happened,
+ * and the row saying so is not edited or removed by anything in this epic. The
+ * reconciliation question — "does `total_charged` equal the sum of this session's
+ * blocks" — is a `GROUP BY` and not a fold, and it is only answerable if nothing here
+ * ever updated a row.
+ *
+ * `blockNumber` is the caller's, from `blocks_used + 1`, computed under the lock. A
+ * repository that counted the existing rows itself would be a second source of truth
+ * for the same number and would race the same way the meter does.
+ *
+ * `minutes` is `OPENING_BLOCKS × BLOCK_MINUTES` for the first and
+ * `EXTENSION_BLOCKS × BLOCK_MINUTES` after it. Both constants are the caller's; no
+ * literal `5` or `10` appears in this file.
+ *
+ * @param {object} params
+ * @param {string} params.sessionId
+ * @param {number} params.blockNumber 1 for the opening block
+ * @param {number} params.minutes
+ * @param {number} params.amount      credits, integer — money is never a float here
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @returns {Promise<object>} the created row
+ */
+export async function recordBlock({ sessionId, blockNumber, minutes, amount }, tx) {
+  return tx.sessionBlock.create({
+    data: { sessionId, blockNumber, minutes, amount },
+  });
+}
+
+/**
+ * One more block — `POST /sessions/:id/extend` (6.5). `ACTIVE` → `ACTIVE`, so
+ * `assertTransition` is not what guards it.
+ *
+ * **This is the first of the two concurrency guards, and it matches on `ends_at` as
+ * the caller read it.** A double-tapped **Extend** button is two requests in the same
+ * second: the first moves `ends_at`, the second's `where` no longer matches, and it
+ * gets a `count` of `0` — which the caller answers `SESSION_NOT_ACTIVE` rather than
+ * retrying. Without `expectedEndsAt` in the `where`, one press buys two blocks, the
+ * budget cap is checked twice against a stale total, and every test that extends once
+ * still passes.
+ *
+ * This is E5's teacher lock in a different column. `updateMany` returning a count,
+ * never `update` — `update` throws `P2025` when it matches nothing, which the error
+ * handler turns into a `404`, and "somebody extended first" is not a missing session.
+ *
+ * `status: 'ACTIVE'` is in the `where` beside it, so an extension that races the
+ * auto-end cron loses rather than reviving a session that is over.
+ *
+ * @param {object} params
+ * @param {string} params.sessionId
+ * @param {Date} params.expectedEndsAt the value the caller read under the lock
+ * @param {Date} params.endsAt         `expectedEndsAt + EXTENSION_BLOCKS × BLOCK_MINUTES`
+ * @param {number} params.blocksUsed   the new total, computed under the lock
+ * @param {number} params.totalCharged the new total, computed under the lock
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @returns {Promise<{count: number}>} `0` means somebody extended or ended it first
+ */
+export async function extendSession(
+  { sessionId, expectedEndsAt, endsAt, blocksUsed, totalCharged },
+  tx,
+) {
+  return tx.session.updateMany({
+    where: { id: sessionId, status: 'ACTIVE', endsAt: expectedEndsAt },
+    data: { endsAt, blocksUsed, totalCharged },
+  });
+}
+
+/**
+ * The end of a session — both terminal edges out of `ACTIVE`, in one writer.
+ *
+ * **`status` is a parameter because §10 draws two arrows out of `ACTIVE` and they are
+ * the same race.** `ENDED` is 6.5's auto-end cron and 6.6's end button; `NO_SHOW` is
+ * 6.6's report, within `NO_SHOW_WINDOW_SEC`. A second function for the second arrow
+ * would be a second `where` to keep in step with this one, and the day they drift is
+ * the day a no-show and an auto-end both succeed on the same row. The service decides
+ * which arrow it is taking and `assertTransition` has already refused every arrow that
+ * is not one of these two.
+ *
+ * **This is the second concurrency guard, and it matches on `status = 'ACTIVE'`.** The
+ * auto-end cron and the student's end button can fire in the same tick, and exactly one
+ * wins: the loser's `count` is `0` and its transaction rolls back, so the teacher is
+ * credited once and `sessions_count` moves once. Crediting twice is not recoverable by
+ * anything short of a manual ledger correction, which is why this `where` is not an
+ * optimisation.
+ *
+ * **`end_reason` is set in the same statement as the status**, never after it. §11.2
+ * enumerates six values and a row that reads `ENDED` with a null reason is a session
+ * nobody can explain — including the screen, which renders the reason.
+ *
+ * `platformFee` and `teacherEarning` land here too, in that same statement, because
+ * they are what the teacher was credited and the credit is in this transaction. A
+ * session whose money moved in one statement and whose record of it moved in another
+ * has a window where the two disagree, and reconciliation reads the columns.
+ *
+ * Both default to `0`, which is the no-show case exactly: a refunded session has no fee
+ * and no earning, and §5.3's split never ran on it.
+ *
+ * @param {object} params
+ * @param {string} params.sessionId
+ * @param {'ENDED'|'NO_SHOW'} params.status
+ * @param {string} params.endReason        one of §11.2's six values
+ * @param {Date} params.endedAt
+ * @param {number} [params.platformFee=0]     §5.3's cut; `0` on a no-show
+ * @param {number} [params.teacherEarning=0]  gross minus the fee; `0` on a no-show
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @returns {Promise<{count: number}>} `0` means it was no longer `ACTIVE`
+ */
+export async function endSession(
+  { sessionId, status, endReason, endedAt, platformFee = 0, teacherEarning = 0 },
+  tx,
+) {
+  return tx.session.updateMany({
+    where: { id: sessionId, status: 'ACTIVE' },
+    data: { status, endReason, endedAt, platformFee, teacherEarning },
+  });
+}
+
+/**
+ * `ENDED` → `RATED`. The review has been written and the session has reached its
+ * terminal state (6.6).
+ *
+ * Conditional on `ENDED`, like every other writer here. `reviews.session_id` is
+ * `UNIQUE` and is the real guarantee that one session gets one review — this `where` is
+ * what keeps the *session* from being rated twice if the insert is ever moved, and it
+ * costs one clause.
+ *
+ * Nothing else moves. `ended_at`, `end_reason` and the money were written by
+ * `endSession` and are not the rating's to touch.
+ *
+ * @param {string} sessionId
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @returns {Promise<{count: number}>} `0` means it was not `ENDED`
+ */
+export async function setSessionRated(sessionId, tx) {
+  return tx.session.updateMany({
+    where: { id: sessionId, status: 'ENDED' },
+    data: { status: 'RATED' },
+  });
+}
+
+/**
+ * Sessions whose current block is inside the warning window — 6.5's Block Warning
+ * sweep, every tick.
+ *
+ * `ends_at - WARNING_SECONDS <= now < ends_at`, expressed as the half-open interval the
+ * caller passes: it computes both instants from `WARNING_SECONDS` and this function
+ * takes them. A repository that called `new Date()` would be deciding when a warning is
+ * due, and the two jobs would each have their own idea of "now" within the same tick.
+ *
+ * **Read-only, and on the global client rather than a `tx`.** A sweep that opened a
+ * transaction to read would hold one for the whole tick; the rows it finds are each
+ * handled in their own transaction afterwards, if at all — a warning is an emit and
+ * writes nothing.
+ *
+ * **Idempotence is not here.** 6.5 keeps the last-warned `ends_at` per session in
+ * memory for the life of the process, so this query has no flag column to filter on and
+ * no migration behind it. A restart re-warns once, which is a duplicate modal and not a
+ * duplicate charge.
+ *
+ * `pricePerBlock` and `budgetCap` ride along because the warning's payload carries all
+ * four of `{ secondsLeft, extensionPrice, balanceAfter, canAfford, withinCap }` — the
+ * server decides every one of them, because a client that computes affordability
+ * computes it differently from the endpoint that enforces it.
+ *
+ * @param {Date} from `now`
+ * @param {Date} to   `now + WARNING_SECONDS`
+ * @returns {Promise<object[]>}
+ */
+export async function findSessionsDueForWarning(from, to) {
+  return prisma.session.findMany({
+    where: { status: 'ACTIVE', endsAt: { gt: from, lte: to } },
+    select: {
+      id: true,
+      studentId: true,
+      teacherId: true,
+      pricePerBlock: true,
+      budgetCap: true,
+      blocksUsed: true,
+      totalCharged: true,
+      endsAt: true,
+    },
+  });
+}
+
+/**
+ * Sessions past their deadline and past the grace period — 6.5's Session Auto-End
+ * sweep, and 6.6 rewires what happens to them.
+ *
+ * The caller passes `now - GRACE_SECONDS`; §5.1's grace is a product rule and this
+ * function does not know it. Same reason `findSessionsDueForWarning` takes its window.
+ *
+ * Read-only, global client, for the same reason as the warning sweep.
+ *
+ * **Neither sweep is correctness.** Render's free plan sleeps the instance and
+ * `node-cron` runs in-process, so on a sleeping server neither runs at all. This is
+ * E5's ruling and it holds: `GET /sessions/:id` evaluates `ends_at` lazily on every
+ * read, so a session past its deadline reads as over whether or not anything swept it.
+ *
+ * @param {Date} deadline `now - GRACE_SECONDS`
+ * @returns {Promise<object[]>}
+ */
+export async function findSessionsDueForAutoEnd(deadline) {
+  return prisma.session.findMany({
+    where: { status: 'ACTIVE', endsAt: { lte: deadline } },
+    select: { id: true, studentId: true, teacherId: true, endsAt: true },
+  });
+}
+
+/**
+ * Who is in a session, for the socket layer's membership check — `session:join`, 6.2.
+ *
+ * **The socket's check and the video endpoint's are the same rule and deliberately not
+ * the same function.** They need different columns: this one answers *may this socket
+ * hear this room*, and `findSessionForVideo` below also has to mint a token, which
+ * needs the room and the caller's display name. Three consumers wanting three shapes is
+ * the arrangement 3.1, 4.1 and 5.1 each made on purpose; a shared `select` here would be
+ * the socket handler carrying a room URL it must never emit.
+ *
+ * `status` comes back rather than being filtered on. A `where` on `ACTIVE` would make a
+ * session that has ended indistinguishable from one the caller is not in, and the
+ * handler wants to log those two at `warn` as different things even though it answers
+ * both the same way — with silence.
+ *
+ * @param {string} sessionId
+ * @returns {Promise<{studentId: string|null, teacherId: string|null, status: string}|null>}
+ */
+export async function findParticipants(sessionId) {
+  return prisma.session.findUnique({
+    where: { id: sessionId },
+    select: { studentId: true, teacherId: true, status: true },
+  });
+}
+
+/**
+ * The session behind `GET /sessions/:id/video` — 6.4, and the epic's security
+ * boundary.
+ *
+ * Everything that endpoint checks is in this one read: the session exists, its status
+ * is `ACTIVE`, and the caller is its `student_id` or its `teacher_id`. **The checks are
+ * the service's and none of them is a `where` here** — a filtered query makes "not
+ * yours", "not active" and "does not exist" the same empty result, and 6.4 needs to
+ * tell them apart in the log while answering all three with the same `404` over the
+ * wire.
+ *
+ * **The two names come from the database and nothing else.** `createSessionVideoAccess`
+ * puts `userName` on the tile, and the endpoint it replaced took that from the request
+ * body — so a stranger could walk in *and* choose the name they walked in under. Both
+ * participants' names are selected here so the service reads one row and picks the
+ * caller's; a second query keyed by `req.user.id` would be a second place that decides
+ * whose name this is.
+ *
+ * `videoRoomName` and `videoRoomUrl` come back null when 6.3's `fetch` failed, which is
+ * 6.4's repair path and the reason `setSessionVideoRoom` is conditional.
+ *
+ * @param {string} sessionId
+ * @returns {Promise<object|null>}
+ */
+export async function findSessionForVideo(sessionId) {
+  return prisma.session.findUnique({
+    where: { id: sessionId },
+    select: {
+      id: true,
+      status: true,
+      studentId: true,
+      teacherId: true,
+      videoRoomName: true,
+      videoRoomUrl: true,
+      student: { select: { id: true, fullName: true } },
+      teacher: { select: { id: true, fullName: true } },
+    },
+  });
 }

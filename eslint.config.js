@@ -56,7 +56,7 @@ export default [
 
   // ── shared + tooling ────────────────────────────────────────────────────
   {
-    files: ['shared/**/*.js', '*.config.js', 'prisma/**/*.js'],
+    files: ['shared/**/*.js', '*.config.js', 'prisma/**/*.js', 'scripts/**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'module',
