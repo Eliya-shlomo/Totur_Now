@@ -1,7 +1,7 @@
 import { Alert, Badge, Button, Card, Group, Stack, Text, Title } from '@mantine/core';
-import { IconAlertTriangle, IconVideoOff } from '@tabler/icons-react';
+import { IconAlertTriangle, IconPlugConnectedX, IconVideoOff } from '@tabler/icons-react';
 import { ERROR_CODES } from '@tutor/shared';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { getPricing } from '@/api/public.api';
@@ -14,6 +14,7 @@ import ErrorState from '@/components/state/ErrorState';
 import LoadingState from '@/components/state/LoadingState';
 import { useSessionState } from '@/hooks/useSessionState';
 import { notify } from '@/lib/notify';
+import { destinationFor, resolveSessionError, SESSION_ACTIONS } from '@/utils/sessionErrors';
 
 /**
  * The session room — **one screen, both roles, the call inside the page.** PR 6.7,
@@ -54,6 +55,19 @@ import { notify } from '@/lib/notify';
  * **`VideoRoom.jsx` is DEV-C's and is mounted, not opened.** Its props were frozen at
  * import in 6.1 and this screen goes around it.
  *
+ * ## What 6.8 added, and none of it is a new decision
+ *
+ * - **One error boundary for the three mutations**, mapping the code plus the *freshly
+ *   re-read* state to a sentence and a destination through `utils/sessionErrors.js`.
+ *   Six independent handlers is six places for the recovery to drift.
+ * - **One token refresh, ever.** A session extended past `VIDEO_TOKEN_TTL_SECONDS`
+ *   outlives its token; the first `onError` re-fetches and rejoins, the second shows the
+ *   failure. Unbounded, it is a request every few seconds for as long as the tab is open.
+ * - **A "reconnecting" marker** while the socket is down, beside a clock that is still
+ *   right because it is computed from `endsAt`.
+ * - **`session:participant_left` rendered as a line**, and nothing else: the meter keeps
+ *   running, because a dropped tunnel and a closed laptop are the same thing from here.
+ *
  * @param {object} props
  * @param {import('@tutor/shared').SessionState} [props.initial] the payload the student's
  *   route already read one branch up; the teacher's route mounts this cold
@@ -62,18 +76,48 @@ export default function SessionRoom({ initial = null }) {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const { session, error, warning, ended, reload, applyExtend, dismissWarning } = useSessionState(
-    id,
-    { initial },
-  );
+  const {
+    session,
+    error,
+    warning,
+    ended,
+    departed,
+    connected,
+    reload,
+    applyExtend,
+    dismissWarning,
+  } = useSessionState(id, { initial });
 
   const [pricing, setPricing] = useState(null);
   const [video, setVideo] = useState(null);
 
-  /** `null` while the call is fine; one of the three states above once it is not. */
+  /** `null` while the call is fine; one of the four states below once it is not. */
   const [videoIssue, setVideoIssue] = useState(null);
 
   const [busy, setBusy] = useState(null);
+
+  /**
+   * Bumped on every successful `GET /sessions/:id/video`, and used as the call's `key`.
+   *
+   * `VideoRoom` joins on mount and is DEV-C's — its props are frozen and it has no
+   * "rejoin with this token" input. Changing the key is how a *new* token becomes a new
+   * join: React unmounts the old frame and mounts a fresh one. Without it a re-fetched
+   * token would sit in state beside a call frame that never looked at it again.
+   */
+  const [joinAttempt, setJoinAttempt] = useState(0);
+
+  /**
+   * Whether the one token refresh has been spent — 6.8, and **the whole of the loop
+   * guard.**
+   *
+   * `VIDEO_TOKEN_TTL_SECONDS` is an hour and a session extended past it outlives its
+   * token: Daily ejects, `onError` fires, and the honest repair is to fetch a new token
+   * and rejoin. **Once.** An `onError` that always re-fetches turns a genuinely broken
+   * room into a request every few seconds for as long as the tab is open, and the second
+   * failure is the one that tells you it was never the token. A ref rather than state
+   * because nothing renders from it and a re-render must not reset it.
+   */
+  const tokenRefreshed = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,7 +150,11 @@ export default function SessionRoom({ initial = null }) {
     setVideoIssue(null);
 
     getSessionVideo(id)
-      .then((access) => setVideo(access))
+      .then((access) => {
+        setVideo(access);
+        // A fresh token is only a fresh *join* if the frame is remounted around it.
+        setJoinAttempt((attempt) => attempt + 1);
+      })
       .catch((failure) => {
         setVideo(null);
         setVideoIssue(
@@ -117,6 +165,34 @@ export default function SessionRoom({ initial = null }) {
       });
   }, [id]);
 
+  /**
+   * The call broke — **and the first time, that is assumed to be the token.** 6.8.
+   *
+   * A session extended past `VIDEO_TOKEN_TTL_SECONDS` outlives the token it was joined
+   * with, Daily ejects both people, and `onError` is the only notice the screen gets. It
+   * is a real case at an hour of extensions and **it is the one failure on this screen
+   * nobody would ever find by hand**: no manual test runs for sixty minutes and no demo
+   * would survive one.
+   *
+   * So the first `onError` re-fetches and rejoins, silently, and the second renders the
+   * failure. `max_participants: 2` — the common cause — costs one wasted request and
+   * then reads exactly as it did before this PR. **The guard is not reset by a
+   * successful rejoin**, deliberately: a room that ejects twice in one session is not a
+   * token problem, and one retry per mount is a bound that cannot become a storm.
+   */
+  const onVideoError = useCallback(() => {
+    if (tokenRefreshed.current) {
+      setVideoIssue({ kind: 'failed' });
+
+      return;
+    }
+
+    tokenRefreshed.current = true;
+    setVideo(null);
+    setVideoIssue({ kind: 'rejoining' });
+    loadVideo();
+  }, [loadVideo]);
+
   useEffect(() => {
     // `hasVideo` false is 6.3's degradation and there is nothing to fetch — asking anyway
     // would make the repair path run on every mount of a session Daily could not serve.
@@ -124,32 +200,56 @@ export default function SessionRoom({ initial = null }) {
   }, [session?.hasVideo, session?.status, loadVideo]);
 
   /**
-   * Where a finished session sends each role.
+   * Where a finished session sends each role — **and `sessionErrors.js` is what decides.**
    *
    * **The student cannot leave without rating.** §10 makes it mandatory and 6.6 built the
    * screen; `replace` is what refuses back-navigation into a session that is over. A
    * `NO_SHOW` skips it entirely — nobody rates a person who never arrived — and lands on
    * the question list with the refund already made.
+   *
+   * 6.8 moved the rules themselves into `destinationFor`, unchanged, so that this effect
+   * and the three refused mutations below cannot answer the same question differently. A
+   * student whose **End** press lost the race to the auto-end sweep and a student whose
+   * socket heard `session:ended` are in the same state and belong on the same screen.
    */
   useEffect(() => {
-    if (!session) return;
+    const destination = destinationFor(session, id);
 
-    if (session.status === 'NO_SHOW') {
-      navigate('/app', { replace: true });
-
-      return;
-    }
-
-    if (session.status === 'ENDED' && session.role === 'student' && !session.isRated) {
-      navigate(`/app/session/${id}/review`, { replace: true });
-
-      return;
-    }
-
-    if (session.status !== 'ACTIVE' && session.role === 'teacher') {
-      navigate('/teach', { replace: true });
-    }
+    if (destination) navigate(destination, { replace: true });
   }, [session, id, navigate]);
+
+  /**
+   * **The one error boundary for the three mutations on this screen** — 6.8, and the
+   * reason none of them has a `catch` block of its own worth reading.
+   *
+   * Every refusal is the same two steps: re-read the session, then ask the table what
+   * that pair means. The re-read is what makes it possible at all — `SESSION_NOT_ACTIVE`
+   * is thrown by six situations and the code cannot tell them apart, but the code beside
+   * the *fresh* status can. It is also the repair: a double-tapped **Extend** re-reads a
+   * row that already carries the block the first tap bought, so the screen agrees with
+   * the database before anything is said, and nothing is said at all.
+   *
+   * **The destination is not navigated to here.** `destinationFor` decided it, and the
+   * effect above is watching the same session this call just refreshed — so the move
+   * happens through one code path whether the person pressed a button or heard an event.
+   * What is left is the sentence.
+   */
+  const onMutationRefused = useCallback(
+    async (action, failure, title) => {
+      const { message } = resolveSessionError({
+        action,
+        failure,
+        session: await reload(),
+        sessionId: id,
+      });
+
+      // `null` is the double tap, reconciled by the re-read above. The student pressed
+      // once as far as they know, and a toast would be the screen apologising for having
+      // worked.
+      if (message) notify.error(message, title);
+    },
+    [id, reload],
+  );
 
   const onExtend = useCallback(async () => {
     setBusy('extend');
@@ -159,13 +259,13 @@ export default function SessionRoom({ initial = null }) {
       notify.success('Another block added.');
     } catch (failure) {
       // Both 402s are real answers rather than bugs: the balance moved since the warning
-      // was computed, or the cap refused it. The modal stays open and says why.
-      notify.apiError(failure, 'Could not add a block');
-      reload();
+      // was computed, or the cap refused it, and the table passes the server's own
+      // sentence through. The 409s are the session having moved on.
+      await onMutationRefused(SESSION_ACTIONS.EXTEND, failure, 'Could not add a block');
     } finally {
       setBusy(null);
     }
-  }, [id, applyExtend, reload]);
+  }, [id, applyExtend, onMutationRefused]);
 
   const onEnd = useCallback(async () => {
     setBusy('end');
@@ -177,17 +277,14 @@ export default function SessionRoom({ initial = null }) {
       // did not take the same path out.
       reload();
     } catch (failure) {
-      if (failure?.is?.(ERROR_CODES.SESSION_NOT_ACTIVE)) {
-        // Somebody got there first — the other participant, or the auto-end sweep. The
-        // session is over either way.
-        reload();
-      } else {
-        notify.apiError(failure, 'Could not end the session');
-      }
+      // Somebody got there first — the other participant, or the auto-end sweep — and
+      // the session is over either way. Before 6.8 that was silent; now it says which
+      // ending it was, because "finished" and "refunded" are two different next steps.
+      await onMutationRefused(SESSION_ACTIONS.END, failure, 'Could not end the session');
     } finally {
       setBusy(null);
     }
-  }, [id, reload]);
+  }, [id, reload, onMutationRefused]);
 
   const onNoShow = useCallback(async () => {
     setBusy('no-show');
@@ -197,12 +294,14 @@ export default function SessionRoom({ initial = null }) {
       notify.success('Your credits have been returned.');
       reload();
     } catch (failure) {
-      notify.apiError(failure, 'Could not report that');
-      reload();
+      // The late report is the interesting one: the session is still `ACTIVE`, so the
+      // table passes the server's sentence through — and that sentence names the end
+      // button as the remedy rather than leaving a dead end.
+      await onMutationRefused(SESSION_ACTIONS.NO_SHOW, failure, 'Could not report that');
     } finally {
       setBusy(null);
     }
-  }, [id, reload]);
+  }, [id, reload, onMutationRefused]);
 
   if (error) {
     return (
@@ -232,22 +331,50 @@ export default function SessionRoom({ initial = null }) {
           </Group>
         </Stack>
 
-        <SessionTimer
-          endsAt={session.endsAt}
-          blocksUsed={session.blocksUsed}
-          blockMinutes={blockMinutes}
-        />
+        <Stack gap={4} align="flex-end">
+          <SessionTimer
+            endsAt={session.endsAt}
+            blocksUsed={session.blocksUsed}
+            blockMinutes={blockMinutes}
+          />
+
+          {/* **A marker, not a blocker** — 6.8. The countdown beside it is computed from
+              `endsAt`, which is absolute and server-issued, so it keeps telling the truth
+              with the socket down; what stops arriving is the warning, the extension and
+              the ending. The reconnect re-joins the room and re-reads the session, so
+              this says "you may be a moment behind" rather than "this is broken". */}
+          {!connected ? (
+            <Group gap={4} c="dimmed">
+              <IconPlugConnectedX size={14} />
+              <Text size="xs">Reconnecting…</Text>
+            </Group>
+          ) : null}
+        </Stack>
       </Group>
 
       <CallFrame
         hasVideo={session.hasVideo}
         video={video}
         issue={videoIssue}
+        joinAttempt={joinAttempt}
         onRetry={loadVideo}
         onLeft={() => setVideoIssue({ kind: 'left' })}
-        onError={() => setVideoIssue({ kind: 'failed' })}
+        onError={onVideoError}
         onJoined={() => setVideoIssue(null)}
       />
+
+      {/* **The other side went quiet — E5's gap 11, and it is not an ending.** The server
+          waited out `PRESENCE_DISCONNECT_GRACE_SECONDS` and checked that no other socket
+          of theirs was left in the room, so this is not a reload. The meter is still
+          running and `ends_at` has not moved, because who pays for a broken connection is
+          a product decision nobody has made — the remedies are the buttons below. */}
+      {departed && session.status === 'ACTIVE' ? (
+        <Alert color="orange" icon={<IconPlugConnectedX size={18} />}>
+          {session.counterpart?.fullName ?? 'The other person'} lost their connection. The session
+          is still running and still being charged — give them a moment to come back, or end it
+          below.
+        </Alert>
+      ) : null}
 
       <Card withBorder padding="md" radius="md">
         <Stack gap="xs">
@@ -323,11 +450,13 @@ const NO_SHOW_WINDOW_MS = 60 * 1000;
 /**
  * The call, or an honest sentence about why there isn't one.
  *
- * Four states and each one is a different failure with a different next action. The
+ * Five states and each one is a different failure with a different next action. The
  * component itself renders none of them — it is an iframe and three callbacks — so the
- * frame around it is where they live.
+ * frame around it is where they live. 6.8 adds the fifth, `rejoining`, which is the one
+ * that is not a failure at all: the token expired under a long session and a fresh one is
+ * being fetched.
  */
-function CallFrame({ hasVideo, video, issue, onRetry, onJoined, onLeft, onError }) {
+function CallFrame({ hasVideo, video, issue, joinAttempt, onRetry, onJoined, onLeft, onError }) {
   if (!hasVideo) {
     return (
       <Alert color="gray" icon={<IconVideoOff size={18} />} title="No video on this session">
@@ -372,6 +501,13 @@ function CallFrame({ hasVideo, video, issue, onRetry, onJoined, onLeft, onError 
     );
   }
 
+  // The token was assumed to have expired and a fresh one is on its way — 6.8. Worded as
+  // a reconnection rather than as a failure because on the case it exists for that is
+  // exactly what it is, and the failure state is one `onError` away if it was not.
+  if (issue?.kind === 'rejoining') {
+    return <LoadingState label="Reconnecting the call…" minHeight={200} />;
+  }
+
   if (issue?.kind === 'unavailable') {
     return (
       <Alert color="gray" icon={<IconVideoOff size={18} />} title="Video is not available">
@@ -391,6 +527,10 @@ function CallFrame({ hasVideo, video, issue, onRetry, onJoined, onLeft, onError 
 
   return (
     <VideoRoom
+      // **A new token is a new mount.** `VideoRoom` joins on mount and its props are
+      // DEV-C's, frozen at import in 6.1 — there is no "rejoin with this" input, so the
+      // key is how the refreshed token from 6.8's `onError` path actually gets used.
+      key={joinAttempt}
       roomUrl={video.roomUrl}
       token={video.token}
       onJoined={onJoined}

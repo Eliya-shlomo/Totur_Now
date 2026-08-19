@@ -15,13 +15,14 @@ import { getSocket } from '@/lib/socket';
  * closed. Every event below either patches a value the server just told us it wrote, or
  * triggers a refetch.
  *
- * Three ways the state is refreshed, and all three exist for a different failure:
+ * Four ways the state is refreshed, and every one exists for a different failure:
  *
  * | when | why |
  * |---|---|
  * | on mount | the reload case, and the only path that works with the socket down |
  * | `visibilitychange` back to visible | a backgrounded tab misses frames; phones suspend sockets |
  * | after a mutation | the response is authoritative and the emit may race it |
+ * | on socket reconnect — 6.8 | the room was rejoined, but nothing that happened while it was gone is replayed |
  *
  * **The room is joined before anything can be missed, and rejoined on reconnect.**
  * `session:join` is the epic's one client → server event; the server checks membership
@@ -41,7 +42,8 @@ import { getSocket } from '@/lib/socket';
  *   already read this endpoint for its offer branch — seeding avoids a second identical
  *   fetch on mount without giving the screen a second source of truth
  * @returns {{session: object|null, error: unknown, warning: object|null, ended: object|null,
- *   reload: () => void, applyExtend: (extended: object) => void, dismissWarning: () => void}}
+ *   departed: object|null, connected: boolean, reload: () => Promise<object|null>,
+ *   applyExtend: (extended: object) => void, dismissWarning: () => void}}
  */
 export function useSessionState(sessionId, { initial = null } = {}) {
   const [session, setSession] = useState(initial);
@@ -59,6 +61,29 @@ export function useSessionState(sessionId, { initial = null } = {}) {
    */
   const [ended, setEnded] = useState(null);
 
+  /**
+   * Whether the socket is up — 6.8, and it is rendered rather than acted on.
+   *
+   * The screen carries a small marker when this is `false` and changes nothing else: the
+   * countdown is computed from `endsAt` and stays right, the buttons still work because
+   * they are HTTP, and the reconnect above repairs the state. **A screen that froze or
+   * hid its numbers on a dropped socket would be lying about a session that is still
+   * running and still charging.**
+   */
+  const [connected, setConnected] = useState(true);
+
+  /**
+   * The other person's last socket went away — `session:participant_left`, 6.8, E5's
+   * gap 11.
+   *
+   * **It is not the end of the session and the screen must not treat it as one.** A
+   * dropped tunnel and a closed laptop are indistinguishable from the server, the meter
+   * is still running and the money has already moved. The value is the payload, kept so
+   * the line can name a role, and cleared when the session ends because by then there is
+   * a better sentence on screen.
+   */
+  const [departed, setDeparted] = useState(null);
+
   /** Guards a refetch that resolves after the screen has gone. */
   const alive = useRef(true);
 
@@ -71,20 +96,32 @@ export function useSessionState(sessionId, { initial = null } = {}) {
   }, []);
 
   const reload = useCallback(() => {
-    getSession(sessionId)
+    // **The promise is returned, and 6.8 is why.** A mutation that is refused for the
+    // session's state has to re-read that state before it can say anything useful about
+    // it — `sessionErrors.js` maps the code *and the fresh row* to a sentence — so the
+    // caller needs to know when the read landed and what it said. Nothing is forced to
+    // await it: the socket handlers below still call it and walk away.
+    return getSession(sessionId)
       .then((next) => {
-        if (!alive.current) return;
+        if (!alive.current) return null;
 
         setSession(next);
         setError(null);
+
+        return next;
       })
       .catch((failure) => {
-        if (!alive.current) return;
+        if (!alive.current) return null;
 
         // **The last good state is kept.** A dropped request during a live session must
         // not blank a screen that is charging by the minute; the error is reported and
         // the numbers on screen stay the ones the server last confirmed.
         if (!session) setError(failure);
+
+        // `null` rather than a rejection: every caller of this is a screen recovering
+        // from something, and a rejected refetch inside a `catch` block is a second
+        // failure to handle in the place least able to do anything about it.
+        return null;
       });
     // `session` is deliberately absent: including it would rebuild `reload` on every
     // patch, and every effect below that depends on it would re-run mid-session.
@@ -101,17 +138,42 @@ export function useSessionState(sessionId, { initial = null } = {}) {
 
   // The room, and again on every reconnect. A reconnected socket is a new socket in no
   // rooms; `session:join` is idempotent on the server and re-emitting costs one frame.
+  //
+  // **6.8 adds the two things a reconnect needs beyond the room.** The socket being down
+  // is reported, because a screen that goes quiet and says nothing is indistinguishable
+  // from a frozen one — and this is the screen with a meter on it. And coming back is a
+  // refetch, because everything that happened while the tunnel was gone happened: a
+  // block was bought, or the session was ended, and the room the socket just rejoined
+  // will not replay any of it.
+  //
+  // **The clock is not on this path and never was.** `SessionTimer` counts from `endsAt`,
+  // which is absolute and server-issued, so a disconnected screen keeps telling the
+  // truth about a session it cannot hear. That is the property the marker exists to
+  // explain rather than to replace.
   useEffect(() => {
     const socket = getSocket();
+
     const join = () => socket.emit(SOCKET_EVENTS.SESSION_JOIN, { sessionId });
 
+    const onConnect = () => {
+      setConnected(true);
+      join();
+      reload();
+    };
+
+    const onDisconnect = () => setConnected(false);
+
+    setConnected(socket.connected);
     join();
-    socket.on('connect', join);
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
 
     return () => {
-      socket.off('connect', join);
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
     };
-  }, [sessionId]);
+  }, [sessionId, reload]);
 
   // A tab that was in the background missed frames, and on a phone it may have been
   // suspended entirely. Coming back is the cheapest moment to be sure.
@@ -172,6 +234,7 @@ export function useSessionState(sessionId, { initial = null } = {}) {
         if (!payload) return;
 
         setWarning(null);
+        setDeparted(null);
         setEnded(payload);
         reload();
       },
@@ -180,17 +243,23 @@ export function useSessionState(sessionId, { initial = null } = {}) {
   );
 
   /**
-   * `session:participant_left` — **6.8's, and a no-op here on purpose.**
+   * `session:participant_left` — **6.7 subscribed to it empty and 6.8 fills the body.**
    *
-   * The name was appended in 6.2 and the detection is 6.8's. It is subscribed to now so
-   * that the frame is consumed rather than landing on a screen with no listener, and so
-   * that 6.8 is one function body rather than a new subscription plus a new state field.
-   * **It is not the end of the session**: a dropped tunnel and a closed laptop are
-   * indistinguishable from here, the meter is still running, and the money has moved.
+   * The name was appended in 6.2 and the emitter is 6.8's: the server waits
+   * `PRESENCE_DISCONNECT_GRACE_SECONDS` and sends this only when no other socket of that
+   * person is left in the room, so a reload — which is also a disconnect — is not
+   * reported as somebody walking out.
+   *
+   * **Nothing is refetched and nothing is stopped.** There is no state change on the
+   * server to go and read; the session is exactly as it was one frame ago, which is the
+   * whole point. The screen says the connection dropped and the meter keeps running,
+   * because who pays for a broken connection is a product decision nobody has made.
    */
   useSocketEvent(
     SOCKET_EVENTS.SESSION_PARTICIPANT_LEFT,
-    useCallback(() => {}, []),
+    useCallback((payload) => {
+      if (payload) setDeparted(payload);
+    }, []),
   );
 
   /** The extend response, which is the same four numbers the emit carries. */
@@ -203,7 +272,17 @@ export function useSessionState(sessionId, { initial = null } = {}) {
 
   const dismissWarning = useCallback(() => setWarning(null), []);
 
-  return { session, error, warning, ended, reload, applyExtend, dismissWarning };
+  return {
+    session,
+    error,
+    warning,
+    ended,
+    departed,
+    connected,
+    reload,
+    applyExtend,
+    dismissWarning,
+  };
 }
 
 /**
