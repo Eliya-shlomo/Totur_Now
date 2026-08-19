@@ -241,7 +241,7 @@ Zero anomalies across all ten.
 **Two physical machines: not run.** Reason and plan in one sentence, as the acceptance
 criteria require: the pass had one machine and one person available on 2026-08-19, so the
 two-machine run is scheduled as the first item of E6's opening session, using the same
-`lock.sh` harness pointed at the Render URL with the second operator on their own laptop.
+`scripts/lock.mjs` harness pointed at the Render URL with the second operator on their own laptop.
 
 Note also that the ten runs above test the race the epic was worried about, and **defect 1
 reaches the same broken end-state with no race at all.** The concurrency was never the only
@@ -446,7 +446,7 @@ minutes of clicking that nobody has run yet — which is a scheduling fact, not 
 1. **Two defects are filed and fixed in their own PRs before E6's first feature PR.**
    Defect 1 blocks the F4 check and undermines the epic's headline guarantee, so it goes
    first.
-2. **The two-machine sitting opens E6**, ahead of feature work, with the `lock.sh` harness
+2. **The two-machine sitting opens E6**, ahead of feature work, with the `scripts/lock.mjs` harness
    and the four items still outstanding above. It is a smaller sitting than this retro
    first anticipated: the two-browser run, the flow, two of the four countdown cases and
    375px all came back passing on 2026-08-19, so what is left needs a second host, a

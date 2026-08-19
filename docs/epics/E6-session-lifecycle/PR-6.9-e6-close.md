@@ -31,7 +31,7 @@ takes a commission is money.
 E5's retro scheduled them against E6's opening and they were run in the sitting before 6.0.
 **Record their results here, with their output**, and mark E5's retro as closed:
 
-- the two-machine lock run against the Render URL, with `lock.sh`
+- the two-machine lock run against the Render URL, with `scripts/lock.mjs`
 - the deployed read-only half, the cold-start timing, and **the Socket.IO transport through
   Render** — a fallback to long-polling is a plausible outcome and E6 has a direct interest:
   it decides whether 6.5's block warning arrives on time on the deployed build
