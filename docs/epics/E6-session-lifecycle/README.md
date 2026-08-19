@@ -240,6 +240,47 @@ the teacher — all of that is 6.6's termination path, which replaces the sweep'
 Until 6.6 lands, an auto-ended session leaves its teacher `IN_SESSION` and its teacher
 unpaid. A test asserts the absence so that it stays deliberate.
 
+**11. 6.6 closed item 10, and the rewire is the whole of what changed in the job.**
+`session.autoEnd.job.js` no longer writes `ENDED`, credits nobody and emits nothing: it
+sweeps, and calls `terminateSession` once per due session with `actorId: null`. Its old
+assertions moved out of `session.meter.test.js` and into `session.end.test.js`, beside the
+service that now does the work — what is left in the meter's file is which sessions are
+due. A test reads the job's source and fails if `endSession`, `creditTeacher` or
+`emitSessionEnded` ever come back to it.
+
+**12. `session.review.service.js` needed a repository and neither candidate file fitted,
+so 6.6 added `review.repository.js`.** The four columns a rating moves live on
+`teacher_profiles`, whose only writer today is `teacher.presence.repository.js` — E5's, and
+about `status` and `last_seen_at`, two columns whose purpose is that they change every few
+seconds. A permanent reputation write beside a heartbeat is one file with two lifetimes in
+it. 6.6's brief anticipated this ("or a new session-owned read if that file is E2's"); the
+new file holds the review insert and the aggregate write, and nothing else imports it.
+
+**13. `session.repository.js` was reopened once more, for `releaseTeacherAfterSession`.**
+It is the exact inverse of `setTeacherInSession`, which is in that file, and an inverse
+kept somewhere else is how two writers of one column drift apart. Two statements inside it,
+deliberately: the status release is conditional on `IN_SESSION` so a teacher who went
+`OFFLINE` mid-session stays `OFFLINE`, and the counters are *not* conditional, because a
+lesson that happened counts whether or not the teacher was still connected when it ended —
+and `sessions_count` is the denominator E4's smoothing divides by. This is the file's sixth
+`git log` entry and the fourth in this epic.
+
+**14. Three endpoints answer shapes `shared/api.d.ts` has no type for.** The contract
+freeze gave E6 `SessionState`, `SessionVideoResponse`, `ExtendResponse` and `ReviewRequest`
+— and no response type for end, no-show or review. §12 lists all three routes and describes
+none of their bodies. They answer the terminal facts the screen needs
+(`{ sessionId, status, endReason, endedAt }`, plus `balance` on the refund and
+`{ isRated: true }` on the review) and **`shared/` is not edited**, which is 5.4's ruling on
+its own two deviations repeated: the deviation goes in the PR description and in this list,
+not into a frozen file.
+
+**15. Every reader of the aggregates this PR writes is E8's, and one consequence lands
+now.** From 6.6 on, `resolved_count`, `rating_sum`, `rating_count` and `sessions_count`
+move — so **teachers will start changing position on the match list.** E4's retro recorded
+that `globalRating` is unsmoothed and that §18's ranking criterion fails on seed data; that
+defect has been inert for two epics because nothing moved the numbers. **E6 does not fix it
+— it is E8's** — and 6.9's retro should say so before somebody files it as an E6 regression.
+
 ## What E6 inherits from E5, and when
 
 E5 closed with two defects fixed and four checks outstanding. Its retro scheduled them
@@ -291,7 +332,7 @@ Unchanged from E5, plus one:
 | 6.3 | [Session activation + `createSessionVideo` persistence](PR-6.3-session-start.md) | M | 6.1, 6.2 | ☑ |
 | 6.4 | [`getSessionVideoContext` + `GET /sessions/:id/video`](PR-6.4-session-video-endpoint.md) | S | 6.3 | ☑ |
 | 6.5 | [**Wallet service, opening charge, extend, and the meter crons**](PR-6.5-billing-and-meter.md) | **human** · L | 6.3 | ☑ |
-| 6.6 | [**Termination, no-show refund, rating → `RATED`**](PR-6.6-end-and-rating.md) | **human** · M | 6.5 | ☐ |
+| 6.6 | [**Termination, no-show refund, rating → `RATED`**](PR-6.6-end-and-rating.md) | **human** · M | 6.5 | ☑ |
 | 6.7 | [The session room — one screen, both roles, the call embedded](PR-6.7-session-room-ui.md) | L | 6.4, 6.5, 6.6 | ☐ |
 | 6.8 | [Error-state hardening and the end-to-end lifecycle tests](PR-6.8-error-hardening-e2e.md) | M | 6.7 | ☐ |
 | 6.9 | [E6 close: verification + retro](PR-6.9-e6-close.md) | **human** · S | 6.2–6.8 | ☐ |

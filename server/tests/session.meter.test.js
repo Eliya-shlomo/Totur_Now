@@ -426,101 +426,45 @@ describe('the block warning sweep', () => {
 });
 
 describe('the auto-end sweep', () => {
-  const autoEndDeps = (overrides = {}) => {
-    const base = {
-      findDue: spy(async () => [{ id: SESSION_ID, studentId: STUDENT_ID, teacherId: TEACHER_ID }]),
-      lockSession: spy(async () => lockedRow()),
-      endWithReason: spy(async () => ({ count: 1 })),
-      notifyEnded: spy(),
-      ...overrides,
-    };
-
-    base.runTransaction = spy(async (fn) => fn(TX));
-
-    return base;
-  };
-
+  /**
+   * **Only the sweep is asserted here, and that is 6.6's doing.** 6.5 shipped this job
+   * writing `ENDED` itself and this file asserted the whole of it; 6.6 gave the epic one
+   * termination path and rewired the job through it, so what is left here is *which
+   * sessions are due*. That the rewired call carries `no_extension` and no actor, that a
+   * session somebody else ended is ordinary rather than a failure, and that one bad row
+   * does not stop the sweep are all asserted in `session.end.test.js`, beside the service
+   * that now does the work.
+   */
   it('sweeps GRACE_SECONDS past the deadline, not the deadline itself', async () => {
-    const collaborators = autoEndDeps();
+    const findDue = spy(async () => []);
 
-    await runAutoEnd(collaborators);
+    await runAutoEnd({ findDue, endDueSession: spy() });
 
-    const [deadline] = collaborators.findDue.calls[0];
+    const [deadline] = findDue.calls[0];
 
     // The warning goes out at T-60s and the student may still be reading it. §5.1's grace
     // is the room to press the button.
     assert.ok(Date.now() - deadline.getTime() >= GRACE_SECONDS * 1000);
   });
 
-  it('ends with no_extension and tells both sides after the commit', async () => {
-    const collaborators = autoEndDeps();
+  it('calls nothing on an empty tick', async () => {
+    const endDueSession = spy();
 
-    const result = await runAutoEnd(collaborators);
-
-    const [written, tx] = collaborators.endWithReason.calls[0];
-    const [sessionId, payload] = collaborators.notifyEnded.calls[0];
-
-    assert.equal(result.ended, 1);
-    assert.equal(written.status, 'ENDED');
-    assert.equal(written.endReason, 'no_extension');
-    assert.equal(tx, TX);
-
-    assert.equal(sessionId, SESSION_ID);
-    assert.equal(payload.endReason, 'no_extension');
-    // Nobody ended it. The clock did.
-    assert.equal(payload.actorId, null);
-  });
-
-  it('does nothing to a session somebody ended between the sweep and the lock', async () => {
-    const collaborators = autoEndDeps({
-      lockSession: spy(async () => lockedRow({ status: 'ENDED' })),
+    assert.deepEqual(await runAutoEnd({ findDue: spy(async () => []), endDueSession }), {
+      ended: 0,
     });
-
-    const result = await runAutoEnd(collaborators);
-
-    // Whoever ended it announced it. A second `session:ended` is two endings on one screen.
-    assert.equal(result.ended, 0);
-    assert.equal(collaborators.endWithReason.calls.length, 0);
-    assert.equal(collaborators.notifyEnded.calls.length, 0);
+    assert.equal(endDueSession.calls.length, 0);
   });
 
-  it('announces nothing when the conditional write matched nothing', async () => {
-    const collaborators = autoEndDeps({ endWithReason: spy(async () => ({ count: 0 })) });
-
-    const result = await runAutoEnd(collaborators);
-
-    assert.equal(result.ended, 0);
-    assert.equal(collaborators.notifyEnded.calls.length, 0);
-  });
-
-  it('keeps sweeping when one session fails, and never throws', async () => {
-    let seen = 0;
-    const collaborators = autoEndDeps({
-      findDue: spy(async () => [{ id: SESSION_ID }, { id: 'other' }]),
-      lockSession: spy(async () => {
-        seen += 1;
-
-        if (seen === 1) throw new Error('deadlock detected');
-
-        return lockedRow();
+  it('never throws when the sweep query itself fails', async () => {
+    const result = await runAutoEnd({
+      findDue: spy(async () => {
+        throw new Error('database is down');
       }),
+      endDueSession: spy(),
     });
 
-    const result = await runAutoEnd(collaborators);
-
-    assert.equal(result.ended, 1);
-  });
-
-  it('credits nobody — 6.6 owns the money at termination', async () => {
-    const source = await readFile(
-      fileURLToPath(new URL('../src/jobs/session.autoEnd.job.js', import.meta.url)),
-      'utf8',
-    );
-
-    assert.equal(
-      /creditTeacher|wallet\.service/.test(source.replace(/\/\*[\s\S]*?\*\//g, '')),
-      false,
-    );
+    assert.deepEqual(result, { ended: 0 });
   });
 });
 

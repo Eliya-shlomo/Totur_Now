@@ -1,7 +1,8 @@
 import { getSessionView } from '#services/session.view.service.js';
+import { reportSessionNoShow, terminateSession } from '#services/session.end.service.js';
 import { extendSessionBlock } from '#services/session.meter.service.js';
+import { submitSessionReview } from '#services/session.review.service.js';
 import { getSessionVideoContext } from '#services/session.video.service.js';
-import { AppError } from '#utils/AppError.js';
 import { createSessionVideoAccess } from '#services/video.service.js';
 import { sendOffer as sendSessionOffer } from '#services/session.offer.service.js';
 
@@ -106,24 +107,31 @@ export async function getSession(req, res) {
 
 // ── E6 ───────────────────────────────────────────────────────────────────────
 //
-// Five handlers, and **every one of them throws and does nothing else.** They exist in
-// 6.2 so that 6.4, 6.5 and 6.6 each fill one in without opening `session.routes.js`,
-// which E5 froze at 5.1 and E6 unfreezes exactly once — here. A controller created by
-// the PR that fills it in is a controller the router had to be edited to reach. 2.1,
-// 3.1, 4.1 and 5.1 all made this call and none of the PRs that followed them touched a
-// frozen file.
+// Five handlers, **all of them shipped in 6.2 throwing `NOT_IMPLEMENTED` and all five
+// filled in by the time 6.6 landed** — the video endpoint by 6.4, extend by 6.5, and the
+// three below it by 6.6. They exist in 6.2 so that none of those PRs had to open
+// `session.routes.js`, which E5 froze at 5.1 and E6 unfroze exactly once. A controller
+// created by the PR that fills it in is a controller the router had to be edited to
+// reach. 2.1, 3.1, 4.1 and 5.1 all made this call, and none of the PRs that followed
+// them touched a frozen file — nor did 6.4, 6.5 or 6.6.
 //
-// **Not one of them half-works.** No argument is read, no service is called, no
-// response is written — `AppError.notImplemented()` and nothing above it. A handler
-// that validates its input and then throws looks, in a log, exactly like a handler that
-// works; a handler that reads a row and throws has opened a transaction for a 501. The
-// only thing these five demonstrate is that their middleware ran, and 6.2's acceptance
-// criteria assert precisely that: a bad uuid is `400`, an anonymous call `401`, a
-// teacher calling extend `403`, and a well-formed student call `501`.
+// **The arrangement worked and the ledger is worth keeping.** Every one of the five is
+// one service call and an envelope. Not one of them reads a second row, branches on a
+// role, or computes anything: the shapes were decided in 6.2 and the three PRs that
+// arrived later were consumers of that decision rather than three separate inventions
+// of what a session looks like on the wire.
 //
-// The doc comment on each is the handover. It names the PR that fills it in, the
-// service it will call, and the decisions already made about it — so that the PR which
-// arrives here later is reading a brief rather than inventing one.
+// The doc comment on each still names the PR that filled it in and the decisions that
+// were already made about it, which is what those PRs read instead of inventing one.
+
+/**
+ * §11.2's reason for a session somebody chose to end, **whichever side pressed it.**
+ *
+ * The enumeration has no `teacher_ended` value and inventing one is a migration: the
+ * column says why the session is over, not who was holding the mouse. The actor is on the
+ * emit and in the log, which is where 6.6 put it.
+ */
+const STUDENT_ENDED = 'student_ended';
 
 /**
  * `GET /sessions/:id/video` — the room and a freshly minted token. **6.4.**
@@ -221,8 +229,14 @@ export async function extendSession(req, res) {
  * `ended_at`: §5.3's low-demand window is `[6, 14)`, and a session that begins at 13:55
  * must not become chargeable halfway through.
  */
-export async function endSession() {
-  throw AppError.notImplemented('Ending a session');
+export async function endSession(req, res) {
+  const ended = await terminateSession({
+    sessionId: req.params.id,
+    endReason: STUDENT_ENDED,
+    actorId: req.user.id,
+  });
+
+  res.json({ success: true, data: ended });
 }
 
 /**
@@ -239,8 +253,13 @@ export async function endSession() {
  * **`NO_SHOW` is terminal and is not rated.** 6.7's screen sends the student back to
  * the match list rather than to a rating modal.
  */
-export async function reportNoShow() {
-  throw AppError.notImplemented('Reporting a no-show');
+export async function reportNoShow(req, res) {
+  const reported = await reportSessionNoShow({
+    sessionId: req.params.id,
+    studentId: req.user.id,
+  });
+
+  res.json({ success: true, data: reported });
 }
 
 /**
@@ -258,6 +277,14 @@ export async function reportNoShow() {
  * **A review with no stars must not move `rating_count`.** That is how an average
  * becomes wrong, and it is one `??` away from being wrong.
  */
-export async function submitReview() {
-  throw AppError.notImplemented('Reviewing a session');
+export async function submitReview(req, res) {
+  const rated = await submitSessionReview({
+    sessionId: req.params.id,
+    studentId: req.user.id,
+    isResolved: req.body.isResolved,
+    stars: req.body.stars,
+    comment: req.body.comment,
+  });
+
+  res.json({ success: true, data: rated });
 }

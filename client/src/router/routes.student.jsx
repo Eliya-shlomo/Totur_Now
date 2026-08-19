@@ -3,6 +3,7 @@ import Placeholder from '@/components/Placeholder';
 import Ask from '@/pages/student/Ask';
 import ChooseTeacher from '@/pages/student/ChooseTeacher';
 import Classifying from '@/pages/student/Classifying';
+import RateSession from '@/pages/student/RateSession';
 import Session from '@/pages/student/Session';
 import ProtectedRoute from '@/router/ProtectedRoute';
 
@@ -28,7 +29,10 @@ export const studentRoutes = [
       { path: 'ask/:id/matching', element: <Classifying /> },
       { path: 'ask/:id/teachers', element: <ChooseTeacher /> },
       { path: 'session/:id', element: <Session /> },
-      { path: 'session/:id/review', element: <Placeholder title="Rate this session" pr="8.4" /> },
+      // The placeholder said `pr="8.4"` and the screen arrived in 6.6 — §10 makes the
+      // rating the only way out of an `ENDED` session, so E6 could not leave it to E8.
+      // The `pr=` is corrected by the PR that replaces it, which is E1's retro rule.
+      { path: 'session/:id/review', element: <RateSession /> },
       { path: 'wallet', element: <Placeholder title="Wallet" pr="7.7" /> },
       { path: 'history', element: <Placeholder title="Session history" pr="8.6" /> },
     ],
