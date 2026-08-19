@@ -3,7 +3,7 @@ import { SOCKET_EVENTS } from '@tutor/shared';
 import { logger } from '#utils/logger.js';
 
 import { getIo } from './index.js';
-import { userRoom } from './rooms.js';
+import { sessionRoom, userRoom } from './rooms.js';
 
 /**
  * One function per server → client event. **The only place in `server/src` that
@@ -171,4 +171,145 @@ export function emitTeacherStatus(teacherId, payload) {
       message: error?.message,
     });
   }
+}
+
+// ── E6 ───────────────────────────────────────────────────────────────────────
+//
+// Five emitters, **all shipped here in 6.2 and none called until 6.5.** The same
+// arrangement 5.1 made for its five, and the reason held: a payload decided once, in
+// the PR that froze the contract, is what makes 6.5 and 6.6 one-line consumers rather
+// than two separate inventions of what "the session ended" looks like on the wire.
+//
+// The three properties above still hold, with one addition. Four of the five address a
+// **session** rather than a person, because these events are about a session and both
+// participants need them at the same instant — a warning that reached the student and
+// not the teacher is two people watching different clocks while one of them decides
+// whether to spend. `emitTeacherAwayWarning` is the exception and it is addressed to a
+// person, because it is about that person and the other side has no business seeing it.
+
+/**
+ * Emits to one session's room, swallowing a transport failure.
+ *
+ * `emitToUser`'s counterpart, and the second and last place in this directory where an
+ * addressed `emit` is called. Same swallow, same reason: every one of these is a side
+ * effect of a transaction that has already committed, and a charge that 500s because a
+ * socket hiccuped is a worse product than a modal that arrives late.
+ *
+ * **Delivery is to whoever is in the room, and nobody is in it who was not checked.**
+ * `handlers.session.js` is the only thing that joins it, after reading the session's
+ * participants out of the database. This function does no check of its own and must not
+ * grow one — a second place that decides who may hear about a session is a second place
+ * to get it wrong.
+ *
+ * @param {string} sessionId
+ * @param {string} event one of SOCKET_EVENTS
+ * @param {object} payload
+ */
+function emitToSession(sessionId, event, payload) {
+  try {
+    getIo().to(sessionRoom(sessionId)).emit(event, payload);
+    logger.debug('Socket event emitted', { event, sessionId });
+  } catch (error) {
+    logger.error('Socket emit failed', { event, sessionId, message: error?.message });
+  }
+}
+
+/**
+ * `session:block_warning` — the current block ends in `WARNING_SECONDS`. 6.5's cron
+ * emits it; 6.7's screen raises the extend modal on it.
+ *
+ * **The server decides all four numbers.** `canAfford` and `withinCap` are not the
+ * client's to compute: a screen that works out affordability works it out differently
+ * from the endpoint that enforces it, and the disagreement shows up as an extend button
+ * that is enabled and then 402s.
+ *
+ * To both sides. The teacher does not press the button, but a teacher who does not know
+ * the session is about to end is a teacher who starts explaining something.
+ *
+ * @param {string} sessionId
+ * @param {{secondsLeft: number, extensionPrice: number, balanceAfter: number,
+ *          canAfford: boolean, withinCap: boolean}} payload
+ */
+export function emitBlockWarning(sessionId, payload) {
+  emitToSession(sessionId, SOCKET_EVENTS.SESSION_BLOCK_WARNING, payload);
+}
+
+/**
+ * `session:extended` — a block was bought. 6.5 emits it after the charge commits.
+ *
+ * **`endsAt` is absolute, server-issued and the only clock**, exactly as `expiresAt`
+ * was in E5's countdown. A payload carrying "five more minutes" would leave a
+ * backgrounded tab and a reload disagreeing with the server about when the session
+ * ends, and this one has money behind it.
+ *
+ * `balance` rides along because it is the reason §13's `wallet:updated` is not in E6's
+ * contract: the session screen is the only screen showing a balance, and it is already
+ * listening to this.
+ *
+ * @param {string} sessionId
+ * @param {{blocksUsed: number, endsAt: string, totalCharged: number, balance: number}} payload
+ */
+export function emitSessionExtended(sessionId, payload) {
+  emitToSession(sessionId, SOCKET_EVENTS.SESSION_EXTENDED, payload);
+}
+
+/**
+ * `session:ended` — it is over, and why. 6.6 emits it after the termination commits;
+ * 6.5's auto-end sweep is rewired through the same path.
+ *
+ * To both sides, and this is the one event where that is not a convenience: whichever
+ * of the two did not press the button has no HTTP response coming and would otherwise
+ * sit on a screen counting down a session that has already been billed and closed.
+ *
+ * `endReason` is one of §11.2's six values and the screen renders it, so the same
+ * ending does not read as an error to one participant and a choice to the other.
+ * `actorId` is carried because the column deliberately does not record it — both sides
+ * write `student_ended` — and the screen wants to say who.
+ *
+ * @param {string} sessionId
+ * @param {{endReason: string, endedAt: string, actorId: string|null}} payload
+ */
+export function emitSessionEnded(sessionId, payload) {
+  emitToSession(sessionId, SOCKET_EVENTS.SESSION_ENDED, payload);
+}
+
+/**
+ * `session:participant_left` — the other person's last socket went away mid-session.
+ * E5 README, gap 11, deferred to E6 because a fix with no screen to show it on is a
+ * state change nobody can see. 6.8 wires the detection; 6.7 owns what it looks like.
+ *
+ * **This is not the end of the session and must never be mistaken for one.** A dropped
+ * tunnel and a closed laptop are indistinguishable from here, and E5 already learned
+ * that a reload is also a disconnect — `PRESENCE_DISCONNECT_GRACE_SECONDS` exists
+ * because of it. The meter keeps running, the money has already moved, and the person
+ * still on the screen is told the other side went quiet so they can decide whether to
+ * end it.
+ *
+ * @param {string} sessionId
+ * @param {{userId: string, role: 'student'|'teacher'}} payload who left
+ */
+export function emitParticipantLeft(sessionId, payload) {
+  emitToSession(sessionId, SOCKET_EVENTS.SESSION_PARTICIPANT_LEFT, payload);
+}
+
+/**
+ * `teacher:away_warning` — "still there?" at `AUTO_AWAY_WARNING_MINUTES`. 6.5's
+ * reopened auto-away job emits it.
+ *
+ * **The constant has been unread since E0 and this is its first reader.** It was 5.2's,
+ * then 5.5's, then nobody's, and E5's README has the whole argument: the blocker was
+ * never the query. It was that appending an event name is a contract change rather than
+ * a job, and `teacher:status` with an unchanged status is a no-op every existing
+ * handler already ignores. 6.2 appended the E6 block anyway, so the name cost one line.
+ *
+ * **Addressed to the teacher, through `emitToUser`, and it is the one E6 emitter that
+ * is.** It is about that teacher's idleness, it fires whether or not they are in a
+ * session, and a student has no business being told the person teaching them looks
+ * asleep.
+ *
+ * @param {string} teacherId
+ * @param {{minutesUntilAway: number}} payload
+ */
+export function emitTeacherAwayWarning(teacherId, payload) {
+  emitToUser(teacherId, SOCKET_EVENTS.TEACHER_AWAY_WARNING, payload);
 }

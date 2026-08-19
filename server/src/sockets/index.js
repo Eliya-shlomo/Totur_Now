@@ -6,6 +6,7 @@ import { logger } from '#utils/logger.js';
 import { socketAuth } from './auth.js';
 import { replayOpenOffer } from './handlers.offer.js';
 import { registerPresenceHandlers, scheduleOfflineIfLastSocket } from './handlers.presence.js';
+import { registerSessionHandlers } from './handlers.session.js';
 
 /**
  * The Socket.IO server. Created in PR 5.1, and **it emits nothing until 5.2.**
@@ -68,6 +69,14 @@ export function initSockets(httpServer) {
     // A student's socket gets no listener at all; the role check is inside, at the
     // boundary, rather than here where every later handler would have to repeat it.
     registerPresenceHandlers(socket);
+
+    // `session:join` — E6's one client → server event, and the only place a socket
+    // joins a second room. Registered for **both** roles, unlike the heartbeat above:
+    // a student and a teacher are equally participants in a session, so there is no
+    // role to refuse at this boundary. The check is against the database, inside the
+    // handler, before the join — `user:{userId}` comes from the verified handshake and
+    // cannot be wrong, whereas this one carries an id the client chose.
+    registerSessionHandlers(socket);
 
     // The offer this teacher is already holding, if there is one. `offer:new` is a
     // live frame and nothing catches it when the teacher's socket did not exist yet —

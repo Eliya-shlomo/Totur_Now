@@ -471,3 +471,103 @@ export interface IncomingOffer {
   expectedEarning: number;
   expiresAt: string;
 }
+
+// ── E6 ──────────────────────────────────────────────────────────────────────
+// Frozen in docs/epics/E6-session-lifecycle/README.md § "Contract freeze", and copied
+// here verbatim in PR 6.2 — the same arrangement 5.1 made, and for the same reason:
+// one developer writes both consumers and they stay two consumers regardless. Changing
+// anything below is a note in the PR **before** the code.
+//
+// Everything here ships before anything answers it. 6.3 fills `SessionState`, 6.4
+// `SessionVideoResponse`, 6.5 `ExtendResponse`, 6.6 `ReviewRequest`; the five routes
+// exist from this PR and answer 501 until each does. A payload decided once is what
+// makes those four PRs consumers rather than four separate inventions of what a
+// session looks like on the wire.
+//
+// The socket contract is not here. Event names live in `shared/socketEvents.js`,
+// which is JavaScript because both sides import the values rather than the types.
+
+/** `sessions.status`. Mirrors the Prisma enum; §10's diagram is the source. */
+export type SessionStatus =
+  'PENDING' | 'OFFER_SENT' | 'ACTIVE' | 'ENDED' | 'RATED' | 'CANCELLED' | 'NO_SHOW';
+
+/** `sessions.end_reason`. Set on every transition into `ENDED` or `NO_SHOW`. */
+export type SessionEndReason =
+  'student_ended' | 'no_extension' | 'no_credit' | 'budget_cap' | 'teacher_no_show' | 'error';
+
+/**
+ * What `GET /sessions/:id` answers with once the session is `ACTIVE` or past it,
+ * and what the session screen renders for **both** roles.
+ *
+ * One shape, two fillings. `role` tells the client which it got, and the fields the
+ * other side may not see are `null` rather than absent — a missing key and a null
+ * are indistinguishable to a renderer, and E5 already made the opposite call for
+ * `offer:accepted`'s room URL, where the key is omitted entirely. The difference is
+ * that there the absence was permanent and here it is per-caller.
+ *
+ * **`endsAt` is the only clock.** Absolute, server-issued, ISO 8601 UTC, recomputed
+ * from on every tick. E5's countdown proved the pattern under a backgrounded tab and
+ * a reload at second 30; this one is the same pattern with money behind it.
+ */
+export interface SessionState {
+  sessionId: string;
+  status: SessionStatus;
+  role: 'student' | 'teacher';
+
+  /** The other person. Never yourself. */
+  counterpart: { userId: string; fullName: string; avatarUrl: string | null };
+
+  brief: string;
+  topicLabel: string | null;
+  level: number | null;
+
+  pricePerBlock: number;
+  blocksUsed: number;
+  totalCharged: number;
+  budgetCap: number;
+
+  /** Student only; `null` for the teacher. */
+  balance: number | null;
+  /** Teacher only; `null` for the student. Net of §5.3's commission. */
+  teacherEarning: number | null;
+
+  startedAt: string | null;
+  endsAt: string | null;
+  endedAt: string | null;
+  endReason: SessionEndReason | null;
+
+  /** Whether a room exists. The URL and the token come from the video endpoint. */
+  hasVideo: boolean;
+  /** `true` once a review exists. The screen may not be left while this is false. */
+  isRated: boolean;
+}
+
+/**
+ * `GET /sessions/:id/video` — the seam, and the only way a client learns either value.
+ *
+ * **Minted per call and never cached server-side.** A token names one user and one
+ * room and expires in an hour; two people in the same session get two different
+ * tokens, and a page reload gets a third. Anything that stored one and handed it out
+ * again would be the deleted `/video/access` endpoint wearing a different name.
+ */
+export interface SessionVideoResponse {
+  roomUrl: string;
+  token: string;
+  /** ISO 8601, UTC. The token's expiry, not the session's. */
+  expiresAt: string;
+}
+
+/** `POST /sessions/:id/extend` — one block. No body. */
+export interface ExtendResponse {
+  blocksUsed: number;
+  endsAt: string;
+  totalCharged: number;
+  balance: number;
+}
+
+/** `POST /sessions/:id/review`. `stars` and `comment` are optional; `isResolved` is the KPI. */
+export interface ReviewRequest {
+  isResolved: boolean;
+  stars?: number;
+  comment?: string;
+}

@@ -59,3 +59,61 @@ export const sessionByIdSchema = z.object({
   params: z.object({ id: z.string().uuid('That is not a valid session id.') }).strict(),
   query: z.object({}).strict(),
 });
+
+// ── E6 ───────────────────────────────────────────────────────────────────────
+//
+// **Four of E6's five routes reuse `sessionByIdSchema` above rather than adding four
+// identical copies of it.** `GET /:id/video`, `POST /:id/extend`, `POST /:id/end` and
+// `POST /:id/report-no-show` each take one uuid in the path and nothing else — extend
+// deliberately has no body, because one block is the only thing an extension can buy
+// and a quantity in the body is a way to overrun the budget cap in one request.
+//
+// A second schema with a different name and an identical shape would be a second place
+// to forget `.strict()`, and its name would be the only thing distinguishing it. The
+// schema's own header says it validates that an id arrived and is shaped like one,
+// which is the entire input surface of all four.
+//
+// `POST /:id/review` is the one that carries a body, and it is below.
+
+/**
+ * `POST /sessions/:id/review` — the rating that moves a session to its terminal state
+ * (6.6). `ReviewRequest` in `shared/api.d.ts`.
+ *
+ * **`isResolved` is required and the other two are not.** It is §6.2's core KPI — did
+ * this session actually answer the question — and it is the one field the product needs
+ * from every rating. Stars and a comment are what a student volunteers.
+ *
+ * `stars` is `.int().min(1).max(5)`, which is the `CHECK (stars BETWEEN 1 AND 5)`
+ * hand-added to the init migration, restated here so a `7` is a `VALIDATION_ERROR`
+ * naming the field rather than a constraint violation surfacing as a 500. Two
+ * statements of one rule, and they are allowed to be two because one of them is the
+ * database's last word and the other is the message the student reads.
+ *
+ * **`.int()` matters and is not decoration.** `stars` is `@db.SmallInt`; a `4.5`
+ * without it reaches Prisma as a float and fails somewhere less legible than here.
+ *
+ * `comment` is capped at 1000 characters. That number is not in the contract — the
+ * column is unbounded `text` — and it is here because an uncapped free-text field on an
+ * authenticated endpoint is a row somebody can make a megabyte wide. If the product
+ * ever wants a different number it belongs in `constants/`; one caller does not earn a
+ * constant.
+ *
+ * `.strict()` like everything else in this file, so a client sending `{ rating: 5 }`
+ * learns that the field is called something else rather than having it dropped.
+ */
+export const reviewSchema = z.object({
+  body: z
+    .object({
+      isResolved: z.boolean({ required_error: 'Say whether this session solved it.' }),
+      stars: z
+        .number()
+        .int('Stars must be a whole number.')
+        .min(1, 'Stars go from 1 to 5.')
+        .max(5, 'Stars go from 1 to 5.')
+        .optional(),
+      comment: z.string().max(1000, 'That comment is too long.').optional(),
+    })
+    .strict(),
+  params: z.object({ id: z.string().uuid('That is not a valid session id.') }).strict(),
+  query: z.object({}).strict(),
+});

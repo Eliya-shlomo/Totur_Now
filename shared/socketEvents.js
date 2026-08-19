@@ -36,4 +36,36 @@ export const SOCKET_EVENTS = {
   // ── client → server ─────────────────────────────────────────────────────────
   /** The teacher's tab saying it is still there. Consumed by PR 5.2. */
   TEACHER_HEARTBEAT: 'teacher:heartbeat',
+
+  // The header above is E5's and four of the five names it says are unappended are
+  // appended here. That paragraph is not edited, deliberately: this file is
+  // APPEND-ONLY (docs/OWNERSHIP.md §2) and 6.2's acceptance criteria say the diff
+  // shows additions only. It was right when it was written — the rule it states is
+  // "added by the epic that emits them", and this is that epic.
+  //
+  // Six names, and §13's catalogue is complete except `wallet:updated`, which stays
+  // E7's: E6 has no wallet screen to update, and the session screen learns its
+  // balance from `session:extended`, which it is already listening to.
+  //
+  // **All five server → client names ship here and none is called until 6.5.** Same
+  // property the five above kept through 5.1: one emitter each, in
+  // `server/src/sockets/events.js`, and nothing else in the server calls `emit`.
+  //
+  // **`session:join` is the epic's one client → server event and the only place a
+  // socket joins a second room.** `user:{userId}` comes from the verified handshake
+  // and cannot be wrong; this one carries an id from the client, so membership is
+  // checked against the database before the join and a refusal is silent. **A room
+  // name is not a capability.**
+
+  // ── E6, server → client ────────────────────────────────────────────────────
+  SESSION_BLOCK_WARNING: 'session:block_warning',
+  SESSION_EXTENDED: 'session:extended',
+  SESSION_ENDED: 'session:ended',
+  /** The other person's last socket went away mid-session. E5 README, gap 11. */
+  SESSION_PARTICIPANT_LEFT: 'session:participant_left',
+  /** "Still there?" at 55 minutes. §10, and the constant's first reader. */
+  TEACHER_AWAY_WARNING: 'teacher:away_warning',
+
+  // ── E6, client → server ────────────────────────────────────────────────────
+  SESSION_JOIN: 'session:join',
 };

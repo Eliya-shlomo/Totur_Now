@@ -162,25 +162,39 @@ describe('sessionByIdSchema and offerByIdSchema — the params-only routes', () 
 });
 
 describe('the socket contract', () => {
-  it('catalogues six events and not eleven', () => {
-    // §13 lists eleven. The other five belong to E6's meter and E7's wallet, and a
-    // catalogue of names nothing emits stops being trustworthy. This is the
-    // assertion that makes appending one a deliberate act.
-    assert.equal(Object.keys(SOCKET_EVENTS).length, 6);
+  it("catalogues E5's six, and everything else was appended deliberately", () => {
+    // **This assertion was `length === 6` until PR 6.2, and changing it is the
+    // deliberate act it was written to force.** §13 lists eleven names; E5 appended
+    // six because a catalogue of names nothing emits stops being trustworthy, and
+    // the rule it wrote down was "added by the epic that emits them". E6 is that
+    // epic for five of the remaining names plus `session:join`, so the count moved
+    // to twelve. `wallet:updated` is still unappended and still E7's.
+    //
+    // What the test pins now is the property that actually matters and that a bare
+    // count never checked: **E5's six are all still here and none of them was
+    // renamed.** A later epic may append; it may not edit.
+    assert.equal(Object.keys(SOCKET_EVENTS).length, 12);
+    assert.ok(!('WALLET_UPDATED' in SOCKET_EVENTS));
   });
 
-  it('names every event exactly as the contract freeze does', () => {
+  it("names E5's events exactly as its contract freeze does", () => {
     // The strings, not the keys: the client switches on these values, and a rename
     // that only one side learns about is a screen that never updates and no error
     // anywhere. Written out rather than derived, so a typo cannot agree with itself.
-    assert.deepEqual(SOCKET_EVENTS, {
+    //
+    // A subset check rather than a whole-object `deepEqual`, because this file is
+    // E5's and E6's six are pinned the same way in `session.state.test.js`. Each
+    // epic asserts its own block, so a broken name says which contract broke.
+    for (const [key, value] of Object.entries({
       OFFER_NEW: 'offer:new',
       OFFER_EXPIRED: 'offer:expired',
       OFFER_ACCEPTED: 'offer:accepted',
       OFFER_REJECTED: 'offer:rejected',
       TEACHER_STATUS: 'teacher:status',
       TEACHER_HEARTBEAT: 'teacher:heartbeat',
-    });
+    })) {
+      assert.equal(SOCKET_EVENTS[key], value, `${key} moved`);
+    }
   });
 
   it('addresses a user room by id, with a prefix', () => {

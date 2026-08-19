@@ -198,7 +198,7 @@ Unchanged from E5, plus one:
 |---|---|---|---|---|
 | 6.0 | [Migration: `zoom_*` → `video_room_name` / `video_room_url`](PR-6.0-video-columns-migration.md) | S | E5 | ☑ |
 | 6.1 | [Import the Daily video layer — `video.service`, `VideoRoom.jsx`](PR-6.1-daily-video-import.md) | S | — | ☑ |
-| 6.2 | [**Session state machine: transition rules, frozen routes, the E6 contract**](PR-6.2-session-state-machine.md) | **human** · L | 6.0 | ☐ |
+| 6.2 | [**Session state machine: transition rules, frozen routes, the E6 contract**](PR-6.2-session-state-machine.md) | **human** · L | 6.0 | ☑ |
 | 6.3 | [Session activation + `createSessionVideo` persistence](PR-6.3-session-start.md) | M | 6.1, 6.2 | ☐ |
 | 6.4 | [`getSessionVideoContext` + `GET /sessions/:id/video`](PR-6.4-session-video-endpoint.md) | S | 6.3 | ☐ |
 | 6.5 | [**Wallet service, opening charge, extend, and the meter crons**](PR-6.5-billing-and-meter.md) | **human** · L | 6.3 | ☐ |

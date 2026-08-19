@@ -1,4 +1,5 @@
 import { getSessionView } from '#services/session.view.service.js';
+import { AppError } from '#utils/AppError.js';
 import { sendOffer as sendSessionOffer } from '#services/session.offer.service.js';
 
 /**
@@ -98,4 +99,125 @@ export async function getSession(req, res) {
   });
 
   res.json({ success: true, data: session });
+}
+
+// ── E6 ───────────────────────────────────────────────────────────────────────
+//
+// Five handlers, and **every one of them throws and does nothing else.** They exist in
+// 6.2 so that 6.4, 6.5 and 6.6 each fill one in without opening `session.routes.js`,
+// which E5 froze at 5.1 and E6 unfreezes exactly once — here. A controller created by
+// the PR that fills it in is a controller the router had to be edited to reach. 2.1,
+// 3.1, 4.1 and 5.1 all made this call and none of the PRs that followed them touched a
+// frozen file.
+//
+// **Not one of them half-works.** No argument is read, no service is called, no
+// response is written — `AppError.notImplemented()` and nothing above it. A handler
+// that validates its input and then throws looks, in a log, exactly like a handler that
+// works; a handler that reads a row and throws has opened a transaction for a 501. The
+// only thing these five demonstrate is that their middleware ran, and 6.2's acceptance
+// criteria assert precisely that: a bad uuid is `400`, an anonymous call `401`, a
+// teacher calling extend `403`, and a well-formed student call `501`.
+//
+// The doc comment on each is the handover. It names the PR that fills it in, the
+// service it will call, and the decisions already made about it — so that the PR which
+// arrives here later is reading a brief rather than inventing one.
+
+/**
+ * `GET /sessions/:id/video` — the room and a freshly minted token. **6.4.**
+ *
+ * `authenticate` and no `authorize`, like `GET /sessions/:id` above and for the same
+ * reason: both participants join the same call, so the rule is about a row and not a
+ * role. A role gate here would either lock out half the participants or say nothing.
+ *
+ * 6.4 is three calls and no logic — `getSessionVideoContext(sessionId, req.user.id)`,
+ * then DEV-C's `createSessionVideoAccess`, then the envelope. Two things it must get
+ * right, both already decided:
+ *
+ * **Every failure is `404`.** Not yours, not `ACTIVE`, does not exist — one status, one
+ * code, one message. `403` on a session id confirms the session is real, and a `404`
+ * from `GET /sessions/:id` beside a `403` from here is an oracle built out of two
+ * individually correct decisions. The three causes are distinguishable in the log, at
+ * `warn`, and nowhere else.
+ *
+ * **`userName` comes from the database.** It is what goes on the tile, and the endpoint
+ * 6.1 deleted took it from the request body — so a stranger could walk in *and* choose
+ * the name they walked in under.
+ */
+export async function getSessionVideo() {
+  throw AppError.notImplemented('The session video endpoint');
+}
+
+/**
+ * `POST /sessions/:id/extend` — one more block. **6.5.**
+ *
+ * `authorize('student')`, because only a student can spend.
+ *
+ * **No body, and the validator enforces it.** One block — `EXTENSION_BLOCKS` — is the
+ * only thing an extension can buy. A quantity in the body is a way to overrun the
+ * budget cap in one request.
+ *
+ * 6.5's service is one transaction: lock the session, assert `ACTIVE`, check the cap
+ * *before* the charge, charge, then `extendSession` matching on `ends_at` as it was
+ * read. `assertTransition` is not called — this is `ACTIVE` → `ACTIVE`, which is not an
+ * edge — and the `ends_at` match is what makes a double-tapped button buy one block
+ * instead of two.
+ */
+export async function extendSession() {
+  throw AppError.notImplemented('Extending a session');
+}
+
+/**
+ * `POST /sessions/:id/end` — either side stops the session. **6.6.**
+ *
+ * **`authenticate` and no `authorize`, deliberately, and it is the third route in this
+ * file to make that call.** Either participant may end a session. §11.2's `end_reason`
+ * enumeration has no `teacher_ended` value and inventing one is a migration, so both
+ * sides write `student_ended`: the column says *why* the session is over, not who was
+ * holding the mouse. The actor is not lost — the emit carries it and the log records
+ * it.
+ *
+ * 6.6's service is the one path that writes `ENDED`, and 6.5's auto-end cron is rewired
+ * to call it rather than the repository directly. Fee at `started_at` and not at
+ * `ended_at`: §5.3's low-demand window is `[6, 14)`, and a session that begins at 13:55
+ * must not become chargeable halfway through.
+ */
+export async function endSession() {
+  throw AppError.notImplemented('Ending a session');
+}
+
+/**
+ * `POST /sessions/:id/report-no-show` — the teacher never arrived. **6.6.**
+ *
+ * `authorize('student')`. The teacher cannot report their own absence, and nobody else
+ * is in the session.
+ *
+ * Two guards beyond the state machine, both 6.6's: within `NO_SHOW_WINDOW_SEC` of
+ * `started_at`, and `blocks_used` still at the opening block — a session that was
+ * extended was not a no-show. The outcome is a full refund with no fee and no earning,
+ * and `sessions_count` does not move, because nobody taught anything.
+ *
+ * **`NO_SHOW` is terminal and is not rated.** 6.7's screen sends the student back to
+ * the match list rather than to a rating modal.
+ */
+export async function reportNoShow() {
+  throw AppError.notImplemented('Reporting a no-show');
+}
+
+/**
+ * `POST /sessions/:id/review` — the rating, and the session's terminal state. **6.6.**
+ *
+ * `authorize('student')`. §10 makes the rating mandatory and `ENDED` → `RATED` is the
+ * only way out of an ended session, so without this write no session ever reaches a
+ * terminal state.
+ *
+ * **The write only. Every read of these columns stays E8's.** 6.6 inserts the review,
+ * moves `resolved_count`, `rating_sum` and `rating_count` on the teacher, and sets the
+ * session `RATED`. `reviews.session_id` is `UNIQUE`, which is the database saying one
+ * review per session.
+ *
+ * **A review with no stars must not move `rating_count`.** That is how an average
+ * becomes wrong, and it is one `??` away from being wrong.
+ */
+export async function submitReview() {
+  throw AppError.notImplemented('Reviewing a session');
 }
