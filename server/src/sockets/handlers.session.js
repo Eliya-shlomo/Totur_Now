@@ -1,8 +1,11 @@
 import { SOCKET_EVENTS } from '@tutor/shared';
 
+import { PRESENCE_DISCONNECT_GRACE_SECONDS } from '#config/constants/index.js';
 import { findParticipants } from '#repositories/session.repository.js';
 import { logger } from '#utils/logger.js';
 
+import { emitParticipantLeft } from './events.js';
+import { getIo } from './index.js';
 import { sessionRoom } from './rooms.js';
 
 /**
@@ -69,7 +72,9 @@ import { sessionRoom } from './rooms.js';
  * @returns {void}
  */
 export function registerSessionHandlers(socket) {
-  const { id: userId } = socket.data.user;
+  const { id: userId, role } = socket.data.user;
+
+  announceDeparture(socket, { userId, role });
 
   socket.on(SOCKET_EVENTS.SESSION_JOIN, async (payload) => {
     // The payload is whatever the client sent. `validate` is Express middleware and
@@ -117,5 +122,73 @@ export function registerSessionHandlers(socket) {
       // A failed join costs the room, never the connection.
       logger.error('session:join failed', { userId, sessionId, message: error?.message });
     }
+  });
+}
+
+/**
+ * `session:participant_left` — **E5's gap 11, deferred to this epic and closed in 6.8.**
+ *
+ * E5 recorded it and said why it was not fixed there: *a fix without E6's screen is a
+ * state change nobody can see.* 6.7 built the screen, 6.2 reserved the name, and this is
+ * the emitter.
+ *
+ * ## The rules it obeys, and every one of them is a decision somebody could get wrong
+ *
+ * **`disconnecting`, not `disconnect`.** By the time `disconnect` fires the socket has
+ * already been removed from its rooms, so there is nothing left to read and nowhere to
+ * send. This is the one event where the rooms are still there.
+ *
+ * **After `PRESENCE_DISCONNECT_GRACE_SECONDS`, and only if no other socket of that user is
+ * still in the room.** E5 learned this the expensive way: a reload is also a disconnect,
+ * and a browser refresh mid-session would otherwise tell the other side their partner had
+ * walked out — twice a minute, on a screen with a meter running. A person with the session
+ * open on a laptop and a phone has two sockets and has left neither.
+ *
+ * **Nothing ends and nothing stops.** The meter keeps running, `ends_at` does not move,
+ * and no money is refunded: a dropped tunnel and a closed laptop are indistinguishable
+ * from here. The product's answer to "the other person is gone" is the buttons that
+ * already exist — the student's no-show report inside the window, either side's end button
+ * after it. **An automatic end would decide who pays for a broken connection, and that is
+ * a product decision nobody has made.**
+ *
+ * **`IN_SESSION` is not touched**, exactly as 5.8's fix left it. A teacher whose socket
+ * dies mid-session stays `IN_SESSION` until the session ends, which is honest — a student
+ * is still sitting in their room — and keeps them out of E4's candidate pool meanwhile.
+ *
+ * It cannot throw into the socket, `handlers.offer.js`'s rule: the callback runs long
+ * after the connection is gone, and the one failure it will actually meet is a socket
+ * server torn down between the disconnect and the timer, which is every deploy.
+ */
+function announceDeparture(socket, { userId, role }) {
+  socket.on('disconnecting', (reason) => {
+    // Read now, because `disconnect` will have emptied them. `socket.rooms` also holds
+    // the socket's own id and `user:{id}`; only the session rooms are of interest here.
+    const rooms = [...socket.rooms].filter((room) => room.startsWith('session:'));
+
+    if (rooms.length === 0) return;
+
+    setTimeout(() => {
+      void (async () => {
+        for (const room of rooms) {
+          try {
+            const remaining = await getIo().in(room).fetchSockets();
+
+            // Their other tab, or the reload that has already come back. Either way they
+            // are still here and the other side is told nothing.
+            if (remaining.some((other) => other.data?.user?.id === userId)) continue;
+
+            emitParticipantLeft(room.slice('session:'.length), { userId, role });
+
+            logger.info('Participant left a live session', { userId, role, room, reason });
+          } catch (error) {
+            logger.warn('Could not check who is left in a session room', {
+              userId,
+              room,
+              message: error?.message,
+            });
+          }
+        }
+      })();
+    }, PRESENCE_DISCONNECT_GRACE_SECONDS * 1000).unref?.();
   });
 }

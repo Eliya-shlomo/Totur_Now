@@ -10,6 +10,7 @@ import {
 import { chargeStudent } from '#services/wallet.service.js';
 import { emitSessionExtended } from '#sockets/events.js';
 import { AppError } from '#utils/AppError.js';
+import { notActiveMessage } from '#utils/sessionMessages.js';
 
 /**
  * `POST /sessions/:id/extend` — one more block. PR 6.5, MVP.md §5.1 and §12.
@@ -120,10 +121,12 @@ export async function extendSessionBlock({ sessionId, studentId }, deps = defaul
       throw AppError.notFound('Session');
     }
 
-    // An allowlist of one. A session that ended while the modal was open is over, and the
-    // 409 is what the screen renders as "this session has finished".
+    // An allowlist of one, and the message says *which* not-active it is — 6.8. A student
+    // pressing **Extend** on a screen that was true a second ago is the ordinary way to
+    // reach this, and "this session was refunded" and "this session has already finished"
+    // send them to two different places.
     if (locked.status !== 'ACTIVE') {
-      throw new AppError(ERROR_CODES.SESSION_NOT_ACTIVE, 'This session is no longer running.');
+      throw new AppError(ERROR_CODES.SESSION_NOT_ACTIVE, notActiveMessage(locked.status));
     }
 
     const amount = EXTENSION_BLOCKS * locked.pricePerBlock;
@@ -155,8 +158,16 @@ export async function extendSessionBlock({ sessionId, studentId }, deps = defaul
     // tap of a double tap, or the auto-end sweep taking the session while the request was
     // in flight. Both are `SESSION_NOT_ACTIVE`, both roll the charge back with the
     // transaction, and neither is retried.
+    //
+    // **The sentence is about the race and not about the state**, because the row is very
+    // often still `ACTIVE` when this fires — the other tap moved `ends_at`, that is all.
+    // 6.8's client re-fetches on this message and shows whichever block actually landed,
+    // so a double tap reads as one press with no error at all.
     if (count === 0) {
-      throw new AppError(ERROR_CODES.SESSION_NOT_ACTIVE, 'This session is no longer running.');
+      throw new AppError(
+        ERROR_CODES.SESSION_NOT_ACTIVE,
+        'The session moved on while you were deciding.',
+      );
     }
 
     await saveBlock(

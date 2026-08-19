@@ -304,6 +304,79 @@ indistinguishable from a frozen page, on the one screen in the product with mone
 through it. The server's handler re-checks membership against the database on every join,
 so repeating it is one frame and no new trust.
 
+**19. Both E2E files skip themselves when no database answers, and that was a decision
+rather than a convenience.** `npm test` passes today on a fresh clone with nothing running
+— every suite before these two stubs its collaborators — and a suite that turned a green
+checkout red would be the first thing somebody deleted or marked `todo`. The probe is one
+TCP connection to the host and port in `DATABASE_URL`, with a one-second timeout, and the
+skip message names the two commands that fix it. **The consequence has to be said out
+loud, in this list and in 6.9's retro: "`npm test` is green" and "`npm test` is green with
+the lifecycle suites actually running" are two different statements, and only the second
+one means the ledger was reconciled.** Both suites run in about half a second against the
+container, so the honest habit is `npm run db:up` before `npm test`.
+
+**20. The socket frames in the E2E suites are captured at the emitter, not through a
+connected client.** 6.8's brief asks for "sockets asserted through a connected test
+client"; `socket.io-client` is a `client` workspace dependency, and standing a server and
+a client up inside a server test would be asserting Socket.IO's delivery rather than this
+epic's decisions about what is emitted and when. Every emit already arrives through an
+injected `notify*` collaborator — that is how 6.3 through 6.6 assert them — so the suites
+assert the payloads there. **The one socket path with no automated cover at all,
+`session:participant_left`, was run by hand instead**: a throwaway script, two sockets for
+one teacher against a real server, and the four properties checked — nothing on the first
+socket closing, nothing before `PRESENCE_DISCONNECT_GRACE_SECONDS`, exactly one frame
+after it, and the session still `ACTIVE` with `ended_at` null. That is the only part of
+this epic that has ever been run against a live socket server.
+
+**21. The E2E files claim the Prisma client through `config/db.js`'s own `globalThis`
+cache.** That file asks for `['warn', 'error', 'query']` outside production, which is one
+line of SQL per statement and several hundred lines of noise around a suite's output. It
+is not in 6.8's allowlist and needs no change: it already keeps its instance on
+`globalThis` so `node --watch` cannot leak a pool per reload, so putting a quieter client
+there first is the supported way in rather than a way around. Recorded because
+`@prisma/client` imported directly in a test file looks like a layering breach until you
+know why.
+
+**22. The two sweeps are asserted with the real query and then run against a filtered
+answer.** `findSessionsDueForWarning` and `findSessionsDueForAutoEnd` are called unmodified
+and asserted to contain the suite's session — that is the half that matters — but the job
+is then handed a `findDue` that keeps only the fixture's rows. A developer's own
+half-finished `ACTIVE` sessions are in the same database, and a test run that auto-ended
+somebody's afternoon would be a test with side effects nobody would look for. The
+alternative, a database of its own for tests, is a `DATABASE_URL` and a docker service this
+epic has no budget for.
+
+**23. `platformFeeRate` documents `teacher_profiles.created_at` and is fed
+`users.created_at`.** `findSessionForMeter` joins `users t ON t.id = s.teacher_id` and
+returns `t.created_at` as `teacherCreatedAt`, which 6.6 passes straight in. Today the two
+are the same instant — registration writes the user and the profile in one transaction —
+so nothing is wrong now. It stops being true the day a student onboards as a teacher a year
+later, which is exactly the case §5.3's free month is written for: they would get their
+free month from the day they *registered*, and by then it would be long gone. One join
+column, in a frozen file, for a case E2 does not yet create. **Recorded rather than fixed.**
+
+**24. The local development database was one migration behind, and this is the first PR
+that could tell.** 6.0's `video_room_*` rename had never been applied to the container; no
+suite before these two touched a real table, so six PRs' worth of green tests said nothing
+about it. `npx prisma migrate deploy` applied it in place. Worth a line because it is a
+property of the whole epic rather than of this PR: **until 6.8 nothing in E6 had executed a
+single statement against a real database.**
+
+**25. The token refresh remounts `VideoRoom` with a `key` rather than handing it a new
+token.** The component joins on mount and its props were frozen at import in 6.1 — there is
+no "rejoin with this" input and adding one is a change to DEV-C's file. So the fresh token
+from the one-shot `onError` refresh is applied by changing the element's key, which is a
+remount and therefore a new join. It works, it is one line, and it belongs in this list
+beside gap 16: two workarounds now sit around that component's frozen surface, and the next
+PR that needs a third should open the file instead.
+
+**26. Nobody sends "they came back".** `session:participant_left` has no counterpart event,
+so the line about a dropped connection stays on screen until the session ends. The
+alternative is a `session:participant_rejoined` — a contract change in a frozen file, for a
+line of text — or the screen guessing from `session:join`, which it cannot see. It is
+honest as it stands (the connection *did* drop) and slightly stale once they are back;
+recorded so that 6.9 can decide whether the epic wants the seventh event name.
+
 ## What E6 inherits from E5, and when
 
 E5 closed with two defects fixed and four checks outstanding. Its retro scheduled them
@@ -357,7 +430,7 @@ Unchanged from E5, plus one:
 | 6.5 | [**Wallet service, opening charge, extend, and the meter crons**](PR-6.5-billing-and-meter.md) | **human** · L | 6.3 | ☑ |
 | 6.6 | [**Termination, no-show refund, rating → `RATED`**](PR-6.6-end-and-rating.md) | **human** · M | 6.5 | ☑ |
 | 6.7 | [The session room — one screen, both roles, the call embedded](PR-6.7-session-room-ui.md) | L | 6.4, 6.5, 6.6 | ☑ |
-| 6.8 | [Error-state hardening and the end-to-end lifecycle tests](PR-6.8-error-hardening-e2e.md) | M | 6.7 | ☐ |
+| 6.8 | [Error-state hardening and the end-to-end lifecycle tests](PR-6.8-error-hardening-e2e.md) | M | 6.7 | ☑ |
 | 6.9 | [E6 close: verification + retro](PR-6.9-e6-close.md) | **human** · S | 6.2–6.8 | ☐ |
 
 **Three PRs are human-written and all three are money.** §17.5 names `wallet.service.js`

@@ -11,6 +11,7 @@ import { creditTeacher, refundSession } from '#services/wallet.service.js';
 import { emitSessionEnded } from '#sockets/events.js';
 import { AppError } from '#utils/AppError.js';
 import { platformFeeRate } from '#utils/commission.js';
+import { notActiveMessage } from '#utils/sessionMessages.js';
 import { logger } from '#utils/logger.js';
 
 /**
@@ -116,8 +117,15 @@ export async function terminateSession(
       throw AppError.notFound('Session');
     }
 
-    // Against the value the lock just read. An already-`ENDED` session refuses here, which
-    // is the double-click and the second sweep.
+    // **The specific sentence first, then the table.** 6.8: a person pressing **End** on
+    // a screen that was true a second ago is the common case, and `assertTransition`'s one
+    // message for every illegal pair cannot tell them whether the session finished or was
+    // refunded. The table still refuses everything below — it is the authority on which
+    // edges exist and this check adds none.
+    refuseTerminal(locked.status);
+
+    // Against the value the lock just read. An already-`ENDED` session refuses above; this
+    // refuses every other pair §10 does not draw.
     assertTransition(locked.status, 'ENDED');
 
     const gross = locked.totalCharged;
@@ -222,14 +230,17 @@ export async function reportSessionNoShow({ sessionId, studentId }, deps = defau
       throw AppError.notFound('Session');
     }
 
+    refuseTerminal(locked.status);
     assertTransition(locked.status, 'NO_SHOW');
 
     const startedAt = locked.startedAt?.getTime() ?? 0;
 
     if (endedAt.getTime() - startedAt > NO_SHOW_WINDOW_SEC * 1000) {
+      // The remedy after the window is the end button, which charges. Saying so is the
+      // difference between a dead end and a next step — 6.8.
       throw new AppError(
         ERROR_CODES.SESSION_NOT_ACTIVE,
-        'It is too late to report a no-show for this session.',
+        'The no-show window has closed — you can end the session instead.',
       );
     }
 
@@ -290,6 +301,21 @@ export async function reportSessionNoShow({ sessionId, studentId }, deps = defau
     endedAt: endedAt.toISOString(),
     balance,
   };
+}
+
+/**
+ * Refuses a session that has already reached a terminal state, **with the sentence that
+ * says which one.** 6.8.
+ *
+ * It runs before `assertTransition` at every call site and refuses a strict subset of what
+ * that table refuses: `ENDED`, `RATED` and `NO_SHOW` have no outgoing edge to `ENDED` or
+ * `NO_SHOW` either. So this adds no rule — it adds words. §10's table stays the authority
+ * on which transitions exist and 6.2's file is untouched.
+ */
+function refuseTerminal(status) {
+  if (status === 'ENDED' || status === 'RATED' || status === 'NO_SHOW') {
+    throw new AppError(ERROR_CODES.SESSION_NOT_ACTIVE, notActiveMessage(status));
+  }
 }
 
 /**
