@@ -6,7 +6,7 @@ import { Link, useParams } from 'react-router-dom';
 
 import { getPricing } from '@/api/public.api';
 import { getSession } from '@/api/session.api';
-import Placeholder from '@/components/Placeholder';
+import SessionRoom from '@/components/session/SessionRoom';
 import ErrorState from '@/components/state/ErrorState';
 import LoadingState from '@/components/state/LoadingState';
 import { useSocketEvent } from '@/hooks/useSocketEvent';
@@ -190,14 +190,23 @@ export default function Session() {
 
   if (!view || !pricing) return <LoadingState label="Loading your session…" minHeight={320} />;
 
+  // **A `SessionState` payload is the room, whatever its status.** Above `ACTIVE` this
+  // endpoint stops answering an offer and answers a session (6.3), and a student who
+  // reloads an `ENDED` session lands here needing the rating screen — not the offer
+  // recovery below, which would read a `questionId` this shape does not carry. The `role`
+  // field is the discriminator: only the session shape has one.
+  if (view.role) return <SessionRoom initial={view} />;
+
   const status = statusFor(view, resolution);
 
   if (status === OFFER_STATUS.ACCEPTED) {
-    // E6's, and it says so. `ACTIVE` in E5 means "a teacher accepted" — there is no
-    // meter, no video and no charge behind it yet, and rendering a plausible session
-    // screen here would be a lie with better production values. The `pr` reference is
-    // corrected in the PR that replaces the placeholder, which is E1's retro rule.
-    return <Placeholder title="Active session" pr="6.7" />;
+    // **6.7 fills the branch 5.8 left as a placeholder**, and this is the socket's path
+    // into it: `offer:accepted` resolved the screen while the payload in hand is still
+    // the `OfferResponse` read when the offer was `PENDING`. That shape has no `role`,
+    // no clock and no counterpart, so the room is mounted cold and fetches the session
+    // for itself. The seeded path is the branch above, for a screen that read the row
+    // after it went `ACTIVE`.
+    return <SessionRoom />;
   }
 
   if (status === OFFER_STATUS.PENDING) {

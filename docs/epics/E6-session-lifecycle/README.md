@@ -281,6 +281,29 @@ that `globalRating` is unsmoothed and that §18's ranking criterion fails on see
 defect has been inert for two epics because nothing moved the numbers. **E6 does not fix it
 — it is E8's** — and 6.9's retro should say so before somebody files it as an E6 regression.
 
+**16. `VideoRoom.jsx` hard-codes a `600px` height and 6.7 could not fix it.** §14.4's
+375px criterion is met by everything the screen owns — the header wraps, the money line
+wraps, the extend modal is a full-screen sheet below `sm` — but the call's own container is
+a fixed `600px`, which on a phone in landscape is more than the viewport. The component is
+DEV-C's and 6.1 froze its props at import; wrapping it in a shorter box crops the iframe
+rather than resizing it, because the height lives inside. **The fix is one line in DEV-C's
+file and belongs in its own PR**, which is 6.7's brief's own instruction for exactly this
+case. Recorded rather than worked around.
+
+**17. The student's screen routes on the payload's shape, not on its status.** 5.8 built
+`Session.jsx` as a switch on *offer* status, and above `ACTIVE` this endpoint answers a
+session instead (6.3) — so a student reloading an `ENDED` session fell through that switch
+to the offer recovery, which reads a `questionId` the session shape does not carry. The
+room is now entered on `view.role`, the field only `SessionState` has. The offer branches
+are untouched and 5.8's screens still render from the same read.
+
+**18. `session:join` is re-emitted on every socket reconnect, which 6.2 did not ask for.**
+A reconnected socket is a *new* socket in no rooms at all, so a laptop that slept through a
+token refresh would sit in a live session hearing no warning, no extension and no ending —
+indistinguishable from a frozen page, on the one screen in the product with money moving
+through it. The server's handler re-checks membership against the database on every join,
+so repeating it is one frame and no new trust.
+
 ## What E6 inherits from E5, and when
 
 E5 closed with two defects fixed and four checks outstanding. Its retro scheduled them
@@ -333,7 +356,7 @@ Unchanged from E5, plus one:
 | 6.4 | [`getSessionVideoContext` + `GET /sessions/:id/video`](PR-6.4-session-video-endpoint.md) | S | 6.3 | ☑ |
 | 6.5 | [**Wallet service, opening charge, extend, and the meter crons**](PR-6.5-billing-and-meter.md) | **human** · L | 6.3 | ☑ |
 | 6.6 | [**Termination, no-show refund, rating → `RATED`**](PR-6.6-end-and-rating.md) | **human** · M | 6.5 | ☑ |
-| 6.7 | [The session room — one screen, both roles, the call embedded](PR-6.7-session-room-ui.md) | L | 6.4, 6.5, 6.6 | ☐ |
+| 6.7 | [The session room — one screen, both roles, the call embedded](PR-6.7-session-room-ui.md) | L | 6.4, 6.5, 6.6 | ☑ |
 | 6.8 | [Error-state hardening and the end-to-end lifecycle tests](PR-6.8-error-hardening-e2e.md) | M | 6.7 | ☐ |
 | 6.9 | [E6 close: verification + retro](PR-6.9-e6-close.md) | **human** · S | 6.2–6.8 | ☐ |
 

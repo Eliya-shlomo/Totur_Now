@@ -1,4 +1,5 @@
 import TeacherLayout from '@/layouts/TeacherLayout';
+import SessionRoom from '@/components/session/SessionRoom';
 import Dashboard from '@/pages/teacher/Dashboard';
 import Onboarding from '@/pages/teacher/Onboarding';
 import Profile from '@/pages/teacher/Profile';
@@ -22,7 +23,10 @@ export const teacherRoutes = [
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'onboarding', element: <Onboarding /> },
-      { path: 'session/:id', element: <Placeholder title="Active session" pr="6.8" /> },
+      // **The same component the student's route renders**, and that is the whole of
+      // 6.7's teacher side. The two roles differ by three fields and one button, and
+      // `SessionState` carries a `role` that says which — two files would be two timers.
+      { path: 'session/:id', element: <SessionRoom /> },
       { path: 'earnings', element: <Placeholder title="Earnings" pr="7.8" /> },
       { path: 'profile', element: <Profile /> },
     ],
