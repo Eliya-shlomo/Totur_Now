@@ -571,3 +571,102 @@ export interface ReviewRequest {
   stars?: number;
   comment?: string;
 }
+
+// ── E7 — money ──────────────────────────────────────────────────────────────
+// Frozen in docs/epics/E7-wallet-billing/README.md § "Contract freeze". Changing
+// anything below is a chat message to the other developer before the code changes.
+//
+// Opened whole by PR 7.2, including the shapes 7.3 and 7.6 implement. These
+// declarations compile to nothing, so writing them before their endpoints exist
+// costs nothing — and it means this file has one appended region for the whole
+// epic rather than one per PR. E6a is appending to it in the same week, and every
+// append at the end of the file is a place two branches conflict.
+
+/** `wallet_transactions.type`. Mirrors the Prisma enum in prisma/schema/wallet.prisma. */
+export type WalletTxType =
+  'TOPUP' | 'SESSION_CHARGE' | 'REFUND' | 'TEACHER_EARNING' | 'PAYOUT' | 'PROMO';
+
+/**
+ * `GET /wallet` — credits and nothing else.
+ *
+ * **No minutes, and §12's "Balance + ≈ X minutes" cannot be honoured here.** Minutes
+ * are a function of a teacher's price and this endpoint has no teacher — §5.4's own
+ * example says "₪96 ≈ 40 minutes *with Dana*". `minutesFor` in
+ * `client/src/lib/credits.js` owns that translation, floors it to whole blocks, and
+ * takes `blockMinutes` from `GET /public/pricing` so the label cannot drift from the
+ * billing. A second rounding computed server-side would sit beside the first on the
+ * same screen.
+ */
+export interface WalletResponse {
+  balance: number;
+  /** ISO 8601, UTC. `wallets.updated_at`. */
+  updatedAt: string;
+}
+
+/**
+ * One ledger row.
+ *
+ * **`note` is not here and is not coming.** It is operator-facing text — see
+ * `appendWalletTransaction` — and the client owns the sentence it renders from `type`.
+ */
+export interface WalletTransactionRecord {
+  id: string;
+  type: WalletTxType;
+  /** Signed. Negative is money leaving the wallet. */
+  amount: number;
+  balanceAfter: number;
+  /** Null for a top-up, which belongs to no session. */
+  sessionId: string | null;
+  createdAt: string;
+}
+
+/** `GET /wallet/transactions?page&pageSize`. Newest first. `total` is the whole ledger. */
+export interface WalletTransactionsResponse {
+  transactions: WalletTransactionRecord[];
+  total: number;
+}
+
+/**
+ * `POST /wallet/topup` — PR 7.3.
+ *
+ * **The client names a package, never an amount.** The value is looked up in
+ * `TOPUP_PACKAGES` server-side, and a body that carries credits is a body that grants
+ * them. The packages are already on the wire as `PublicPricingResponse.topupPackages`,
+ * so there is no second representation to map through.
+ */
+export interface TopUpRequest {
+  /** A member of `PublicPricingResponse.topupPackages`. Credits, and an allowlist. */
+  packageId: number;
+}
+
+export interface TopUpResponse {
+  balance: number;
+  /** What was added. Echoed so the confirmation cannot disagree with the request. */
+  credited: number;
+  transactionId: string;
+}
+
+/** One row of `/teach/earnings` — PR 7.6. A finished session, from the teacher's side. */
+export interface EarningRecord {
+  sessionId: string;
+  /** ISO 8601, UTC. `sessions.ended_at` — when the earning was credited. */
+  endedAt: string;
+  /** What the student paid. `sessions.total_charged`. */
+  totalCharged: number;
+  /** `sessions.platform_fee`. Zero in both of §5.3's free cases. */
+  platformFee: number;
+  /** `sessions.teacher_earning`. Positive. What the ledger row credited. */
+  teacherEarning: number;
+  /** The session's topic, for the row's label. Null if the question had none. */
+  topicName: string | null;
+}
+
+/** `GET /wallet/earnings?page&pageSize`. Teacher-only. Newest first. */
+export interface EarningsResponse {
+  /** The teacher's own wallet balance — the same number `GET /wallet` answers. */
+  balance: number;
+  earnings: EarningRecord[];
+  total: number;
+  /** All-time, across every finished session — not just the page returned. */
+  totals: { gross: number; fee: number; net: number };
+}
