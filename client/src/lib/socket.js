@@ -56,14 +56,29 @@ const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'visibilitychange'];
 /**
  * Where the socket connects — the server's **origin**, not the API base path.
  *
- * `VITE_API_URL` is `http://localhost:3000/api/v1` in development and the Render URL
- * in production, and Socket.IO mounts at `/socket.io` on the origin rather than under
- * the versioned API prefix. `new URL(...).origin` throws on a relative base (`/api/v1`
- * behind a proxy), and that case is exactly the one where the server is this origin.
+ * `VITE_SOCKET_URL` first, and in production it is the only answer that works — PR
+ * 6b.2. HTTP is proxied through the client's own origin so that the refresh cookie is
+ * first-party, which makes `VITE_API_URL` the relative `/api/v1`; **Vercel's rewrites
+ * do not carry a WebSocket upgrade**, so the socket cannot follow it there and has to
+ * name the Render origin itself. The two transports diverge here and nowhere else.
+ *
+ * The socket does not need the cookie, which is what makes the split possible at all:
+ * the handshake presents the access token through the `auth` callback below, and the
+ * server verifies it in `sockets/auth.js`. `withCredentials` stays on for the CORS
+ * preflight, not for a credential this connection depends on.
+ *
+ * Falling back to `VITE_API_URL` keeps development working unchanged — both sides are
+ * localhost, `http://localhost:3000/api/v1` yields the right origin, and Socket.IO
+ * mounts at `/socket.io` on the origin rather than under the versioned API prefix.
+ * `new URL(...).origin` throws on a relative base, and `window.location.origin` is the
+ * last resort: correct when the API is genuinely this origin, wrong behind a proxy,
+ * which is why the variable exists rather than being inferred.
  */
 function socketOrigin() {
+  const configured = import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL;
+
   try {
-    return new URL(import.meta.env.VITE_API_URL || window.location.origin).origin;
+    return new URL(configured || window.location.origin).origin;
   } catch {
     return window.location.origin;
   }
