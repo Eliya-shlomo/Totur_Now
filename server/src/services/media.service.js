@@ -1,10 +1,15 @@
 import { cloudinary, isCloudinaryConfigured } from '#config/cloudinary.js';
 import {
+  CLOUDINARY_CLASSIFICATION_TRANSFORM,
+  CLOUDINARY_DELIVERY_HOST,
   CLOUDINARY_QUESTION_FOLDER,
   CLOUDINARY_UPLOAD_TIMEOUT_MS,
+  IMAGE_FETCH_BUDGET_MS,
+  MAX_IMAGES,
 } from '#config/constants/index.js';
 import { ERROR_CODES } from '#config/errors/codes.js';
 import { AppError } from '#utils/AppError.js';
+import { detectImageMimeType } from '#utils/imageType.js';
 import { logger } from '#utils/logger.js';
 
 /**
@@ -98,4 +103,134 @@ function uploadFailed() {
     ERROR_CODES.EXTERNAL_SERVICE_ERROR,
     'We could not save that image. Please try again.',
   );
+}
+
+/**
+ * The other direction: stored URLs back to bytes, for the classifier. PR 6a.2.
+ *
+ * **Why this lives here.** This file and `config/cloudinary.js` are the only two that
+ * know which image host this project uses, and this file already owns a buffer in, a
+ * URL out. A URL in, a buffer out is the same boundary read backwards — the transform
+ * below is Cloudinary's syntax and belongs on the Cloudinary side of it, and
+ * `llm.prompt.js` stays a pure function that formats parts and opens no sockets.
+ *
+ * **Why the bytes come here at all.** Gemini has no image-by-URL content part. A part
+ * carries `inlineData` (base64 bytes) or `fileData` (a URI in Gemini's *own* Files API,
+ * which is not a CDN), so the `{ type: 'image', uri }` this project sent for three
+ * epics reached nothing. Inlining costs one fetch inside the request; the alternative
+ * is a second storage system beside Cloudinary and a 48-hour file lifetime to reason
+ * about. See the epic README for the trade, and 6a.3's p95 for whether it holds.
+ *
+ * **Nothing here is logged with a URL in it.** A Cloudinary URL is a pointer to a
+ * student's homework, readable by anyone who has it. Drops are counted, never named.
+ *
+ * @param {string[]} urls                 stored image URLs, from a database column
+ * @param {object} [options]
+ * @param {number} [options.limit]        images to send at most — `MAX_IMAGES`
+ * @param {number} [options.budgetMs]     the whole fetch's budget, shared
+ * @param {AbortSignal} [options.signal]  the caller's, if the classification is abandoned
+ * @returns {Promise<Array<{mimeType: string, base64: string}>>} never rejects
+ */
+export async function fetchImagesForClassification(urls, options = {}) {
+  const { limit = MAX_IMAGES, budgetMs = IMAGE_FETCH_BUDGET_MS, signal } = options ?? {};
+
+  // The `https://` filter and the cap are applied here now, and they are the same two
+  // rules `llm.prompt.js` applied before the bytes moved. The list arrives from a
+  // database column: one bad row must not fail a classification, and a fourth image is
+  // one the student never uploaded.
+  const candidates = (urls ?? [])
+    .filter((url) => typeof url === 'string' && url.startsWith('https://'))
+    .slice(0, limit);
+
+  if (candidates.length === 0) return [];
+
+  // One budget for all of them, not one each. They are independent, so they are fetched
+  // concurrently and share the clock — three images at four seconds apiece would be a
+  // timeout with no request ever made to the model.
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  const timer = setTimeout(abort, budgetMs);
+
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
+
+  try {
+    const settled = await Promise.allSettled(
+      candidates.map((url) => fetchOneImage(url, controller.signal)),
+    );
+
+    const images = settled
+      .filter((result) => result.status === 'fulfilled' && result.value !== null)
+      .map((result) => result.value);
+
+    if (images.length < candidates.length) {
+      // By count. A dead URL, a slow one and a PDF someone renamed all read the same
+      // here, and the difference is not worth a student's homework in a log line.
+      logger.warn('Classification images dropped', {
+        dropped: candidates.length - images.length,
+        requested: candidates.length,
+        budgetMs,
+      });
+    }
+
+    return images;
+  } finally {
+    // An unreferenced timer keeps the event loop alive, which is invisible in a server
+    // that never exits and very visible in a test run that hangs after the last assert.
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+  }
+}
+
+/**
+ * One image, or `null`.
+ *
+ * **Null rather than a throw, for every reason it can fail.** A 404, a timeout and a
+ * file whose bytes are not an image are all "this classification has one fewer
+ * photograph", and a classification that had two good ones must still happen.
+ *
+ * **The MIME comes from the bytes.** Not the URL's extension, and not the response's
+ * `Content-Type` — a CDN's declared type is a claim, and this codebase decided at 3.2
+ * that a claim about an image's type is not evidence (`middlewares/upload.js` reads the
+ * bytes on the way in). `detectImageMimeType` is that same decision restated where the
+ * bytes leave, so there is one answer in this codebase to "what is this image" and one
+ * signature table behind it. Bytes it does not recognise are dropped rather than
+ * guessed at: the allowlist is the rule, and a wrong declared type on an otherwise good
+ * photograph is a classification failed for no reason.
+ */
+async function fetchOneImage(url, signal) {
+  const response = await fetch(withClassificationTransform(url), { signal });
+
+  if (!response.ok) return null;
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const mimeType = detectImageMimeType(buffer);
+
+  if (!mimeType) return null;
+
+  return { mimeType, base64: buffer.toString('base64') };
+}
+
+/**
+ * The delivery URL with the classification transform in it, where that means anything.
+ *
+ * Cloudinary reads transforms as the path segment after `/upload/`, so this is a string
+ * edit and not an API call — no round trip, and the resize happens on their machines.
+ *
+ * Only for URLs on Cloudinary's delivery host. The column is Cloudinary's today, but it
+ * is a column: a URL from anywhere else is fetched exactly as stored, because
+ * `f_jpg,q_auto,w_1600` is a path segment this vendor understands and a 404 everywhere
+ * else. That is also what keeps the MIME sniff meaningful — a non-Cloudinary URL is not
+ * converted on the way out, so what its bytes say is what gets sent.
+ */
+function withClassificationTransform(url) {
+  try {
+    if (new URL(url).hostname !== CLOUDINARY_DELIVERY_HOST) return url;
+  } catch {
+    return url;
+  }
+
+  if (!url.includes('/upload/') || url.includes(CLOUDINARY_CLASSIFICATION_TRANSFORM)) return url;
+
+  return url.replace('/upload/', `/upload/${CLOUDINARY_CLASSIFICATION_TRANSFORM}/`);
 }

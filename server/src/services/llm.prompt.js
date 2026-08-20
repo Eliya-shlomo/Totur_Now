@@ -1,4 +1,4 @@
-import { MAX_IMAGES, MIN_CONFIDENCE } from '#config/constants/index.js';
+import { MIN_CONFIDENCE } from '#config/constants/index.js';
 
 /**
  * The classification prompt. PR 3.3, MVP.md §8.1, §7, §17.5.
@@ -120,44 +120,25 @@ export function renderTaxonomy(topicTree) {
 }
 
 /**
- * The image types Gemini names, mapped from the only thing we have here — the URL.
- *
- * `classifyQuestion` receives URLs, not attachment rows, so the stored `mimeType` from
- * 3.2 is not in reach without widening the frozen seam. The extension is what is left.
- * An unrecognised one omits `mime_type` rather than guessing: the field is optional and
- * the server sniffs the bytes, whereas a wrong declared type is an error on a photo
- * that would otherwise have classified fine.
- */
-const MIME_BY_EXTENSION = {
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  webp: 'image/webp',
-};
-
-/**
  * Four values in, one `models.generateContent` payload out.
  *
  * The images come **before** the text, which is the documented ordering for vision
  * requests and the one the student's own question implies: §4.1's example is "I don't
  * know how to start", and the exercise itself is the photograph.
  *
- * `imageUrls` are Cloudinary URLs from `POST /questions/attachments` (3.2), sent as
- * URLs rather than base64 — Gemini fetches public HTTPS URLs itself, so the bytes never
- * come back through this server, which is the property `media.service.js` was built for.
- * Anything that is not an `https:` string is dropped rather than sent: the list reaches
- * here from a database column, and one bad row must not fail every classification.
+ * **`images` are bytes, and they reached here through this server.** Gemini has no
+ * image-by-URL content part — a part carries `inlineData` (base64 bytes) or `fileData`
+ * (a URI in Gemini's *own* Files API, which is not anyone's CDN) — so the Cloudinary
+ * URLs from `POST /questions/attachments` (3.2) are fetched by `media.service.js`,
+ * resized at Cloudinary's edge, sniffed for their real type and handed here already
+ * decoded. This file formats them and performs no I/O: a prompt builder that opens
+ * sockets is the thing that cannot be tested a year later, and the fetch has a latency
+ * budget that belongs next to the vendor it spends it on.
  *
- * **The paragraph above is false and 6a.2 is where it stops being false.** Gemini has
- * no image-by-URL part: a part carries `inlineData` (base64 bytes) or `fileData` (a
- * Files API URI, Gemini's own storage and not anyone's CDN), so `{ type: 'image', uri }`
- * reaches nothing. 6a.1 repaired the request around these parts and deliberately left
- * them as they were — the images are a second repair with a latency budget of their own,
- * and rewriting them here would have put two unmeasured changes in one diff. Until 6a.2
- * lands, a photographed question still classifies to the §8.1 fallback.
- *
- * `MAX_IMAGES` is applied here as well as at upload. The cap is a cost ceiling on this
- * exact call, and the caller is a service that could one day be handed a longer list.
+ * The `https://` filter and the `MAX_IMAGES` cap moved with the fetch, to the file that
+ * now does the dropping — the rules did not change, only the layer that applies them.
+ * The cap is still a cost ceiling on this exact call, and the filter still exists
+ * because the list reaches that layer from a database column.
  *
  * The tags around the student's values are structure, not prose — they exist so the
  * instructions above can refer to "the student's text" and mean something exact. An
@@ -170,21 +151,15 @@ const MIME_BY_EXTENSION = {
  *
  * @param {object} input
  * @param {string} input.rawText
- * @param {string[]} [input.imageUrls]
+ * @param {Array<{mimeType: string, base64: string}>} [input.images]
  * @param {number|null} [input.declaredLevel]
  * @param {import('./topic.service.js').TopicNode[]} input.topicTree
  * @returns {{systemInstruction: string, contents: Array<object>}}
  */
-export function buildMessages({ rawText, imageUrls = [], declaredLevel = null, topicTree }) {
-  const images = (imageUrls ?? [])
-    .filter((url) => typeof url === 'string' && url.startsWith('https://'))
-    .slice(0, MAX_IMAGES)
-    .map((url) => {
-      const extension = url.split('?')[0].split('.').pop()?.toLowerCase();
-      const mimeType = MIME_BY_EXTENSION[extension];
-
-      return { type: 'image', uri: url, ...(mimeType ? { mime_type: mimeType } : {}) };
-    });
+export function buildMessages({ rawText, images = [], declaredLevel = null, topicTree }) {
+  const imageParts = (images ?? []).map(({ mimeType, base64 }) => ({
+    inlineData: { mimeType, data: base64 },
+  }));
 
   const declared =
     declaredLevel === null || declaredLevel === undefined
@@ -195,6 +170,6 @@ export function buildMessages({ rawText, imageUrls = [], declaredLevel = null, t
 
   return {
     systemInstruction: `${SYSTEM_INSTRUCTIONS}\n\n<taxonomy>\n${renderTaxonomy(topicTree)}\n</taxonomy>`,
-    contents: [{ role: 'user', parts: [...images, { text }] }],
+    contents: [{ role: 'user', parts: [...imageParts, { text }] }],
   };
 }

@@ -125,7 +125,7 @@ Three reasons the one-line fix is not the work.
 | # | PR | Size | Depends on | Status |
 |---|---|---|---|---|
 | 6a.1 | [Repair the Gemini request, the response read, and the model id](PR-6a.1-gemini-request-repair.md) | M | E6 | ☑ |
-| 6a.2 | [Images: fetch the bytes, send `inlineData`](PR-6a.2-image-bytes.md) | M | 6a.1 | ☐ |
+| 6a.2 | [Images: fetch the bytes, send `inlineData`](PR-6a.2-image-bytes.md) | M | 6a.1 | ☑ |
 | 6a.3 | [The 50-question bench: fixture, harness, scored report](PR-6a.3-bagrut-bench.md) | M | 6a.2 | ☐ |
 | 6a.4 | [**The brief the teacher reads: `how_to_start`**](PR-6a.4-teacher-brief.md) | **human** · M | 6a.1 | ☐ |
 | 6a.5 | [Surfacing the brief, and the RTL the client never got](PR-6a.5-brief-ui-rtl.md) | M | 6a.4 | ☐ |
@@ -228,8 +228,38 @@ With `GEMINI_API_KEY` unset the same request answers 201 with `topic_id: 0`,
 `classification: 'DISABLED — GEMINI_API_KEY missing'` at boot. Neither log carries a word
 of the student's text.
 
-**Still failing after 6a.1, exactly as scoped:** a photographed question. The image parts
-are untouched and reach nothing. 6a.2.
+~~**Still failing after 6a.1, exactly as scoped:** a photographed question.~~ **Closed by
+6a.2** — see below.
+
+## What 6a.2 measured
+
+The photograph path, run end to end against the real key and real Cloudinary on
+2026-08-20. A rendered Hebrew Bagrut exercise — a definite integral of
+`f(x) = 3x^2 - 12x + 5` on `[1, 4]` and the area between the graph and the x-axis —
+uploaded through `POST /questions/attachments`, then submitted with **no useful text**.
+
+| One image, end to end | **3.50 s** first call, `classificationOk: true` |
+| Three images, end to end | **2.61 s** — §8.1 allows 8, §4.1 promises 2–4 |
+| One unreachable URL of three | **2.63 s**, classified from the surviving two |
+| Parent / leaf | `41 calculus-integrals` / `44 areas`, both live rows |
+| Confidence | 0.95 with three images, 1.0 with two |
+| Brief | Hebrew, and about the exercise **in the photograph** |
+
+The latency risk below is answered for now: three images cost roughly what one does,
+because they are fetched concurrently and Cloudinary resizes at the edge. 6a.3's p95 is
+still where it is proven across 50 real pages rather than one.
+
+**The drop is counted and not named.** With one attachment row hand-edited to an
+unreachable HTTPS URL, the whole log line is
+`Classification images dropped { dropped: 1, requested: 3, budgetMs: 3200 }` — no URL,
+no student text, and a classification that still happened.
+
+**`rawText: ''` is not reachable through the endpoint, and the criterion was written as
+if it were.** `RAW_TEXT_MIN_LENGTH` is 2 and `POST /questions` validates it, so the run
+above used `"??"` — two characters carrying no topic, no subject and no Hebrew. The
+proof is unchanged in substance: nothing in the text could have produced
+`calculus-integrals / areas` or a Hebrew brief describing a parabola and the area under
+it. The validator was not touched; it is 3.1's and correct.
 
 ## Deliberate deviations from `MVP.md` §18
 

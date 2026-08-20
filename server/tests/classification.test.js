@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import {
+  CLOUDINARY_CLASSIFICATION_TRANSFORM,
   DIFFICULTY_MAX,
   GEMINI_MIN_DEADLINE_MS,
   DIFFICULTY_MIN,
@@ -50,6 +51,10 @@ process.env.JWT_ACCESS_SECRET ??= 'test-access-secret-at-least-32-characters';
 process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret-at-least-32-characters';
 
 const { classifyQuestion } = await import('#services/classification.service.js');
+// The real fetcher, for the one block that tests it. It reaches `fetch`, and `fetch` is
+// stubbed there — importing it costs nothing and asserting the rules through the seam
+// they now live behind is the point of 6a.2 moving them.
+const { fetchImagesForClassification } = await import('#services/media.service.js');
 
 /**
  * A two-level taxonomy in the shape `getTopicTree()` returns, sentinel included.
@@ -120,6 +125,10 @@ function deps(overrides = {}) {
   return {
     loadTaxonomy: async () => TAXONOMY,
     createMessage: async () => reply(ANSWER),
+    // No image reaches the network by default. Overridden with the real fetcher, and a
+    // stubbed `fetch` beneath it, in the images block — everywhere else the photographs
+    // are not the subject and an unstubbed fetcher would be a suite that needs a CDN.
+    fetchImages: async () => [],
     timeoutMs: 50,
     promptReady: true,
     configured: true,
@@ -326,7 +335,7 @@ describe('classifyQuestion — the happy path', () => {
  */
 describe('classifyQuestion — the request it builds', () => {
   /** Run once and hand back the exact argument the SDK would have received. */
-  async function capture(input = {}) {
+  async function capture(input = {}, overrides = {}) {
     let params;
 
     await classify(
@@ -335,6 +344,7 @@ describe('classifyQuestion — the request it builds', () => {
           params = sent;
           return reply(ANSWER);
         },
+        ...overrides,
       },
       input,
     );
@@ -436,27 +446,17 @@ describe('classifyQuestion — the request it builds', () => {
     assert.ok(Array.isArray(params.contents[0].parts));
   });
 
-  it('sends the images before the text, capped and https-only', async () => {
-    const params = await capture({
-      imageUrls: [
-        'https://res.cloudinary.com/one.jpg',
-        'http://insecure.example.com/two.jpg',
-        'https://res.cloudinary.com/three.jpg',
-        'https://res.cloudinary.com/four.jpg',
-        'https://res.cloudinary.com/five.jpg',
-        null,
-      ],
-    });
+  it('sends the images as inlineData parts, before the text', async () => {
+    const params = await capture(
+      {},
+      { fetchImages: async () => [{ mimeType: 'image/png', base64: 'AAAB' }] },
+    );
 
-    // The image parts are still the ones 3.3 wrote, and Gemini reaches nothing with
-    // them — 6a.2 replaces them with `inlineData`. Asserted here as they are so that
-    // the cap, the https filter and the ordering stay covered while they change, and
-    // so 6a.2's diff is the parts and not the rules around them.
     const parts = params.contents[0].parts;
-    const images = parts.filter((part) => part.type === 'image');
 
-    assert.equal(images.length, MAX_IMAGES);
-    assert.ok(images.every((part) => part.uri.startsWith('https://')));
+    // The bytes, not a URL. `{ type: 'image', uri }` is what this project sent for three
+    // epics and what Gemini reads as nothing at all (6a.2).
+    assert.deepEqual(parts[0], { inlineData: { mimeType: 'image/png', data: 'AAAB' } });
     // The exercise is usually the photograph (§4.1); the text is what it cannot show.
     assert.equal(typeof parts.at(-1).text, 'string');
   });
@@ -614,5 +614,155 @@ describe('classifyQuestion — inputs that should not be survivable', () => {
     const classification = await classify({ configured: false }, { rawText: undefined });
 
     assert.equal(typeof classification.teacherBrief, 'string');
+  });
+});
+
+/**
+ * The photographs, through the real fetcher. PR 6a.2.
+ *
+ * `fetchImagesForClassification` is the one collaborator here that is deliberately
+ * **not** stubbed. The rules this block asserts — the `https://` filter, `MAX_IMAGES`,
+ * dropping a failure instead of throwing, and the type coming from the bytes — moved
+ * out of `llm.prompt.js` and into it, so asserting them against a stub would assert the
+ * stub. `fetch` is what is replaced instead: nothing reaches a CDN, every case is
+ * reachable in milliseconds, and the suite still runs on a machine with no network.
+ */
+describe('classifyQuestion — the photographs', () => {
+  // Real signatures, because the code under test reads them. `detectImageMimeType`
+  // owns the table; these are two of its three entries, and a payload byte after each
+  // so the base64 is not the signature alone.
+  const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0x2a]);
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x2a]);
+
+  const CLOUDINARY = 'https://res.cloudinary.com/demo/image/upload/v1/tutor-now/one.jpg';
+  const ELSEWHERE = 'https://images.example.com/two.jpg';
+
+  /** Every URL `fetch` was asked for, in the form it was asked for it. */
+  let requested = [];
+
+  /**
+   * A `fetch` that answers from a map and 404s for everything else.
+   *
+   * The 404 is the dead-URL case and the missing-key case at once, which is the same
+   * conflation the service makes on purpose: a classification does not care *why* a
+   * photograph did not arrive.
+   */
+  function serving(byUrl) {
+    requested = [];
+
+    mock.method(globalThis, 'fetch', async (url) => {
+      requested.push(url);
+
+      const bytes = byUrl[url];
+
+      if (!bytes) return { ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) };
+
+      return { ok: true, status: 200, arrayBuffer: async () => new Uint8Array(bytes).buffer };
+    });
+  }
+
+  /** Classify with the real fetcher and hand back the parts the model would have seen. */
+  async function partsFor(imageUrls) {
+    let params;
+
+    await classify(
+      {
+        fetchImages: fetchImagesForClassification,
+        createMessage: async (sent) => {
+          params = sent;
+          return reply(ANSWER);
+        },
+      },
+      { imageUrls },
+    );
+
+    return params.contents[0].parts;
+  }
+
+  it('inlines the bytes, with the type read from them and not from the URL', async () => {
+    // A `.jpg` that serves a PNG. The extension is a claim and the header is a claim;
+    // 3.2 decided on the way in that neither is evidence, and this is that decision
+    // restated on the way out. Not a Cloudinary URL, so nothing is converted at the
+    // edge and what the bytes say is what is sent.
+    serving({ [ELSEWHERE]: PNG });
+
+    const parts = await partsFor([ELSEWHERE]);
+
+    assert.deepEqual(parts[0], {
+      inlineData: { mimeType: 'image/png', data: PNG.toString('base64') },
+    });
+  });
+
+  it('asks Cloudinary to resize before the bytes cross the wire', async () => {
+    const delivered = CLOUDINARY.replace(
+      '/upload/',
+      `/upload/${CLOUDINARY_CLASSIFICATION_TRANSFORM}/`,
+    );
+
+    serving({ [delivered]: JPEG });
+
+    const parts = await partsFor([CLOUDINARY]);
+
+    assert.deepEqual(requested, [delivered]);
+    assert.equal(parts[0].inlineData.mimeType, 'image/jpeg');
+  });
+
+  it('leaves a URL from another host exactly as stored', async () => {
+    serving({ [ELSEWHERE]: JPEG });
+
+    await partsFor([ELSEWHERE]);
+
+    assert.deepEqual(requested, [ELSEWHERE]);
+  });
+
+  it('drops a non-https entry rather than fetching it', async () => {
+    serving({ [ELSEWHERE]: JPEG });
+
+    const parts = await partsFor(['http://insecure.example.com/two.jpg', ELSEWHERE, null]);
+
+    assert.deepEqual(requested, [ELSEWHERE]);
+    assert.equal(parts.filter((part) => part.inlineData).length, 1);
+  });
+
+  it('stops at MAX_IMAGES', async () => {
+    const many = Array.from(
+      { length: MAX_IMAGES + 2 },
+      (_, i) => `https://images.example.com/${i}.jpg`,
+    );
+
+    serving(Object.fromEntries(many.map((url) => [url, JPEG])));
+
+    const parts = await partsFor(many);
+
+    assert.equal(requested.length, MAX_IMAGES);
+    assert.equal(parts.filter((part) => part.inlineData).length, MAX_IMAGES);
+  });
+
+  it('classifies from the survivors when one URL is dead', async () => {
+    const dead = 'https://images.example.com/gone.jpg';
+    const second = 'https://images.example.com/three.png';
+
+    serving({ [ELSEWHERE]: JPEG, [second]: PNG });
+
+    const parts = await partsFor([ELSEWHERE, dead, second]);
+
+    // Two photographs and the text. One unreachable image is one fewer image, never a
+    // failed classification — that is the whole reason the fetcher returns rather than
+    // throws.
+    assert.equal(parts.filter((part) => part.inlineData).length, 2);
+    assert.equal(typeof parts.at(-1).text, 'string');
+  });
+
+  it('counts the drops without naming them', async () => {
+    serving({});
+
+    await partsFor([ELSEWHERE]);
+
+    // A Cloudinary URL is a pointer to a student's homework, readable by anyone holding
+    // it. The count is the diagnostic; the URL is the leak.
+    const logged = JSON.stringify(warnings);
+
+    assert.ok(logged.includes('Classification images dropped'));
+    assert.ok(!logged.includes('images.example.com'));
   });
 });

@@ -120,3 +120,30 @@ export const DIFFICULTY_MAX = 5;
 
 /** §8.1's `title` — `questions.title` is VARCHAR(160), and this is that column's width. */
 export const TITLE_MAX_LENGTH = 160;
+
+/**
+ * The Cloudinary transform every classification fetch asks for. PR 6a.2.
+ *
+ * The bytes now transit this server on their way to the model, and the thing being
+ * transferred is a phone photograph: 12 megapixels, 4 MB, twice over the wire — CDN to
+ * here, here to Gemini — and base64 at 4/3 the size on the second leg, all inside
+ * `LLM_TIMEOUT_MS`. The model downsamples on arrival regardless, so those pixels buy
+ * latency and nothing else.
+ *
+ * `w_1600` is above what the vision tier reads and still legible for a handwritten
+ * exercise; `q_auto` lets Cloudinary pick the quality that survives that resize; `f_jpg`
+ * makes the response one format instead of three. The resize happens at the edge, on
+ * Cloudinary's machines, and costs this server nothing.
+ *
+ * Applied by `media.service.js` only, and only to URLs that are Cloudinary's — a URL
+ * from anywhere else is fetched as stored, because the transform is a path segment this
+ * vendor understands and a 404 anywhere else.
+ */
+export const CLOUDINARY_CLASSIFICATION_TRANSFORM = 'f_jpg,q_auto,w_1600';
+
+/**
+ * Cloudinary's delivery host, which is the only place the transform above means
+ * anything. Constant rather than inline so the one string that decides "is this URL
+ * ours" sits beside the folder and the transform it belongs with.
+ */
+export const CLOUDINARY_DELIVERY_HOST = 'res.cloudinary.com';
