@@ -70,3 +70,46 @@ export function toWalletTransaction({ id, type, amount, balanceAfter, sessionId,
     createdAt: createdAt.toISOString(),
   };
 }
+
+/**
+ * One earning, for the list on `/teach/earnings` — `EarningRecord`. PR 7.6.
+ *
+ * **The row is the ledger's and the breakdown is the session's**, which is why this
+ * takes a transaction rather than a session: `teacherEarning` is `amount` on the
+ * `TEACHER_EARNING` row — what was actually credited to the wallet — and not
+ * `sessions.teacher_earning`, which is the same number written to a second place in the
+ * same transaction. They agree, `reconcile.mjs` invariant 4 is what checks that they do,
+ * and when they ever disagree the teacher should be shown the movement rather than the
+ * column, because the movement is what their balance is made of.
+ *
+ * **`platformFee` is rendered, never derived.** §5.3's rate, its thirty-day waiver and
+ * its low-demand window are `utils/commission.js`'s, resolved at `started_at` by
+ * `session.end.service.js`, and that file's own header says two implementations of §5.3
+ * is two answers to "what did I earn". So the fee arrives here as an integer and leaves
+ * as one. `PLATFORM_FEE_PCT` does not appear in this file and must never reach the
+ * client bundle.
+ *
+ * `endedAt` falls back to the ledger row's `createdAt`, and the fallback is a type
+ * requirement rather than a real case: `sessions.ended_at` is nullable in the schema, but
+ * 6.6 writes it in the same transaction that appends this row, so the two are the same
+ * instant to the microsecond. A `null` here would mean a session was credited without
+ * being ended — and even then, the moment the money moved is the more honest answer for
+ * a row labelled "when the earning was credited".
+ *
+ * `topicName` is the subtopic's Hebrew name, then the topic's, then `null` — the
+ * precedence `offerView.js` and `sessionView.js` both already use. A question with no
+ * classification has neither, and the screen labels the row by its date instead.
+ *
+ * @param {{amount: number, createdAt: Date, session: object}} row
+ * @returns {import('@tutor/shared').EarningRecord}
+ */
+export function toEarningRecord({ amount, createdAt, session }) {
+  return {
+    sessionId: session.id,
+    endedAt: (session.endedAt ?? createdAt).toISOString(),
+    totalCharged: session.totalCharged,
+    platformFee: session.platformFee,
+    teacherEarning: amount,
+    topicName: session.question?.subtopic?.nameHe ?? session.question?.topic?.nameHe ?? null,
+  };
+}

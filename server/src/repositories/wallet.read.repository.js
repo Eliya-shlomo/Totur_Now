@@ -118,3 +118,126 @@ export async function findWalletTransactionPage({ userId, skip = 0, take = DEFAU
 
   return { transactions, total };
 }
+
+/**
+ * The columns one earning row is allowed to leave the database in — PR 7.6.
+ *
+ * **The row is a ledger row and the breakdown hangs off it**, which is the shape the
+ * whole endpoint argues for: "what I earned" is defined by `wallet_transactions`,
+ * because that is the table `reconcile.mjs` sums a balance against and the table the
+ * money actually moved through. `sessions` carries the rest of the arithmetic —
+ * `total_charged`, `platform_fee`, `ended_at` — so it is joined *to* the earning rather
+ * than queried instead of it. A read that started from `sessions` would be a second
+ * answer to the same question, and the two would differ on exactly the session something
+ * went wrong in, which is the session a teacher opens this screen about.
+ *
+ * `teacher_earning` is deliberately **not** selected off the session. The number this
+ * endpoint reports is `amount` on the ledger row — what was actually credited — and
+ * selecting both would invite a projection that quietly prefers the column over the
+ * movement. `reconcile.mjs` invariant 4 is what checks the two agree; this file does not
+ * get a vote.
+ *
+ * `note` is absent here for the same reason it is absent from `LEDGER_VIEW`, and one
+ * reason more: this projection reaches a *teacher's* screen, and the notes on their rows
+ * say `'Session earning'`.
+ */
+const EARNING_VIEW = {
+  amount: true,
+  createdAt: true,
+  session: {
+    select: {
+      id: true,
+      endedAt: true,
+      totalCharged: true,
+      platformFee: true,
+      // Subtopic first, then topic — `offerView.js` and `sessionView.js` both label a
+      // session this way, and a row reading "Integration by parts" is more use to a
+      // teacher than one reading "Calculus".
+      question: {
+        select: {
+          topic: { select: { nameHe: true } },
+          subtopic: { select: { nameHe: true } },
+        },
+      },
+    },
+  },
+};
+
+/**
+ * Everything with a `TEACHER_EARNING` row: **one page of them, the count, and the
+ * all-time totals** — PR 7.6, MVP.md §5.3.
+ *
+ * ## The totals are an aggregate and never a sum over the page
+ *
+ * This is the single easiest thing to get wrong in this endpoint and the failure is
+ * invisible on page one, where the page *is* everything. A teacher who reaches page 3
+ * and watches their lifetime earnings shrink is being shown a bug that looks like a
+ * pricing change. So `total`, `net`, `gross` and `fee` are all computed by the database
+ * over the whole set, and the page is only the rows.
+ *
+ * ## Two aggregates, because the three figures do not live in one table
+ *
+ * `net` comes off the ledger — `_sum.amount` over this teacher's `TEACHER_EARNING`
+ * rows — because that is the definition, and because it is the number
+ * `reconcile.mjs` invariant 1 already reconciles the wallet balance against. Nothing
+ * else may compute it.
+ *
+ * `gross` and `fee` are columns that exist only on `sessions`, so they are aggregated
+ * there — but over **the set the ledger defines**, via `transactions: { some: … }`,
+ * rather than over "this teacher's finished sessions". The two sets are the same set
+ * today and they are not the same *rule*: a no-show refunds the student and credits the
+ * teacher nothing, and 7.4's early-exit and platform-failure refunds do the same, so
+ * those sessions have `teacher_id` set, an `ended_at`, and no earning. Aggregating by
+ * `teacherId` would put money in the gross column that the teacher never saw a share of.
+ *
+ * If a session ever carried two `TEACHER_EARNING` rows it would be counted twice in
+ * `net` and once in `gross`. That is a data bug rather than a case to handle here —
+ * `reconcile.mjs` invariant 4 is where it surfaces — and the honest thing is that this
+ * function would show it rather than paper over it.
+ *
+ * One `$transaction`, the read-only array form: four statements against one snapshot, so
+ * an earning credited between them cannot make the totals disagree with the page.
+ *
+ * @param {object} params
+ * @param {string} params.userId the teacher, from the verified token
+ * @param {number} [params.skip]
+ * @param {number} [params.take]
+ * @returns {Promise<{earnings: object[], total: number,
+ *   totals: {gross: number, fee: number, net: number}}>}
+ */
+export async function findTeacherEarningsPage({ userId, skip = 0, take = DEFAULT_PAGE_SIZE }) {
+  const where = { userId, type: 'TEACHER_EARNING' };
+
+  const [earnings, total, ledgerTotals, sessionTotals] = await prisma.$transaction([
+    prisma.walletTransaction.findMany({
+      where,
+      select: EARNING_VIEW,
+      // The same total order every read of this table uses. Two rows written in one
+      // transaction share an instant to the microsecond, and a non-total order lets
+      // page 2 repeat a row from page 1.
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip,
+      take,
+    }),
+    prisma.walletTransaction.count({ where }),
+    prisma.walletTransaction.aggregate({ where, _sum: { amount: true } }),
+    prisma.session.aggregate({
+      where: { transactions: { some: where } },
+      _sum: { totalCharged: true, platformFee: true },
+    }),
+  ]);
+
+  return {
+    earnings,
+    total,
+    // Prisma answers `null` for a `_sum` over no rows, and a teacher who has taught
+    // nothing has a real total of zero rather than an absent one. The screen renders
+    // these directly, and "₪null earned" is a worse bug than any of the arithmetic
+    // above.
+    totals: {
+      gross: sessionTotals._sum.totalCharged ?? 0,
+      fee: sessionTotals._sum.platformFee ?? 0,
+      net: ledgerTotals._sum.amount ?? 0,
+    },
+  };
+}

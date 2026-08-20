@@ -665,7 +665,13 @@ export interface EarningRecord {
   totalCharged: number;
   /** `sessions.platform_fee`. Zero in both of §5.3's free cases. */
   platformFee: number;
-  /** `sessions.teacher_earning`. Positive. What the ledger row credited. */
+  /**
+   * Positive. **The `amount` on the `TEACHER_EARNING` ledger row**, which is what was
+   * credited to the wallet — not `sessions.teacher_earning`, which 6.6 writes to in the
+   * same transaction. The two are the same number and `reconcile.mjs` invariant 4 is what
+   * checks that they are; when they ever disagree, the movement is what the teacher's
+   * balance is actually made of. Sharpened by 7.6, which had to pick one.
+   */
   teacherEarning: number;
   /** The session's topic, for the row's label. Null if the question had none. */
   topicName: string | null;

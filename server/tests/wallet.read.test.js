@@ -321,10 +321,7 @@ describe('the properties a call cannot demonstrate', () => {
     assert.match(readRepositorySource, /orderBy:\s*\[\s*\{\s*createdAt:\s*'desc'\s*\}/);
   });
 
-  it('authenticates every route and role-gates none of them', () => {
-    // A wallet is per-user, not per-role: teachers hold a balance too. 7.6's /earnings is
-    // the one route on this router that will carry authorize('teacher'), and it is the PR
-    // that gets to relax the last assertion here.
+  it('authenticates every route, and role-gates exactly the one that needs it', () => {
     const code = withoutComments(routesSource);
     const routes = [...code.matchAll(/walletRoutes\.\w+\(/g)];
 
@@ -334,7 +331,33 @@ describe('the properties a call cannot demonstrate', () => {
     // line does not match.
     assert.ok(routes.length >= 2);
     assert.equal((code.match(/authenticate,/g) ?? []).length, routes.length);
-    assert.equal(/authorize/.test(code), false);
+  });
+
+  /**
+   * **This assertion used to read "`/authorize/` must not appear", and 7.6 is the PR it
+   * was written for.** 7.2 left the tripwire deliberately: a wallet is per-user rather
+   * than per-role, teachers hold a balance and are credited into it at the end of every
+   * session, and a gate on `GET /wallet` would lock half the account holders out of their
+   * own money. `/earnings` is the one exception, because `EarningsResponse` is a
+   * fee-and-net breakdown of sessions taught and is meaningless for a student.
+   *
+   * So it is rewritten to the rule rather than relaxed: **one gate, on `/earnings`, and it
+   * says `teacher`.** A later PR that gates `GET /wallet` still fails here, which is the
+   * property the original was protecting — "at most one gate, anywhere" would not have
+   * caught it.
+   */
+  it('gates /earnings on teacher, and gates nothing else', () => {
+    const code = withoutComments(routesSource);
+    const gates = [...code.matchAll(/authorize\(([^)]*)\)/g)];
+
+    assert.equal(gates.length, 1);
+    assert.equal(gates[0][1].replaceAll(/['\s]/g, ''), 'teacher');
+
+    // The gate and the path are asserted together, so moving one without the other fails.
+    assert.match(
+      code,
+      /walletRoutes\.get\(\s*'\/earnings',\s*authenticate,\s*authorize\('teacher'\)/,
+    );
   });
 
   it('names no user in any path', () => {

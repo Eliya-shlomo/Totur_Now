@@ -85,3 +85,29 @@ export function getWalletTransactions(query = {}) {
 export function topUp(packageId) {
   return api.post('/wallet/topup', { packageId });
 }
+
+/**
+ * A teacher's own earnings — `GET /wallet/earnings`. PR 7.6, §5.3 and §14.1.
+ *
+ * **Teacher-only, and the one route on this mount with a role gate.** `getWallet` above
+ * deliberately has none — a teacher holds a balance like anybody else — but this shape is
+ * a fee-and-net breakdown of sessions taught, which means nothing for a student, and the
+ * server answers them `403 FORBIDDEN` rather than an empty list. There is no id in the
+ * URL, so refusing tells the caller only that they are not a teacher.
+ *
+ * **`totals` is all-time and `earnings` is one page**, and the two are not the same
+ * arithmetic. A screen that added up the rows it was given would show the right number on
+ * page one and a shrinking lifetime figure on page three.
+ *
+ * **`platformFee` is rendered, never derived.** §5.3's rate, its thirty-day waiver and its
+ * low-demand window are resolved server-side at `started_at`; a `0.15` anywhere in
+ * `client/` would be a second implementation of the rule that decides what a teacher took
+ * home. `balance` on the response is the same number `GET /wallet` answers — it is read
+ * through that same service, so the two cannot disagree.
+ *
+ * @param {{page?: number, pageSize?: number}} [query]
+ * @returns {Promise<import('@tutor/shared').EarningsResponse>}
+ */
+export function getEarnings(query = {}) {
+  return api.get('/wallet/earnings', { params: query });
+}

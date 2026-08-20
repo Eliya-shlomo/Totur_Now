@@ -2,10 +2,12 @@ import { Router } from 'express';
 
 import {
   getWalletBalance,
+  listTeacherEarnings,
   listWalletTransactions,
   topUpWalletBalance,
 } from '#controllers/wallet.controller.js';
 import { authenticate } from '#middlewares/authenticate.js';
+import { authorize } from '#middlewares/authorize.js';
 import { makeStrictLimiter } from '#middlewares/rateLimit.js';
 import { validate } from '#middlewares/validate.js';
 import { asyncHandler } from '#utils/asyncHandler.js';
@@ -76,4 +78,36 @@ walletRoutes.post(
   topUpLimiter,
   validate(walletTopUpSchema),
   asyncHandler(topUpWalletBalance),
+);
+
+/**
+ * 7.6 — the teacher's earnings. **The one route on this router with a role gate.**
+ *
+ * `GET /wallet` deliberately has none: a wallet is per-user rather than per-role,
+ * teachers hold a balance and are credited into it at the end of every session, and a
+ * gate there would lock half the account holders out of their own money. This endpoint is
+ * different in kind — `EarningsResponse` is a fee-and-net breakdown of sessions taught,
+ * which is meaningless for a student, and answering them `{ earnings: [], totals: {0,0,0} }`
+ * would be a worse answer than refusing.
+ *
+ * **`403` here, and `404` on the session endpoints, and both are right.** `OWNERSHIP.md`
+ * §2.1 rule 4 says a `403` on a session id confirms that the session exists — the rule is
+ * about not leaking the existence of a row. There is no id in this URL. Refusing a student
+ * tells them that they are not a teacher, which they already knew.
+ *
+ * **7.2's paging schema, not a second one.** `walletTransactionsSchema` validates a page
+ * and a page size against `constants/pagination.js` and nothing else, which is exactly
+ * this route's input; its name is about where it was written rather than what it checks.
+ * Two paging validators on one router is two ceilings, and the day somebody raises
+ * `MAX_PAGE_SIZE` only one of them moves.
+ *
+ * No rate limiter, for the reason the two reads above have none: it is an indexed read
+ * plus two aggregates, and `globalLimiter` in `app.js` covers it.
+ */
+walletRoutes.get(
+  '/earnings',
+  authenticate,
+  authorize('teacher'),
+  validate(walletTransactionsSchema),
+  asyncHandler(listTeacherEarnings),
 );

@@ -156,6 +156,7 @@ docs/epics/E6b-*/**                  6b.4 is open and is DEV-A's other close. No
 - [ ] Operations 4, 11 and 12 wrote no balance change and no ledger row — the three refusals
 - [ ] Operations 19 and 20 produced one row each, not two
 - [ ] The three screen-versus-SQL checks agree to the credit
+- [ ] **The teacher dashboard's earnings tile no longer says "Coming in E7"** — `client/src/pages/teacher/Dashboard.jsx`, one badge. 7.6 shipped the screen it points at and could not touch the file: it was on that PR's denylist because 6a.5 held it. By 7.8 E6a has landed and the file is free
 - [ ] **`/app/wallet` shows the `SESSION_CHARGE` row** — negative, dated, with a running total that matches the balance. Handed over by 7.5, which could not reach a real session charge without writing a ledger row by hand; it is the last claim that screen makes that nobody has watched happen
 - [ ] The undo ran and `diff --baseline` shows the database back at the baseline, output pasted
 - [ ] `RETRO.md` exists and names every open item as an item

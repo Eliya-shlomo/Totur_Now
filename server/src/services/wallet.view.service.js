@@ -1,11 +1,12 @@
 import { FIRST_PAGE } from '#config/constants/index.js';
 import {
+  findTeacherEarningsPage,
   findWalletByUserId,
   findWalletTransactionPage,
 } from '#repositories/wallet.read.repository.js';
 import { AppError } from '#utils/AppError.js';
 import { logger } from '#utils/logger.js';
-import { toWalletResponse, toWalletTransaction } from '#utils/walletView.js';
+import { toEarningRecord, toWalletResponse, toWalletTransaction } from '#utils/walletView.js';
 
 /**
  * What a wallet says about itself — `GET /wallet` and `GET /wallet/transactions`.
@@ -48,6 +49,7 @@ import { toWalletResponse, toWalletTransaction } from '#utils/walletView.js';
 const defaultDeps = {
   loadWallet: findWalletByUserId,
   loadTransactions: findWalletTransactionPage,
+  loadEarnings: findTeacherEarningsPage,
 };
 
 /**
@@ -109,4 +111,50 @@ export async function getWalletTransactions({ userId, page, pageSize }, deps = d
   });
 
   return { transactions: transactions.map(toWalletTransaction), total };
+}
+
+/**
+ * A teacher's earnings — `GET /wallet/earnings`. PR 7.6, MVP.md §5.3 and §14.1.
+ *
+ * **The balance is read through `getWallet` rather than queried again**, and that is the
+ * point of the line rather than an economy. §14.1 puts the wallet figure on this screen
+ * beside the lifetime net, and two reads of the same number are two numbers that can
+ * disagree — including about whether a missing wallet row is a 500, which `getWallet`
+ * already decides. One answer, one place, and this endpoint inherits it.
+ *
+ * The two reads run together. They are independent — one is the wallet row, the other is
+ * the ledger and its aggregates — and a teacher on page 3 should not wait for them in
+ * series. A missing wallet still rejects the whole call, which is correct: the screen has
+ * a balance tile on it.
+ *
+ * **`totals` is all-time and arrives that way from the database.** Nothing here folds the
+ * returned page, and there is deliberately no arithmetic in this function at all beyond
+ * the `skip` — the review checklist for this PR calls a page-sum the easiest mistake to
+ * make here, and the way to not make it is to have no addition in the layer that could.
+ *
+ * An empty result is `earnings: []`, `total: 0` and three zeroes — a `200` and a real
+ * first-time state, which is most teachers on the day they onboard. The screen renders an
+ * empty state rather than a table of zeros; that is its decision and not this one's.
+ *
+ * The role gate is on the route (`authorize('teacher')`) and not repeated here. A student
+ * never reaches this function, and a second check in the service would be a second place
+ * the rule lives — `wallet.routes.js` says why `/earnings` is the one route on that router
+ * that carries one.
+ *
+ * @param {object} params
+ * @param {string} params.userId the teacher, from the verified token
+ * @param {number} params.page 1-based
+ * @param {number} params.pageSize already capped
+ * @param {typeof defaultDeps} [deps]
+ * @returns {Promise<import('@tutor/shared').EarningsResponse>}
+ */
+export async function getTeacherEarnings({ userId, page, pageSize }, deps = defaultDeps) {
+  const { loadEarnings } = { ...defaultDeps, ...deps };
+
+  const [{ balance }, { earnings, total, totals }] = await Promise.all([
+    getWallet(userId, deps),
+    loadEarnings({ userId, skip: (page - FIRST_PAGE) * pageSize, take: pageSize }),
+  ]);
+
+  return { balance, earnings: earnings.map(toEarningRecord), total, totals };
 }
