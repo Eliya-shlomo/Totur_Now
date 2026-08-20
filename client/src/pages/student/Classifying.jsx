@@ -8,6 +8,7 @@ import { getTopics } from '@/api/public.api';
 import { getQuestion, patchClassification } from '@/api/question.classification.api';
 import ClassificationCard from '@/components/question/ClassificationCard';
 import TopicOverride from '@/components/question/TopicOverride';
+import { topicName } from '@/components/teacher/TopicPicker';
 import ErrorState from '@/components/state/ErrorState';
 import LoadingState from '@/components/state/LoadingState';
 
@@ -37,7 +38,13 @@ import LoadingState from '@/components/state/LoadingState';
  */
 
 /**
- * "Calculus · Integrals", or null.
+ * "חשבון דיפרנציאלי · אינטגרלים", or null.
+ *
+ * Both halves through `topicName` — the badge rule, written out in `TopicPicker.jsx`
+ * and applied here, there and in the teacher's offer modal (PR 6a.5). This screen read
+ * `nameEn` until then, which showed a Hebrew-speaking student "Calculus · Integrals"
+ * over their own Hebrew question while the teacher's badge for the same row said
+ * אינטגרלים.
  *
  * Resolved from `subtopicId` alone, which is what keeps the sentinel off the screen:
  * on the fallback path the question really is filed under `General / Unclassified`
@@ -51,7 +58,7 @@ function topicLabelFor(topics, subtopicId) {
   for (const parent of topics) {
     const leaf = (parent.children ?? []).find((child) => child.id === subtopicId);
 
-    if (leaf) return `${parent.nameEn} · ${leaf.nameEn}`;
+    if (leaf) return `${topicName(parent)} · ${topicName(leaf)}`;
   }
 
   return null;

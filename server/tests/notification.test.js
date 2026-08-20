@@ -48,6 +48,7 @@ const incomingOffer = (overrides = {}) => ({
   offerId: '66666666-6666-4666-8666-666666666666',
   sessionId: '33333333-3333-4333-8333-333333333333',
   brief: 'Stuck applying the chain rule to a nested trig function.',
+  howToStart: 'Name the outer function before differentiating anything.',
   topicLabel: 'כלל השרשרת',
   level: 5,
   expectedEarning: 12 * OPENING_BLOCKS * (1 - PLATFORM_FEE_PCT),
@@ -55,12 +56,13 @@ const incomingOffer = (overrides = {}) => ({
   ...overrides,
 });
 
-/** The template's arguments, with the two nullable contract fields filled in. */
+/** The template's arguments, with the three nullable contract fields filled in. */
 const templateInput = (overrides = {}) => ({
   teacherName: 'Dana Levi',
   topicLabel: 'כלל השרשרת',
   level: 5,
   brief: 'Stuck applying the chain rule to a nested trig function.',
+  howToStart: 'Name the outer function before differentiating anything.',
   expectedEarning: 20.4,
   ttlSeconds: OFFER_TTL_SECONDS,
   teachUrl: 'http://localhost:5173/teach',
@@ -181,6 +183,30 @@ describe('the template — what a teacher who has never seen the product reads',
     assert.match(subject, /a new question/);
     assert.doesNotMatch(html, /null|Topic|Level/);
     assert.doesNotMatch(text, /null|Topic:|Level:/);
+  });
+
+  it('carries the opening move, after the brief and never before it', () => {
+    // 6a.4 wrote `how_to_start` for a teacher with sixty seconds; 6a.5 renders it in
+    // the modal, and this is the same brief in the same order for the teacher who
+    // reads the email first. The order is asserted rather than the presence alone —
+    // the opening move above the question is an answer to something not yet asked.
+    const { html, text } = offerEmail(templateInput());
+
+    for (const part of [html, text]) {
+      assert.match(part, /outer function/);
+      assert.ok(part.indexOf('chain rule') < part.indexOf('outer function'));
+    }
+  });
+
+  it('drops the opening move rather than heading an empty block', () => {
+    // Null on every fallback classification, where there is no opening move to invent
+    // — the same rule the topic and the level already follow, and the same one 6a.5's
+    // modal applies to the same field.
+    const { html, text } = offerEmail(templateInput({ howToStart: null }));
+
+    assert.doesNotMatch(html, /How to begin/);
+    assert.doesNotMatch(text, /How to begin/);
+    assert.doesNotMatch(html, /null/);
   });
 
   it('escapes a brief that contains markup', () => {

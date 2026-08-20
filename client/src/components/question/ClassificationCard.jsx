@@ -24,6 +24,14 @@ import { IconAlertTriangle, IconSparkles } from '@tabler/icons-react';
  * No confidence number. It is `llm_confidence` in the database and 3.8's retro reads
  * it there; a student choosing whether to agree is not helped by "0.62".
  *
+ * **`dir="auto"` on every value the student or the model wrote — PR 6a.5.** Their
+ * question is Hebrew far more often than not, and until this PR it rendered inside an
+ * LTR container: trailing punctuation at the wrong end of the line, and mixed
+ * Hebrew-and-digits reordered. `dir="auto"` and not `dir="rtl"`, because the model
+ * answers in the student's language (prompt rule 8) and the string's own first strong
+ * character is the only thing that knows which that was. The shell stays LTR; this is
+ * not an app-wide RTL conversion.
+ *
  * @param {import('@tutor/shared').QuestionResponse} question
  * @param {string|null} topicLabel     "Calculus · Integrals", resolved by the page
  */
@@ -56,9 +64,11 @@ export default function ClassificationCard({ question, topicLabel }) {
                 {/* The one sentence written for the student to read, straight from
                     the model (§8.1). The teacher-facing brief is a different column
                     and does not belong on this screen. */}
-                <Title order={3}>{classification.studentConfirmation}</Title>
+                <Title order={3} dir="auto">
+                  {classification.studentConfirmation}
+                </Title>
                 {classification.title && (
-                  <Text size="sm" c="dimmed">
+                  <Text size="sm" c="dimmed" dir="auto">
                     {classification.title}
                   </Text>
                 )}
@@ -97,7 +107,7 @@ export default function ClassificationCard({ question, topicLabel }) {
         {(topicLabel || classification.estimatedLevel) && (
           <Group gap="xs" wrap="wrap">
             {topicLabel && (
-              <Badge variant="light" size="lg" radius="sm">
+              <Badge variant="light" size="lg" radius="sm" dir="auto">
                 {topicLabel}
               </Badge>
             )}
@@ -115,7 +125,7 @@ export default function ClassificationCard({ question, topicLabel }) {
             path — the first question is "is this my question?", and the answer is
             their own words and their own photograph. */}
         <Stack gap="xs">
-          <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
+          <Text size="sm" dir="auto" style={{ whiteSpace: 'pre-wrap' }}>
             {rawText}
           </Text>
 

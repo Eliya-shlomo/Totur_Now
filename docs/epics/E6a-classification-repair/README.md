@@ -128,7 +128,7 @@ Three reasons the one-line fix is not the work.
 | 6a.2 | [Images: fetch the bytes, send `inlineData`](PR-6a.2-image-bytes.md) | M | 6a.1 | ☑ |
 | 6a.3 | [The 50-question bench: fixture, harness, scored report](PR-6a.3-bagrut-bench.md) | M | 6a.2 | ☑ |
 | 6a.4 | [**The brief the teacher reads: `how_to_start`**](PR-6a.4-teacher-brief.md) | **human** · M | 6a.1 | ☑ |
-| 6a.5 | [Surfacing the brief, and the RTL the client never got](PR-6a.5-brief-ui-rtl.md) | M | 6a.4 | ☐ |
+| 6a.5 | [Surfacing the brief, and the RTL the client never got](PR-6a.5-brief-ui-rtl.md) | M | 6a.4 | ☑ |
 | 6a.6 | [E6a close: bench re-run, verification, retro](PR-6a.6-e6a-close.md) | S | 6a.3, 6a.5 | ☐ |
 
 Status: ☐ not started · ◐ partial · ☑ done. Size: S (<2h) · M (2–4h) · L (half day+).
@@ -394,6 +394,44 @@ the taxonomy has no leaf for. It fell back in run 2 and landed on
 `word-problems / buy-sell-problems` in run 3. That one is a gap in §7's taxonomy rather
 than a defect in the classifier, and the follow-up should say which of the two it is
 fixing before it edits a prompt.
+
+## What 6a.5 settled
+
+**The badge rule is Hebrew, and it was not a free choice.** The brief offered two
+defensible answers and only one of them was reachable: `offerView.js` resolves
+`IncomingOffer.topicLabel` from `nameHe`, the field crosses the wire as a finished
+string, and 6a.5 may touch neither `server/src/**` nor `shared/**`. So the teacher's
+badge is Hebrew whatever the client decides, and "English everywhere" was never on the
+table. The rule is written out once, above `topicName` in
+`client/src/components/teacher/TopicPicker.jsx`, and applied by the picker, by
+`Classifying.jsx`'s label and by the offer modal. `Classifying.jsx` read `nameEn` until
+now, which showed a Hebrew-speaking student "Calculus · Integrals" over their own Hebrew
+question while the teacher's badge for the same row said אינטגרלים.
+
+**`howToStart === null` is how the modal knows the classifier fell back**, and it is the
+only thing in the payload that can tell it. `IncomingOffer` carries no
+`classificationOk` and 6a.5 may not widen it; `how_to_start` is required and non-empty
+on the wire and null on exactly one path, which is the reading
+`classification.service.js` already names in its own comment. `topicLabel` cannot stand
+in for it — the fallback files the question under the sentinel, a real row with a real
+Hebrew name, so the badge is populated on both paths.
+
+**One consequence, and it is not fixed here.** Rows written before 6a.4 have
+`classification_ok true` and `how_to_start` null, so the modal calls them not
+classified. The only such rows are `prisma/seed/questions.js`'s two demo questions,
+which sit outside this PR's allowlist. Either the seed gains an opening move or the
+signal needs a field the contract does not carry; 6a.6 picks one.
+
+**Measured in the running app on 2026-08-20**, three offers driven through
+`POST /sessions/:id/offer` to a real teacher tab at 375px:
+
+| Hebrew, classified | brief and opening move both `direction: rtl`, English chrome `ltr` |
+| English, classified | same components, both `ltr`, nothing else moved |
+| Fallback, produced rather than reasoned about | "Not classified — the student's own words", no empty opening-move block |
+| Modal at 375×812 | 453px of content in the body, **no scroll container anywhere inside it**, no horizontal overflow |
+
+The student's confirmation screen was checked in the same run: `raw_text` computes
+`rtl` for Hebrew and `ltr` for English, from one `dir="auto"` and no branch.
 
 ## Deliberate deviations from `MVP.md` §18
 
