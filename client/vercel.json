@@ -5,10 +5,6 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "//": "The API, served from this origin so the refresh cookie is first-party — PR 6b.2.",
-      "//why": "tn_refresh is set by the API. Deployed on Render while the client is on Vercel, it is a THIRD-PARTY cookie: SameSite=None makes it eligible to travel cross-site, but Safari, Firefox and every private window refuse to store third-party cookies at all. The access token then expires at fifteen minutes, /auth/refresh sends nothing, and a student with a running meter lands on the login screen. Proxied through this origin the browser sees one site and the rule stops applying.",
-      "//order": "Before the SPA catch-all. Vercel takes the first match, so a catch-all above this one would serve index.html for every API call.",
-      "//socket": "Socket.IO is NOT here and must not be. Vercel rewrites do not carry a WebSocket upgrade. The socket goes straight to the Render origin via VITE_SOCKET_URL, and it does not need the cookie — lib/socket.js presents the access token in the handshake.",
       "source": "/api/:path*",
       "destination": "https://tutor-now-api.onrender.com/api/:path*"
     },
