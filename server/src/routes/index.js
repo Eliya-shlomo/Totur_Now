@@ -7,6 +7,7 @@ import { publicRoutes } from '#routes/public.routes.js';
 import { questionRoutes } from '#routes/question.routes.js';
 import { sessionRoutes } from '#routes/session.routes.js';
 import { teacherRoutes } from '#routes/teacher.routes.js';
+import { walletRoutes } from '#routes/wallet.routes.js';
 
 /**
  * The route registry — the only router `app.js` mounts, at `/api/v1`.
@@ -48,3 +49,5 @@ apiRoutes.use('/questions', matchingRoutes);
 apiRoutes.use('/sessions', sessionRoutes);
 
 apiRoutes.use('/teachers', teacherRoutes);
+
+apiRoutes.use('/wallet', walletRoutes);

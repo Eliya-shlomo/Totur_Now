@@ -6,7 +6,7 @@
 | **Owner** | DEV-A (eliya) |
 | **Size** | M |
 | **Written by** | Agent. |
-| **Depends on** | 7.1 (merged — it opens `wallet.repository.js` for one JSDoc line first) |
+| **Depends on** | 7.1 (merged) |
 | **Blocks** | 7.3, 7.6 |
 | **Branch** | `dev-a/E7.2-wallet-read-surface` |
 
@@ -25,6 +25,17 @@ There is no `/api/v1/wallet` mount of any kind. `routes/index.js` goes `auth · 
 public · questions · sessions · teachers` and stops, so a student cannot read the balance
 the entire product spends from. This PR builds the router and its two reads. **No money
 moves in it.**
+
+**A new repository file, `wallet.read.repository.js`, and it is not the file 7.2 was
+first scoped against.** `wallet.repository.js` is defined by an invariant its own header
+states and `wallet.service.test.js` enforces: it has no `prisma` import and opens no
+transaction, so "a caller that has no transaction cannot use any of this". A paged read
+needs both — the house pattern for page-plus-count is `prisma.$transaction([findMany,
+count])`, as `findTeacherPage` does it — so putting these reads in that file would break
+two live assertions and, worse, the property they protect. The reads get their own
+repository, split by concern the way `teacher.presence.repository.js` splits from
+`teacher.repository.js`. **This is the same argument as the service split below, one
+layer down**, and it is the reason the brief's original allowlist named the wrong file.
 
 **A new service file, `wallet.view.service.js`, and that is the important decision.**
 Layering (`CONVENTIONS.md` → "Server layering", rule 1) forbids a controller touching the
@@ -67,7 +78,7 @@ row.
 ## Files you may touch
 
 ```
-server/src/repositories/wallet.repository.js   two reads: the wallet row, the paged ledger + count
+server/src/repositories/wallet.read.repository.js  NEW. The wallet row; the paged ledger + count
 server/src/services/wallet.view.service.js     NEW. Reads only. Never imports wallet.service.js
 server/src/controllers/wallet.controller.js    NEW. Two handlers, no prisma, no logic
 server/src/routes/wallet.routes.js             NEW. authenticate, validate, asyncHandler
@@ -83,6 +94,7 @@ docs/epics/E7-wallet-billing/README.md         tick the status box
 
 ```
 server/src/services/wallet.service.js       §17.5. Human-written, and this PR moves no money
+server/src/repositories/wallet.repository.js  6.5's write statements. No prisma import, ever
 server/src/app.js                           frozen after 0.4 — the router registry is the seam
 prisma/schema/**                            no column, and 6a.4 has a migration in flight
 shared/socketEvents.js                      7.3 appends wallet:updated
@@ -121,10 +133,10 @@ docs/epics/E6a-*/**                         another epic's chain
 
 ## Review checklist additions
 
-- **No `prisma.$transaction` anywhere in this PR.** Two reads that must agree with each
-  other is a design smell here, not a transaction: the balance and the ledger are read
-  by two separate requests from two separate screens, and 7.5 reconciles them by showing
-  `balanceAfter` on the newest row.
+- **`wallet.repository.js` is not opened by this PR.** Its no-`prisma`, no-`$transaction`
+  invariant is asserted by `wallet.service.test.js` and is the reason every money
+  statement takes the caller's transaction. The read-only `prisma.$transaction([findMany,
+  count])` batch belongs in `wallet.read.repository.js` and nowhere near it.
 - The `note` exclusion must be a projection, not a `delete row.note`. A view util that
   builds the response field by field cannot leak a column added later; a deletion can.
 - `routes/index.js` is append-only and alphabetical (`OWNERSHIP.md` §2). `/wallet` sorts
