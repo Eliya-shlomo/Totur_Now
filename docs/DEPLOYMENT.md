@@ -272,7 +272,8 @@ and where it comes from:
 | `CORS_ORIGINS` | `https://<vercel-production-domain>` | The production URL from PR 0.8. No trailing slash. |
 | `CLOUDINARY_*` | 3 values | cloudinary.com → Dashboard → Product Environment Credentials |
 | `GEMINI_API_KEY` | the AI Studio key | aistudio.google.com → API keys. Renamed from `ANTHROPIC_API_KEY` in PR 3.3 when classification changed vendor — **an existing deployment must set the new name or it will not boot.** |
-| `ZOOM_*`, `RESEND_API_KEY`, `EMAIL_FROM` | leave blank | E5 / E6. `env.js` treats them as optional. **When you do set `EMAIL_FROM`, see below — the obvious value does not boot.** |
+| `DAILY_API_KEY` | the Daily key | dashboard.daily.co → Developers → API keys. **Set it.** `env.js` treats it as optional and the server boots without it, but a service without this key runs every session with "No video on this session" — which is what production did from PR 6.1 until 6b.1. The boot log says so in one line; nothing else will. |
+| `RESEND_API_KEY`, `EMAIL_FROM` | leave blank | E5. `env.js` treats them as optional. **When you do set `EMAIL_FROM`, see below — the obvious value does not boot.** |
 
 **`EMAIL_FROM` must be a bare address, not the display-name form.** Found in PR 5.9's
 verification pass. Resend's own documentation writes the sender as `Name <addr@domain>`,

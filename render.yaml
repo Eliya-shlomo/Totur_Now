@@ -112,15 +112,28 @@ services:
       - key: GEMINI_API_KEY
         sync: false
 
+      # ── the video call ───────────────────────────────────────────────────
+      # Not on the `requiredInProduction` list, because a session without a
+      # camera still teaches and still charges — 6.3 accepts, 6.4 repairs on
+      # join, 6.7 renders the room without the call. It is on `warnInProduction`
+      # instead, so a deploy without it says so at boot.
+      #
+      # **It was declared nowhere at all until PR 6b.1, which is the defect.**
+      # The blueprint carried ZOOM_ACCOUNT_ID / ZOOM_CLIENT_ID /
+      # ZOOM_CLIENT_SECRET — three keys for the provider PR 6.0 migrated away
+      # from, read by no file in `server/` — and no Daily key. So the deployed
+      # API never had one, and every session in production ran with
+      # "No video on this session" from PR 6.1 until a log was read. `sync:
+      # false` means Render does not take the value from this file: **an
+      # existing service must also add it in the dashboard.**
+      - key: DAILY_API_KEY
+        sync: false
+
       # ── optional until their epic lands ──────────────────────────────────
       # Declared so the dashboard shows the full shape of the environment.
-      # Leave blank until E5 / E6; env.js treats them as optional.
-      - key: ZOOM_ACCOUNT_ID
-        sync: false
-      - key: ZOOM_CLIENT_ID
-        sync: false
-      - key: ZOOM_CLIENT_SECRET
-        sync: false
+      # env.js treats them as optional and nothing warns about them: E5's mail
+      # has a no-op transport, and an offer that arrives on screen is the path
+      # that matters.
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM
