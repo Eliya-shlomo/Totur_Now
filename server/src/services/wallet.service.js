@@ -8,7 +8,7 @@ import { AppError } from '#utils/AppError.js';
 import { logger } from '#utils/logger.js';
 
 /**
- * Money. **Three operations and no fourth.** PR 6.5, MVP.md §11.3-B and §17.5.
+ * Money. **Four operations and no fifth.** PR 6.5 and 7.1, MVP.md §11.3-B and §17.5.
  *
  * ## Why this file exists in E6 and not in E7
  *
@@ -19,6 +19,20 @@ import { logger } from '#utils/logger.js';
  * *same* thing, written when the first caller needed it. **E7 builds top-up, the ledger
  * endpoint and the wallet screen on top of this service. It does not get a second one.**
  *
+ * ## Why the fourth arrived in E7 and could not have arrived in E6
+ *
+ * The paragraph above said three and no fourth, and it was right for the length of E6:
+ * **no code anywhere put credit into this system.** Every balance in the database came
+ * from a seed, and the three operations between them only moved money that was already
+ * there — a student's credit to a teacher, and back again on a refund. A `TOPUP` value
+ * sat unused in §11.2's enum from PR 0.2 onwards for exactly that reason.
+ *
+ * `topUpWallet` is E7's answer and it is the **entry point**, in the arithmetic sense:
+ * the one operation that increases the total credit in the system rather than moving it
+ * between two wallets. There is no fifth waiting behind it. `PAYOUT` and `PROMO` are the
+ * other two enum values nothing writes, and both are §21's phases rather than this MVP's
+ * — a diff that adds either is a diff that has to make §17.5's argument again.
+ *
  * ## The four steps, and they are the same four every time
  *
  * ```
@@ -28,10 +42,10 @@ import { logger } from '#utils/logger.js';
  *   4. INSERT INTO wallet_transactions (type, amount, balance_after, session_id, note)
  * ```
  *
- * They are written once, in `applyWalletDelta`, and the three exported functions are
- * each a name, a sign and a `tx_type` over it. Three copies of four steps is three
- * places for the lock to go missing from, and the one it goes missing from is the one
- * nobody reads again.
+ * They are written once, in `applyWalletDelta`, and the four exported functions are
+ * each a name, a sign and a `tx_type` over it. Four copies of four steps is four places
+ * for the lock to go missing from, and the one it goes missing from is the one nobody
+ * reads again.
  *
  * **Step 1 is a lock and it is first.** A plain `SELECT` passes every test in
  * `wallet.service.test.js` and loses money the first time two clients arrive together:
@@ -66,8 +80,11 @@ const CHARGE = 'SESSION_CHARGE';
 /** The ledger row a teacher's earning writes, at termination — 6.6. */
 const EARNING = 'TEACHER_EARNING';
 
-/** The ledger row a refund writes — a no-show, 6.6. */
+/** The ledger row a refund writes — a no-show, 6.6, and §5.5's other two in 7.4. */
 const REFUND = 'REFUND';
+
+/** The ledger row a top-up writes — 7.1. The only credit that comes from outside. */
+const TOPUP = 'TOPUP';
 
 /**
  * Every collaborator arrives through the third argument, 3.3's idiom — which is what
@@ -153,6 +170,54 @@ export async function creditTeacher({ userId, sessionId, amount, note }, tx, dep
 export async function refundSession({ userId, sessionId, amount, note }, tx, deps = defaultDeps) {
   return applyWalletDelta(
     { userId, sessionId, amount, note, type: REFUND, isDebit: false },
+    tx,
+    deps,
+  );
+}
+
+/**
+ * Credit arrives from outside the system — PR 7.1, MVP.md §5.4 and §12's
+ * `POST /wallet/topup`.
+ *
+ * **The only operation here that is not a transfer.** The other three move credit
+ * between two wallets or put it back where it came from; the total in the system is the
+ * same before and after each of them. This one raises it, which is why it is the
+ * operation §21's payment provider eventually sits behind and why it is the one worth
+ * being strict about.
+ *
+ * **The amount is not this file's to validate beyond arithmetic.** A top-up is only ever
+ * one of §5.4's packages, and the allowlist that enforces that is 7.3's validator, one
+ * layer up, where every other request-shape rule in this codebase lives. What survives
+ * here is the guard the other three already apply — a non-integer or non-positive amount
+ * is a programming error and fails before step 1. Restating the package list here would
+ * be a second copy of `TOPUP_PACKAGES` for the first one to drift from.
+ *
+ * **`sessionId` is `null`, explicitly, and not omitted.** The column is nullable exactly
+ * for this operation, and `appendWalletTransaction` would default it — but an absent key
+ * reads as a caller that forgot one, and a written `null` reads as the operation saying
+ * there is no session. `wallet.service.test.js` asserts the distinction, because it is
+ * the only ledger row in the system with no lesson behind it and that is a fact worth
+ * being deliberate about.
+ *
+ * No assert. A credit cannot fail on affordability, the same reason `creditTeacher` has
+ * none — but the lock in step 1 is taken all the same. It is not there to protect the
+ * decision, which there isn't one of; it is there so `balance_after` on the row is a
+ * number no concurrent debit can have moved between the read and the write. Invariant 1
+ * of `scripts/reconcile.mjs` sums `amount` rather than `balance_after`, so a wrong
+ * `balance_after` is a row that reconciles perfectly and still lies to whoever reads the
+ * ledger screen.
+ *
+ * @param {object} params
+ * @param {string} params.userId whoever is topping up — a teacher may, and 7.2 says why
+ * @param {number} params.amount credits, **positive**, one of `TOPUP_PACKAGES`
+ * @param {string} [params.note] operator-facing; never rendered
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @param {typeof defaultDeps} [deps]
+ * @returns {Promise<{balanceAfter: number}>}
+ */
+export async function topUpWallet({ userId, amount, note }, tx, deps = defaultDeps) {
+  return applyWalletDelta(
+    { userId, sessionId: null, amount, note, type: TOPUP, isDebit: false },
     tx,
     deps,
   );
