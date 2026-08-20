@@ -11,7 +11,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { getTeacherMe } from '@/api/teacher.api';
-import IncomingOfferModal from '@/components/offer/IncomingOfferModal';
 import ErrorState from '@/components/state/ErrorState';
 import LoadingState from '@/components/state/LoadingState';
 import { useSocketEvent } from '@/hooks/useSocketEvent';
@@ -20,33 +19,20 @@ import { useSocketEvent } from '@/hooks/useSocketEvent';
  * `/teach` — the teacher's dashboard. MVP.md §14.1, PR 5.7.
  *
  * The teacher's half of the product: the screen that decides whether they are
- * reachable at all, and the one that raises an offer when they are. Three blocks —
- * availability, standing, and the modal that appears over both.
+ * reachable at all. Two blocks — availability, and standing.
  *
- * **One offer at a time, and no queue.** 5.3's atomic lock guarantees a teacher holds
- * at most one `PENDING` offer; if a second `offer:new` arrives while a modal is open,
- * the lock did not hold and two students are waiting on one teacher. So the second one
- * is logged loudly and dropped rather than queued: a queue would render both offers in
- * turn, the teacher would answer one, and the defect — the thing this epic exists to
- * prevent — would be invisible until it reached production. The client's job here is
- * to be a witness.
- *
- * **A reload no longer loses the offer, and neither does logging in late.** 5.7 scoped
- * that out — "the offer expires on its own either way" — and end-to-end testing turned
- * it into the bug that made the teacher's side untestable: the lock is taken, the header
- * reads "Offer pending", and there is nothing on screen to accept. The server now
- * re-emits `offer:new` on every teacher handshake (`sockets/handlers.offer.js`), so the
- * modal is raised by the same event and the same payload whether the frame is the
- * original or the replay. The only thing this screen had to learn is that a repeated
- * `offerId` is not a second offer.
+ * **The incoming offer is no longer raised here.** It was, from 5.7 until 6b.3, and
+ * that is why a teacher on `/teach/profile` never saw one: the listener unmounted with
+ * this screen while the socket stayed up, so the lock was held, the header read "Offer
+ * pending", and there was nothing anywhere to accept. It now lives in
+ * `components/offer/OfferHost.jsx`, mounted by `TeacherLayout` for every `/teach/*`
+ * route. The rules it carries — the handshake replay, the dropped second offer, the
+ * expiry matched on `offerId` — moved with it unchanged.
  */
 export default function Dashboard() {
   /** `TeacherMeResponse`, for the standing block. Its own read — see `loadTeacher`. */
   const [teacher, setTeacher] = useState(null);
   const [teacherError, setTeacherError] = useState(null);
-
-  /** The open offer, or `null`. At most one, by 5.3's lock. */
-  const [offer, setOffer] = useState(null);
 
   /**
    * The standing figures, read here rather than shared with the header's toggle.
@@ -78,53 +64,6 @@ export default function Dashboard() {
   useEffect(loadTeacher, [loadTeacher]);
 
   /**
-   * A student picked this teacher. The payload is `IncomingOffer` in full, including
-   * the absolute `expiresAt` the countdown recomputes from.
-   *
-   * **The same `offerId` twice is a replay, not a second offer.** The server re-emits
-   * `offer:new` on every teacher handshake, so that logging in after the student
-   * pressed **Send request** — or reloading, or a socket that dropped and came back —
-   * still raises the modal. A second tab connecting therefore delivers a frame for the
-   * offer this tab is already showing, and the modal must not be rebuilt underneath a
-   * teacher who is reading it.
-   */
-  useSocketEvent(
-    SOCKET_EVENTS.OFFER_NEW,
-    useCallback((incoming) => {
-      setOffer((current) => {
-        if (current && current.offerId === incoming?.offerId) return current;
-
-        if (current) {
-          // Loud on purpose, and not a toast: this is not something the teacher can
-          // act on, it is a server-side invariant that has just been violated. The
-          // second offer is dropped, so the student who sent it gets the expiry they
-          // would have got anyway rather than a teacher answering the wrong question.
-          console.error(
-            '[5.7] A second offer:new arrived while an offer was open. The atomic lock in 5.3 did not hold.',
-            { open: current.offerId, dropped: incoming?.offerId },
-          );
-
-          return current;
-        }
-
-        return incoming;
-      });
-    }, []),
-  );
-
-  /**
-   * The sweep reached it first, or the student gave up. Matched on `offerId` so a
-   * late frame for an offer that has already been answered cannot close the modal
-   * raised by the next one.
-   */
-  useSocketEvent(
-    SOCKET_EVENTS.OFFER_EXPIRED,
-    useCallback((payload) => {
-      setOffer((current) => (current && current.offerId === payload?.offerId ? null : current));
-    }, []),
-  );
-
-  /**
    * `teacher:status` — this teacher's own availability, from wherever it moved.
    *
    * The notice below is a claim about the present, so it cannot be rendered from a value
@@ -143,8 +82,6 @@ export default function Dashboard() {
       });
     }, []),
   );
-
-  const clearOffer = useCallback(() => setOffer(null), []);
 
   return (
     <Stack gap="lg">
@@ -198,7 +135,7 @@ export default function Dashboard() {
               title="You are offline, so no questions will reach you"
             >
               You start each sign-in offline. Go online in the top bar when you are ready to answer,
-              and stay on this page — a question arrives here.
+              and a question will reach you on any of your pages.
             </Alert>
           )}
         </Stack>
@@ -268,8 +205,6 @@ export default function Dashboard() {
           </SimpleGrid>
         )}
       </Stack>
-
-      {offer && <IncomingOfferModal offer={offer} onClose={clearOffer} />}
     </Stack>
   );
 }
