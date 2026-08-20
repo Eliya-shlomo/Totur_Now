@@ -11,8 +11,8 @@ import { MAX_IMAGES, MIN_CONFIDENCE } from '#config/constants/index.js';
  * images, assembling content blocks.
  *
  * The file exports no request parameters and calls nothing. It turns four values into
- * the two fields `messages.create` wants, so that the prompt can be rewritten without
- * touching a timeout, and the timeout can be tuned without touching the prompt.
+ * the two fields `models.generateContent` wants, so that the prompt can be rewritten
+ * without touching a timeout, and the timeout can be tuned without touching the prompt.
  *
  * **The taxonomy is rendered, never pasted.** §7's topic list is a database table with
  * one source (`prisma/seed/topics.js` → `topics`), and `renderTaxonomy` prints whatever
@@ -136,7 +136,7 @@ const MIME_BY_EXTENSION = {
 };
 
 /**
- * Four values in, one `interactions.create` payload out.
+ * Four values in, one `models.generateContent` payload out.
  *
  * The images come **before** the text, which is the documented ordering for vision
  * requests and the one the student's own question implies: §4.1's example is "I don't
@@ -148,6 +148,14 @@ const MIME_BY_EXTENSION = {
  * Anything that is not an `https:` string is dropped rather than sent: the list reaches
  * here from a database column, and one bad row must not fail every classification.
  *
+ * **The paragraph above is false and 6a.2 is where it stops being false.** Gemini has
+ * no image-by-URL part: a part carries `inlineData` (base64 bytes) or `fileData` (a
+ * Files API URI, Gemini's own storage and not anyone's CDN), so `{ type: 'image', uri }`
+ * reaches nothing. 6a.1 repaired the request around these parts and deliberately left
+ * them as they were — the images are a second repair with a latency budget of their own,
+ * and rewriting them here would have put two unmeasured changes in one diff. Until 6a.2
+ * lands, a photographed question still classifies to the §8.1 fallback.
+ *
  * `MAX_IMAGES` is applied here as well as at upload. The cap is a cost ceiling on this
  * exact call, and the caller is a service that could one day be handed a longer list.
  *
@@ -156,12 +164,16 @@ const MIME_BY_EXTENSION = {
  * absent `declaredLevel` omits its tag entirely rather than saying "none": a sentence
  * about what the student did not tell us is a sentence the model has to interpret.
  *
+ * The return shape is this SDK's and not the previous request's: one `user` turn
+ * carrying every part, which is what `contents` means here. `systemInstruction` stays a
+ * sibling because it rides in `config`, not in the conversation.
+ *
  * @param {object} input
  * @param {string} input.rawText
  * @param {string[]} [input.imageUrls]
  * @param {number|null} [input.declaredLevel]
  * @param {import('./topic.service.js').TopicNode[]} input.topicTree
- * @returns {{systemInstruction: string, input: Array<object>}}
+ * @returns {{systemInstruction: string, contents: Array<object>}}
  */
 export function buildMessages({ rawText, imageUrls = [], declaredLevel = null, topicTree }) {
   const images = (imageUrls ?? [])
@@ -183,6 +195,6 @@ export function buildMessages({ rawText, imageUrls = [], declaredLevel = null, t
 
   return {
     systemInstruction: `${SYSTEM_INSTRUCTIONS}\n\n<taxonomy>\n${renderTaxonomy(topicTree)}\n</taxonomy>`,
-    input: [...images, { type: 'text', text }],
+    contents: [{ role: 'user', parts: [...images, { text }] }],
   };
 }

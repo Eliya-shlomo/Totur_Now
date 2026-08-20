@@ -63,7 +63,7 @@ entirely — the shape reads like the REST or Python surface, not this SDK.
 | `thinking_level: 'low'` | `config.thinkingConfig.thinkingLevel: 'LOW'` — the enum is uppercase |
 | 2nd argument `{ timeout, maxRetries, fetchOptions.signal }` | `config.abortSignal`, `config.httpOptions.{timeout, retryOptions}` |
 | `response.output_text` | `response.text` — a getter, `string \| undefined` |
-| `LLM_MODEL = 'gemini-3.5-flash-lite'` | no such model; `gemini-3.7-flash` in the same comment is not one either |
+| `LLM_MODEL = 'gemini-3.5-flash-lite'` | ~~no such model~~ — **this row was wrong.** Both names are real; see "What 6a.1 found" |
 
 And one break that survives the repair. `llm.prompt.js` states:
 
@@ -124,7 +124,7 @@ Three reasons the one-line fix is not the work.
 
 | # | PR | Size | Depends on | Status |
 |---|---|---|---|---|
-| 6a.1 | [Repair the Gemini request, the response read, and the model id](PR-6a.1-gemini-request-repair.md) | M | E6 | ☐ |
+| 6a.1 | [Repair the Gemini request, the response read, and the model id](PR-6a.1-gemini-request-repair.md) | M | E6 | ☑ |
 | 6a.2 | [Images: fetch the bytes, send `inlineData`](PR-6a.2-image-bytes.md) | M | 6a.1 | ☐ |
 | 6a.3 | [The 50-question bench: fixture, harness, scored report](PR-6a.3-bagrut-bench.md) | M | 6a.2 | ☐ |
 | 6a.4 | [**The brief the teacher reads: `how_to_start`**](PR-6a.4-teacher-brief.md) | **human** · M | 6a.1 | ☐ |
@@ -191,6 +191,46 @@ in the same call.
 producer, same failure mode, the argument `questions.prisma` already makes for
 `student_confirmation`.
 
+## What 6a.1 found
+
+Recorded here because two of them contradict this README as it was written, and the next
+reader deserves the corrected version rather than the prediction.
+
+**The model id was never wrong.** `models.list()` on the project's key returns
+`models/gemini-3.5-flash-lite` (version `3.5-flash-lite-07-2026`) and
+`models/gemini-3.7-flash` (`3.7-flash-08-2026`). Both names this epic called imaginary
+are real models on this account. `LLM_MODEL` is unchanged; `gemini-3.7-flash` remains the
+accuracy step up, and the comment above the constant now records the full candidate list
+and why each of the others lost. The defect was never the value — it was that no request
+had ever been made, so nothing distinguished a good guess from a bad one. That is the
+finding, and it is the same one the epic was written around.
+
+**Gemini will not accept §8.1's timeout.** `httpOptions.timeout` under ten seconds is
+rejected outright — `400 INVALID_ARGUMENT: Manually set deadline 8s is too short. Minimum
+allowed deadline is 10s` — and `LLM_TIMEOUT_MS` is 8000. Passing the budget through as
+written would have failed every classification in a new way, and the request-shape table
+above could not have predicted it: it is a value constraint, not a field name. The repair
+clamps the vendor-facing deadline to a `GEMINI_MIN_DEADLINE_MS` floor and leaves the
+`Promise.race` to enforce the eight seconds the student actually waits. The race fires
+first by two seconds, every time.
+
+**The measurement, which is the only part of this that was ever the point.** A real
+`POST /api/v1/questions` with `rawText: 'לא מבין איך מציבים גבולות באינטגרל'`:
+
+| `classificationOk` | `true` — the first time in this project's history |
+| Parent / leaf | `41 calculus-integrals` / `43 definite-integrals`, both live rows |
+| Confidence | 0.95 |
+| Wall time, end to end | **1.63 s** — §4.1 promises 2–4, §8.1 allows 8 |
+| Brief and confirmation | Hebrew, and about what the student is stuck on |
+
+With `GEMINI_API_KEY` unset the same request answers 201 with `topic_id: 0`,
+`confidence: 0`, the student's own words in both brief fields, and
+`classification: 'DISABLED — GEMINI_API_KEY missing'` at boot. Neither log carries a word
+of the student's text.
+
+**Still failing after 6a.1, exactly as scoped:** a photographed question. The image parts
+are untouched and reach nothing. 6a.2.
+
 ## Deliberate deviations from `MVP.md` §18
 
 | §18 said | We do | Why |
@@ -202,10 +242,11 @@ producer, same failure mode, the argument `questions.prisma` already makes for
 
 ## Risks
 
-- **The model id is unknown.** Two model names appear in `constants/llm.js` and neither
-  exists. Both were written without a successful call. 6a.1 resolves it from
-  `models.list()` against the real key and records what was rejected — guessing a third
-  name is how the first two got there.
+- ~~**The model id is unknown.**~~ **Closed by 6a.1, and not the way this predicted.**
+  `models.list()` against the real key returns both `gemini-3.5-flash-lite` and
+  `gemini-3.7-flash`. The constant was correct all along and stays; what was missing was
+  ever having checked. The rejected candidates are recorded in the comment above
+  `LLM_MODEL`, which is the part of this risk that was worth keeping.
 - **Inlining bytes eats the latency budget.** Three phone photographs fetched
   server-side, base64'd and uploaded sit inside the same 8 seconds §8.1 allows and the
   2–4 seconds §4.1 promises. The Cloudinary transform in 6a.2 is the mitigation; 6a.3's
