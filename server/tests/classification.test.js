@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import {
   DIFFICULTY_MAX,
+  GEMINI_MIN_DEADLINE_MS,
   DIFFICULTY_MIN,
   LLM_MAX_OUTPUT_TOKENS,
   LLM_MODEL,
@@ -101,8 +102,14 @@ const ANSWER = {
 
 const RAW_TEXT = 'לא מבין איך מציבים גבולות באינטגרל';
 
-/** The envelope `interactions.create` resolves with, around the JSON under test. */
-const reply = (payload) => ({ output_text: JSON.stringify(payload) });
+/**
+ * The envelope `models.generateContent` resolves with, around the JSON under test.
+ *
+ * `text` is a getter on the real `GenerateContentResponse` and a plain property here,
+ * which is the one difference this stub is allowed to have: `readJson` reads it, and a
+ * getter and a property are indistinguishable to a read.
+ */
+const reply = (payload) => ({ text: JSON.stringify(payload) });
 
 /**
  * Every dependency, always. Overriding one leaves the rest injected rather than real —
@@ -303,75 +310,134 @@ describe('classifyQuestion — the happy path', () => {
   });
 });
 
+/**
+ * What `models.generateContent` is handed. PR 6a.1.
+ *
+ * **Every assertion below is by the field name the SDK reads**, which is the whole
+ * point of the block rather than a detail of it. Until 6a.1 this suite asserted a
+ * request shape belonging to no SDK at all — `interactions.create`, `system_instruction`,
+ * `response_format` — and passed, for three epics, on a call that threw a `TypeError`
+ * before a socket opened. It could: it injects `createMessage`, so what it proved was
+ * that the code built the object the code meant to build. Names taken from the wrong
+ * API are exactly what that proof cannot see, and the tests here would now fail against
+ * the old service, which is the property that makes them worth having.
+ *
+ * They still do not prove the vendor accepts it. Only the bench (6a.3) does that.
+ */
 describe('classifyQuestion — the request it builds', () => {
-  /** Run once and hand back the exact arguments the SDK would have received. */
+  /** Run once and hand back the exact argument the SDK would have received. */
   async function capture(input = {}) {
     let params;
-    let options;
 
     await classify(
       {
-        createMessage: async (sent, sentOptions) => {
+        createMessage: async (sent) => {
           params = sent;
-          options = sentOptions;
           return reply(ANSWER);
         },
       },
       input,
     );
 
-    return { params, options };
+    return params;
   }
 
   it('sends the model, ceiling and thinking level from constants', async () => {
-    const { params } = await capture();
+    const params = await capture();
 
     assert.equal(params.model, LLM_MODEL);
-    assert.equal(params.generation_config.max_output_tokens, LLM_MAX_OUTPUT_TOKENS);
+    assert.equal(params.config.maxOutputTokens, LLM_MAX_OUTPUT_TOKENS);
     // §4.1 promised 2–4 seconds and this model thinks by default — the level is a
     // latency decision, so it is asserted rather than left to the vendor's default.
-    assert.equal(params.generation_config.thinking_level, LLM_THINKING_LEVEL);
+    assert.equal(params.config.thinkingConfig.thinkingLevel, LLM_THINKING_LEVEL);
   });
 
   it('asks for the schema rather than for prose', async () => {
-    const { params } = await capture();
+    const params = await capture();
 
-    assert.equal(params.response_format.mime_type, 'application/json');
-    assert.equal(params.response_format.schema, CLASSIFICATION_OUTPUT_SCHEMA);
+    assert.equal(params.config.responseMimeType, 'application/json');
+    // `responseJsonSchema`, not `responseSchema`. The schema is JSON Schema and the
+    // other field takes Gemini's own `Schema` type; asserting the name is asserting
+    // that the two were not confused again.
+    assert.equal(params.config.responseJsonSchema, CLASSIFICATION_OUTPUT_SCHEMA);
+    assert.equal(params.config.responseSchema, undefined);
   });
 
   it('bounds the request itself, in milliseconds, without retries', async () => {
-    const { options } = await capture();
+    const params = await capture();
 
-    assert.equal(options.timeout, 50);
-    // One 8-second budget must not become three: the SDK retries by default, and a
-    // per-request timeout bounds one attempt rather than the wait the student sees.
-    assert.equal(options.maxRetries, 0);
+    // The vendor floor, not the injected 50ms: Gemini rejects any deadline under ten
+    // seconds outright, so a request carrying §8.1's eight would fail before it ran.
+    // The race is what enforces the budget the student waits; this is the backstop.
+    assert.equal(params.config.httpOptions.timeout, GEMINI_MIN_DEADLINE_MS);
+    // One 8-second budget must not become five: this SDK retries by default, and a
+    // per-request deadline bounds one attempt rather than the wait the student sees.
+    assert.equal(params.config.httpOptions.retryOptions.attempts, 1);
     // Losing the race has to cancel the request, or the timeout protects the student's
     // latency and nothing else — the abandoned call still runs, and is still billed.
-    assert.ok(options.fetchOptions.signal);
+    assert.ok(params.config.abortSignal);
+  });
+
+  it('bounds it at the callers timeout when that is above the vendor floor', async () => {
+    // The clamp is a floor and not a constant. A 20-second budget must reach the
+    // vendor as twenty, or the backstop would quietly become the tighter bound.
+    let params;
+
+    await classifyQuestion(
+      { rawText: RAW_TEXT },
+      deps({
+        timeoutMs: GEMINI_MIN_DEADLINE_MS * 2,
+        createMessage: async (sent) => {
+          params = sent;
+          return reply(ANSWER);
+        },
+      }),
+    );
+
+    assert.equal(params.config.httpOptions.timeout, GEMINI_MIN_DEADLINE_MS * 2);
+  });
+
+  it('adds the bounds without dropping the prompt or the schema', async () => {
+    // `callWithTimeout` merges into `config`, which the caller already filled. A
+    // spread in the wrong direction would take the schema and the instructions with it
+    // and still leave a request that looks well-formed.
+    const params = await capture();
+
+    assert.ok(params.config.systemInstruction);
+    assert.ok(params.config.responseJsonSchema);
+    assert.equal(params.config.maxOutputTokens, LLM_MAX_OUTPUT_TOKENS);
   });
 
   it('renders the taxonomy from the tree it was handed', async () => {
-    const { params } = await capture();
+    const params = await capture();
 
     // Every parent and leaf the tree carried, by id and by both names — proof the list
     // is read from the database rather than pasted into the prompt.
-    assert.match(params.system_instruction, /9: Calculus — Integrals/);
-    assert.match(params.system_instruction, /91: Definite \/ אינטגרל מסוים/);
-    assert.match(params.system_instruction, /71: Quadratic/);
+    assert.match(params.config.systemInstruction, /9: Calculus — Integrals/);
+    assert.match(params.config.systemInstruction, /91: Definite \/ אינטגרל מסוים/);
+    assert.match(params.config.systemInstruction, /71: Quadratic/);
   });
 
   it('never offers the sentinel as something to choose', async () => {
-    const { params } = await capture();
+    const params = await capture();
 
     // It is a childless root, so no valid answer can name it — printing it would only
     // invite one. Asserted by name because the prompt is where it would appear.
-    assert.doesNotMatch(params.system_instruction, /Unclassified/);
+    assert.doesNotMatch(params.config.systemInstruction, /Unclassified/);
+  });
+
+  it('sends one user turn, with every part inside it', async () => {
+    // `contents` is a conversation, not a list of blocks. The parts belong to a turn,
+    // and a flat array is the previous API's shape rather than this one's.
+    const params = await capture();
+
+    assert.equal(params.contents.length, 1);
+    assert.equal(params.contents[0].role, 'user');
+    assert.ok(Array.isArray(params.contents[0].parts));
   });
 
   it('sends the images before the text, capped and https-only', async () => {
-    const { params } = await capture({
+    const params = await capture({
       imageUrls: [
         'https://res.cloudinary.com/one.jpg',
         'http://insecure.example.com/two.jpg',
@@ -382,21 +448,25 @@ describe('classifyQuestion — the request it builds', () => {
       ],
     });
 
-    const content = params.input;
-    const images = content.filter((block) => block.type === 'image');
+    // The image parts are still the ones 3.3 wrote, and Gemini reaches nothing with
+    // them — 6a.2 replaces them with `inlineData`. Asserted here as they are so that
+    // the cap, the https filter and the ordering stay covered while they change, and
+    // so 6a.2's diff is the parts and not the rules around them.
+    const parts = params.contents[0].parts;
+    const images = parts.filter((part) => part.type === 'image');
 
     assert.equal(images.length, MAX_IMAGES);
-    assert.ok(images.every((block) => block.uri.startsWith('https://')));
+    assert.ok(images.every((part) => part.uri.startsWith('https://')));
     // The exercise is usually the photograph (§4.1); the text is what it cannot show.
-    assert.equal(content.at(-1).type, 'text');
+    assert.equal(typeof parts.at(-1).text, 'string');
   });
 
   it('passes the declared level through, and omits it when there is none', async () => {
     const withLevel = await capture({ declaredLevel: 4 });
     const without = await capture({ declaredLevel: null });
 
-    assert.match(withLevel.params.input.at(-1).text, /<declared_level>4</);
-    assert.doesNotMatch(without.params.input.at(-1).text, /declared_level/);
+    assert.match(withLevel.contents[0].parts.at(-1).text, /<declared_level>4</);
+    assert.doesNotMatch(without.contents[0].parts.at(-1).text, /declared_level/);
   });
 });
 

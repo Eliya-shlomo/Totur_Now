@@ -1,4 +1,5 @@
 import {
+  GEMINI_MIN_DEADLINE_MS,
   LLM_MAX_OUTPUT_TOKENS,
   LLM_MODEL,
   LLM_THINKING_LEVEL,
@@ -77,7 +78,7 @@ import {
  */
 const defaultDeps = {
   loadTaxonomy: getTopicTree,
-  createMessage: (params, options) => geminiClient.interactions.create(params, options),
+  createMessage: (params) => geminiClient.models.generateContent(params),
   timeoutMs: LLM_TIMEOUT_MS,
   // The two guards are injected rather than read directly, and for the same reason:
   // both short-circuit before the schema, the taxonomy and the confidence floor, so a
@@ -135,7 +136,7 @@ export async function classifyQuestion(input = {}, deps = {}) {
     if (!promptReady) return fallback('llm.prompt.js still holds its placeholder');
 
     const topicTree = await loadTaxonomy();
-    const { systemInstruction, input } = buildMessages({
+    const { systemInstruction, contents } = buildMessages({
       rawText,
       imageUrls,
       declaredLevel,
@@ -146,17 +147,21 @@ export async function classifyQuestion(input = {}, deps = {}) {
       createMessage,
       {
         model: LLM_MODEL,
-        system_instruction: systemInstruction,
-        input,
-        // The §8.1 guardrail, in the form this API actually has.
-        response_format: {
-          type: 'text',
-          mime_type: 'application/json',
-          schema: CLASSIFICATION_OUTPUT_SCHEMA,
-        },
-        generation_config: {
-          max_output_tokens: LLM_MAX_OUTPUT_TOKENS,
-          thinking_level: LLM_THINKING_LEVEL,
+        contents,
+        config: {
+          systemInstruction,
+          // The §8.1 guardrail, in the form this SDK actually has.
+          //
+          // `responseJsonSchema` and not `responseSchema`: the two are different fields
+          // for two different languages. `CLASSIFICATION_OUTPUT_SCHEMA` is JSON Schema —
+          // it carries `additionalProperties: false` and a derived `required` array,
+          // neither of which Gemini's own `Schema` type has — and handing a JSON Schema
+          // to the field that wants a `Schema` is a smaller version of the mistake this
+          // file lived in for three epics.
+          responseMimeType: 'application/json',
+          responseJsonSchema: CLASSIFICATION_OUTPUT_SCHEMA,
+          maxOutputTokens: LLM_MAX_OUTPUT_TOKENS,
+          thinkingConfig: { thinkingLevel: LLM_THINKING_LEVEL },
         },
       },
       timeoutMs,
@@ -192,16 +197,29 @@ export async function classifyQuestion(input = {}, deps = {}) {
 /**
  * The call, bounded twice.
  *
- * `LLM_TIMEOUT_MS` is passed to the SDK **and** raced against a timer, which is not
+ * `LLM_TIMEOUT_MS` is given to the SDK **and** raced against a timer, which is not
  * belt-and-braces for its own sake: a per-request timeout bounds one attempt, and an
  * SDK that retries internally would spend that budget once per attempt while the
- * student waits for all of them. `maxRetries: 0` says the same thing to the client and
- * the race is what holds if either ever changes underneath us.
+ * student waits for all of them. This one retries five times by default, so
+ * `retryOptions.attempts: 1` — that field's own way of spelling "no retries" — says so
+ * to the client, and the race is what holds if either ever changes underneath us.
  *
  * The signal is what makes losing the race free. Without it the request the race
  * abandoned keeps running to completion — billed, and holding a socket open — so the
- * timeout would protect the student's latency and nothing else. It rides in
- * `fetchOptions` because that is where this SDK forwards options to `fetch`.
+ * timeout would protect the student's latency and nothing else.
+ *
+ * **The vendor's deadline cannot be `timeoutMs`.** Gemini rejects an
+ * `httpOptions.timeout` under ten seconds outright — `400 INVALID_ARGUMENT`, before a
+ * token is generated — and §8.1's budget is eight. Passing ours through would not have
+ * bounded the call, it would have failed every classification. The clamp to
+ * `GEMINI_MIN_DEADLINE_MS` keeps a vendor-side backstop against a socket left open, and
+ * the race is what enforces the eight seconds the student actually waits: it fires
+ * first, by two seconds, every time. That ordering is the design and not a coincidence.
+ *
+ * All three ride in `config` because this SDK takes one argument and has no second
+ * options object. The merge is shallow and explicit for that reason — `params.config`
+ * is the caller's and carries the schema, the prompt and the ceiling, so a spread in
+ * the other direction would drop them silently.
  *
  * The timer is cleared in `finally` rather than left to fire. An unreferenced 8-second
  * timer keeps the event loop alive, which is invisible in a server that never exits and
@@ -218,15 +236,20 @@ async function callWithTimeout(createMessage, params, timeoutMs) {
     }, timeoutMs);
   });
 
+  const bounded = {
+    ...params,
+    config: {
+      ...params.config,
+      abortSignal: controller.signal,
+      httpOptions: {
+        timeout: Math.max(timeoutMs, GEMINI_MIN_DEADLINE_MS),
+        retryOptions: { attempts: 1 },
+      },
+    },
+  };
+
   try {
-    return await Promise.race([
-      createMessage(params, {
-        timeout: timeoutMs,
-        maxRetries: 0,
-        fetchOptions: { signal: controller.signal },
-      }),
-      deadline,
-    ]);
+    return await Promise.race([createMessage(bounded), deadline]);
   } finally {
     clearTimeout(timer);
   }
@@ -237,12 +260,12 @@ async function callWithTimeout(createMessage, params, timeoutMs) {
  *
  * Structured outputs guarantee the text parses; this still throws rather than checks,
  * because "the vendor promised" is not a thing to build a database write on, and the
- * one `catch` above turns any throw here into the fallback. `output_text` is optional
- * in the SDK's own types — a refusal or a stopped generation leaves it undefined — so
- * the type check is the real guard rather than defensive noise.
+ * one `catch` above turns any throw here into the fallback. `text` is a getter typed
+ * `string | undefined` in the SDK's own types — a refusal or a stopped generation
+ * leaves it undefined — so the type check is the real guard rather than defensive noise.
  */
 function readJson(response) {
-  const text = response?.output_text;
+  const text = response?.text;
 
   if (typeof text !== 'string') throw new Error('the response carried no output text');
 

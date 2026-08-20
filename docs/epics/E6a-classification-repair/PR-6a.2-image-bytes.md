@@ -140,6 +140,19 @@ shared/**                                       no contract change
 
 ## Notes
 
+**What 6a.1 left you, deliberately.** The image parts are byte-for-byte what PR 3.3 wrote
+— `{ type: 'image', uri, mime_type? }` — because repairing the request and rewriting the
+images are two unmeasured changes and one diff is easier to review than two mixed
+together. Two things came with them:
+
+- The false paragraph in `buildMessages`'s doc comment is **still there**, now followed by
+  a paragraph naming it false and pointing here. Delete both when you rewrite it; leaving
+  a correction next to the thing it corrects is how a file ends up arguing with itself.
+- `classification.test.js` asserts the cap, the `https://` filter and the images-before-text
+  ordering **against the old part shape**, with a comment saying so. Those three rules
+  survive this PR and the shape does not, so the assertions should change and the rules
+  should not. If your diff also relaxes the cap or the filter, it grew past its scope.
+
 **Why `inlineData` and not the Files API.** `fileData` would keep classification fast —
 upload once at attachment time, send a URI later — but it means a second storage system
 beside Cloudinary, a 48-hour file lifetime to reason about, and changes to PR 3.2's upload

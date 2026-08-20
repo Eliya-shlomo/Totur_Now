@@ -28,9 +28,24 @@ export const MIN_CONFIDENCE = 0.5;
  * supports vision (the student's question is usually the photograph), and it supports
  * the structured outputs this epic validates against.
  *
- * If 3.8's verification shows classification *accuracy* is the problem rather than
- * latency, `gemini-3.7-flash` is the next step up: one constant, no other change. Do
- * that here rather than in a service file, so the reason travels with the value.
+ * **Resolved against `models.list()` on this project's key, and measured (PR 6a.1).**
+ * The value below is unchanged, but it was never *verified* before: PR 3.3 wrote it,
+ * and the request it rode in never reached a server, so three epics passed without
+ * anything confirming the id was real. It is. What the account offers at this tier,
+ * and why the rest lost:
+ *
+ * - `gemini-3.5-flash-lite` — chosen. Version `3.5-flash-lite-07-2026`, the newest
+ *   Flash-Lite. `generateContent`, vision and structured output, measured at 1.7s
+ *   wall time on a text-only classification — inside §4.1's promise, not merely
+ *   inside `LLM_TIMEOUT_MS`.
+ * - `gemini-3.1-flash-lite`, `gemini-2.5-flash-lite` — earlier Lites, same tier and
+ *   nothing to gain from pinning an older one.
+ * - `gemini-flash-lite-latest` — an alias that moves underneath us. 6a.3's bench
+ *   scores *a model*; a floating id makes last month's score describe nothing.
+ * - `gemini-3.5-flash`, `gemini-3.7-flash` — both real, both the non-Lite tier, and
+ *   both slower. `gemini-3.7-flash` stays the accuracy step up if 6a.3's bench shows
+ *   accuracy rather than latency is what fails: one constant, no other change. Do it
+ *   here rather than in a service file, so the reason travels with the value.
  *
  * **The vendor is Gemini, not Anthropic, and that is a deviation from the epic.** The
  * README's deviations table and this file's history both named `claude-haiku-4-5` on
@@ -46,11 +61,14 @@ export const LLM_MODEL = 'gemini-3.5-flash-lite';
  *
  * Gemini 3.x thinks by default, which is the same latency trap the model choice above
  * avoids: §4.1 promised 2–4 seconds, and a classification is a lookup against a closed
- * list of 43 subtopics rather than a problem to solve. `minimal` is the cheaper step
- * down and `medium` the accuracy step up — both are one word, here, with the budget
+ * list of 43 subtopics rather than a problem to solve. `MINIMAL` is the cheaper step
+ * down and `MEDIUM` the accuracy step up — both are one word, here, with the budget
  * they have to fit in written directly above them.
+ *
+ * Uppercase because the SDK's `ThinkingLevel` enum is
+ * (`MINIMAL | LOW | MEDIUM | HIGH`), and the string is passed straight through.
  */
-export const LLM_THINKING_LEVEL = 'low';
+export const LLM_THINKING_LEVEL = 'LOW';
 
 /**
  * Ceiling on what one classification may write back.
@@ -59,8 +77,25 @@ export const LLM_THINKING_LEVEL = 'low';
  * generous at this size, and generous is the point: a cap that truncates mid-JSON
  * turns a good classification into a parse failure and a fallback. It is a latency
  * bound as much as a cost one, because output tokens are what the student waits for.
+ *
+ * Doubled in 6a.1, ahead of the field that needs it: 6a.4 adds `how_to_start` as a
+ * ninth output field, and Hebrew tokenizes worse than English — the two together are
+ * exactly the truncation the paragraph above argues against. Raising it here keeps
+ * 6a.4 to the prose §17.5 reserves for a human.
  */
-export const LLM_MAX_OUTPUT_TOKENS = 1024;
+export const LLM_MAX_OUTPUT_TOKENS = 2048;
+
+/**
+ * The shortest per-request deadline Gemini will accept, in milliseconds.
+ *
+ * Not a knob. The API rejects `httpOptions.timeout` below this outright —
+ * `400 INVALID_ARGUMENT: Manually set deadline 8s is too short. Minimum allowed
+ * deadline is 10s` — which means `LLM_TIMEOUT_MS` cannot be handed to the vendor as
+ * written, and a request that tried would fail every classification before a token
+ * was generated. `callWithTimeout` clamps to this floor and lets the race enforce
+ * §8.1's actual 8-second bound; see the double-bound comment there for why both exist.
+ */
+export const GEMINI_MIN_DEADLINE_MS = 10000;
 
 /**
  * Images per classification call — **the same three the student may upload.**
