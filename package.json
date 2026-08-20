@@ -26,6 +26,7 @@
     "db:logs": "docker compose logs -f db",
     "db:migrate": "prisma migrate dev",
     "db:seed": "node prisma/seed/index.js",
+    "bench:classify": "node scripts/classify-bench.mjs",
     "db:studio": "prisma studio",
     "prepare": "husky || true"
   },
@@ -40,6 +41,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
+    "@napi-rs/canvas": "^1.0.7",
     "concurrently": "^9.0.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^10.0.0",
@@ -48,6 +50,7 @@
     "globals": "^16.0.0",
     "husky": "^9.1.0",
     "lint-staged": "^16.0.0",
+    "pdfjs-dist": "^6.2.108",
     "prettier": "^3.3.0",
     "prisma": "^6.19.3"
   },

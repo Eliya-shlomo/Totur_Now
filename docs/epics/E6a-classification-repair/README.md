@@ -261,6 +261,84 @@ proof is unchanged in substance: nothing in the text could have produced
 `calculus-integrals / areas` or a Hebrew brief describing a parabola and the area under
 it. The validator was not touched; it is 3.1's and correct.
 
+## What 6a.3 measured
+
+`npm run bench:classify` — 50 real Bagrut pages, rendered to PNG, uploaded through
+`POST /questions/attachments` and classified by `gemini-3.5-flash-lite`, scored against
+expectations a human reviewed and corrected page by page. Both runs on 2026-08-20, four
+minutes apart, against the same fixture and the same key.
+
+| | run 2 | run 3 |
+|---|---|---|
+| parent-topic accuracy | 74.0% | 76.0% |
+| leaf accuracy | 70.0% | 70.0% |
+| **fallback rate** | **8.0%** (4 pages) | **4.0%** (2 pages) |
+| p50 latency | 3091 ms | 3032 ms |
+| p95 latency | 3990 ms | 4056 ms |
+| misses | 15 | 15 |
+
+Run 1 is not in the table because run 1 is never scored: it wrote
+`bagrut-50.expected.json` from the model's own answers with `reviewed: false` throughout
+and exited. The corrections that turned that file into ground truth moved **13 of the 50
+pages**, which is the number that says why the gate exists: a bench scored against run 1
+would have reported all 13 as correct forever, and 6a.3 would have shipped a 100% score
+over a classifier that reads a triangle proof as trigonometry.
+
+Those 13 are also, page for page, 13 of the 14 stable misses below. That is not a
+coincidence — a correction is by definition a page where the human and the model
+disagree, and the model has not changed its mind since. It is worth stating plainly
+because it is the whole mechanism: the review is what converts an agreement into a
+finding.
+
+### The tolerance
+
+**±3 percentage points on either accuracy figure.** Observed across the two scored runs:
+parent moved 2 points, leaf moved 0. Fourteen of the fifteen misses are the same pages
+in both runs; exactly one page flapped in each direction (24 missed only in run 2, 23
+only in run 3). A third run inside ±3 is the same classifier; outside it is a change.
+
+**The fallback rate has no tolerance.** It moved from 4 pages to 2 between two runs of
+the same input, which is variance in a number that is supposed to be zero.
+
+### The threshold
+
+- parent-topic accuracy **≥ 72%**
+- leaf accuracy **≥ 67%**
+- **fallback rate = 0**
+- p95 inside `LLM_TIMEOUT_MS` — 4056 ms against a budget of 8000
+
+The two accuracy floors are today's worst scored run minus the tolerance. They are
+regression alarms and not goals: 70% leaf accuracy is not a good number, and writing it
+down as the bar is how it stops getting worse while somebody works on making it better.
+
+**The bench fails its own fallback criterion, and that is the finding.** 6a.3 measures;
+the fix is a follow-up PR and not a widening of this one.
+
+### What the misses are made of
+
+Not noise. Fourteen stable misses fall into four groups, and each names a kind of
+mathematics the classifier cannot currently see:
+
+- **Euclidean geometry read as something else** — pages 2, 8, 9, 13. A circle theorem
+  becomes `analytic-geometry / analytic-circle`; a triangle proof becomes
+  `trigonometry / plane-trigonometry`. The model is reading the shapes and not the task.
+- **Word problems read as their algebra** — pages 5, 15, 32. A mixture problem is
+  `algebra / systems-of-equations`, a motion problem is `algebra / inequalities`. Both
+  answers describe the technique the student would use; `word-problems` describes what
+  they are looking at, and §9.1 matches teachers on the second one.
+- **Sequences read as functions** — pages 37, 38. A geometric sequence becomes
+  `calculus-functions / exponential-functions`, which is defensible mathematics and the
+  wrong taxonomy.
+- **Pages 14 and 36 fall back in every run.** 14 is a linear-function finance question
+  with a graph and returns a topic/subtopic pair that does not exist together — the
+  taxonomy check catches it. 36 comes back under the confidence floor.
+
+Page 3 is worth its own line: a tiling question mixing area, percentage and cost, which
+the taxonomy has no leaf for. It fell back in run 2 and landed on
+`word-problems / buy-sell-problems` in run 3. That one is a gap in §7's taxonomy rather
+than a defect in the classifier, and the follow-up should say which of the two it is
+fixing before it edits a prompt.
+
 ## Deliberate deviations from `MVP.md` §18
 
 | §18 said | We do | Why |
@@ -269,6 +347,7 @@ it. The validator was not touched; it is 3.1's and correct.
 | §8.1 fixes the LLM output at eight fields | Nine — `how_to_start` joins them | §8.1 wrote `teacher_brief` for a teacher with time to read. E5 gave them 60 seconds |
 | §8.1: the classifier sends image URLs | The server fetches the bytes and inlines them | The API §8.1 assumed does not exist. Recorded here rather than left as prose in `llm.prompt.js` describing a design that never ran |
 | §17.4's review is the quality gate | Plus `bench:classify` on 50 real questions | §17.4 caught none of this in three epics. The gap is not review discipline; it is that no assertion in the repo requires a real request to succeed |
+| 6a.3 touches `package.json` for one script entry | Two devDependencies as well — `pdfjs-dist`, `@napi-rs/canvas` | The brief said to check for a bundled `pdftoppm` first. There is none: `pdftotext.exe` is the only Poppler binary on the machine, and no `mutool`, `gs`, `magick` or PyMuPDF either. The rendered PNGs are committed, so the two packages are needed to change the fixture and never to run the bench |
 
 ## Risks
 
