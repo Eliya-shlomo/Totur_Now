@@ -525,7 +525,7 @@ describe('E2E — a session from accept to rated, against the real database', { 
 
   // ── 9. the same walk with no video at all ────────────────────────────────────────
 
-  it('runs the whole flow with the video provider unavailable, and nothing else changes', async () => {
+  it('refunds the whole charge when the platform never provided a room — §5.5, PR 7.4', async () => {
     const { sessionId, offerId } = await seedOfferSentSession();
 
     // `createRoom` throwing an `AppError` is what an unset `DAILY_API_KEY` looks like
@@ -553,9 +553,17 @@ describe('E2E — a session from accept to rated, against the real database', { 
       'and the charge still landed',
     );
 
-    // The meter, the end and the rating all run exactly as they did above — the missing
-    // camera is not on any of their paths, which is the whole claim 6.3's degradation
-    // makes and the one this walk exists to pin.
+    // The meter and the rating run exactly as they did above — the missing camera is not
+    // on either of their paths, which is the claim 6.3's degradation makes and half of
+    // what this walk pins.
+    //
+    // **The end no longer runs the same way, and that is 7.4.** Until this PR the whole
+    // walk was asserted to be indistinguishable from the happy path, charge included —
+    // which was true of the code and was the defect E6b was written about: between PR 6.1
+    // and 6b.1 every session on the deployed application ran without a room, showed "No
+    // video on this session", kept the clock running, and charged in full. §5.5 calls
+    // that a platform technical failure and says full refund. The assertions below are
+    // rewritten to the rule rather than relaxed to the code.
     await extendSessionBlock(
       { sessionId, studentId: world.studentId },
       { notifyExtended: record('session:extended') },
@@ -575,7 +583,34 @@ describe('E2E — a session from accept to rated, against the real database', { 
     const finished = await readSession(sessionId);
 
     assert.equal(finished.status, 'RATED');
-    assert.equal(finished.platformFee + finished.teacherEarning, finished.totalCharged);
+
+    // §5.5, row 2. The reason names the platform rather than the student who pressed the
+    // button: `terminateSession` was asked for `student_ended` and `settleSession`
+    // overruled it, because a session nobody could see is not the student's fault.
+    assert.equal(finished.endReason, 'error');
+
+    // Both zero, and `total_charged` still standing — the same shape a `NO_SHOW` writes.
+    // A refund net of commission would be the platform keeping money for a lesson it is
+    // admitting did not happen.
+    assert.equal(finished.platformFee, 0);
+    assert.equal(finished.teacherEarning, 0);
+    assert.ok(finished.totalCharged > 0, 'the charge happened and the row still says so');
+
+    // The charge and the refund are two rows that sum to zero. The charge is not edited:
+    // it happened, and a ledger that rewrites its own history is one nobody can
+    // reconcile.
+    const ledger = await prisma.walletTransaction.aggregate({
+      where: { sessionId, type: 'REFUND' },
+      _sum: { amount: true },
+    });
+
+    assert.equal(ledger._sum.amount, finished.totalCharged, 'the whole charge came back');
+
+    const earnings = await prisma.walletTransaction.count({
+      where: { sessionId, type: 'TEACHER_EARNING' },
+    });
+
+    assert.equal(earnings, 0, 'nobody was paid for a lesson the platform did not provide');
 
     // A review with no stars moves `resolved_count` by nothing and every average by
     // nothing — the one line 6.6's service is careful about, seen from the outside.
@@ -614,7 +649,31 @@ describe('E2E — a session from accept to rated, against the real database', { 
         `session ${sessionId}: total_charged disagrees with the sum of its blocks`,
       );
 
-      assert.equal(session.platformFee + session.teacherEarning, session.totalCharged);
+      // §11.3, and `scripts/reconcile.mjs` invariant 3 — with 7.4's carve-out, written
+      // the same structural way rather than by naming a status. A finished session either
+      // splits its gross between the platform and the teacher, **or** it took nothing at
+      // all and gave the whole charge back. §5.5's two refunds are the second shape and
+      // they stay in `ENDED`, because §5.5 is a pricing rule and §10 has no third terminal
+      // state for "the same ending, refunded".
+      const refunded = await prisma.walletTransaction.aggregate({
+        where: { sessionId, type: 'REFUND' },
+        _sum: { amount: true },
+      });
+
+      const zeroSplit = session.platformFee === 0 && session.teacherEarning === 0;
+
+      if (zeroSplit && session.totalCharged > 0) {
+        // The stricter half of the pair. A session that merely lost its two columns has
+        // no REFUND rows and fails here, which is what stops the carve-out above from
+        // being a hole.
+        assert.equal(
+          refunded._sum.amount ?? 0,
+          session.totalCharged,
+          `session ${sessionId}: took no fee and no earning, but did not refund the charge`,
+        );
+      } else {
+        assert.equal(session.platformFee + session.teacherEarning, session.totalCharged);
+      }
 
       const charges = await prisma.walletTransaction.aggregate({
         where: { sessionId, type: 'SESSION_CHARGE' },

@@ -87,7 +87,8 @@ PR by §17.5, which is the review this file wants.
 server/src/services/session.end.service.js          settleSession, and the header's transaction diagram
 server/src/repositories/session.repository.js       ONE column on findSessionForMeter: s.video_room_url
 server/tests/session.end.test.js                    the three branches, and the boundary at exactly 60s
-server/tests/e2e.session.lifecycle.test.js          fixtures that must age started_at — see below
+server/tests/e2e.session.lifecycle.test.js          the no-video walk now asserts the refund
+scripts/reconcile.mjs                               invariants 3 and 4 — see below. NOT a relaxation
 docs/epics/E7-wallet-billing/README.md              tick the status box
 ```
 
@@ -103,6 +104,29 @@ server/src/jobs/session.autoEnd.job.js        it calls terminateSession and keep
 client/**                                     no screen changes. §14.3 already renders end_reason
 docs/epics/E6a-*/**                           another epic's chain
 ```
+
+## Reconciliation has to learn the new shape, and comes out stricter
+
+**Invariant 3 would report every refund this PR writes.** It asserts `platform_fee +
+teacher_earning = total_charged` on an `ENDED` session, and a full refund writes `0 / 0`
+with `total_charged` standing — the same shape a `NO_SHOW` has, which is why invariant 3
+already carves `NO_SHOW` out. Leaving it would mean shipping a reconciliation query that
+false-positives on a legitimate state, and 7.8's whole acceptance criterion is zero rows.
+
+The carve-out is written **structurally rather than by naming a status**: a finished
+session is exempt from the sum when its split is `0 / 0`. Case 2 keeps `end_reason =
+'student_ended'`, so a refunded early exit is indistinguishable from a charged one by
+reason alone — the zero split is the only honest discriminator, and it is the one the
+money columns already carry.
+
+**Invariant 4 is where the exemption is paid for**, and it makes the pair stricter than
+before: a finished session with a zero split must have refunded the whole charge in the
+ledger. A session that merely lost its two columns has no `REFUND` rows and is reported.
+"the split adds up, or the money went back" is a stronger claim than the sum alone.
+
+This is a deviation from the denylist as originally written, which reserved
+`scripts/reconcile.mjs` for 7.8. The alternative was landing a refund rule and a
+reconciliation query that disagree about it.
 
 ## Acceptance criteria
 

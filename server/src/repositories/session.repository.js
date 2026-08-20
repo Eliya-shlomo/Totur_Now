@@ -680,6 +680,19 @@ export async function findSessionForMeter(sessionId, tx) {
            s.blocks_used     AS "blocksUsed",
            s.total_charged   AS "totalCharged",
            s.started_at      AS "startedAt",
+           -- 7.4. Section 5.5's "platform technical failure", in the only form this
+           -- product can detect: the session ran and no room was ever minted for it.
+           --
+           -- A boolean, not the URL. findSessionForView above declines to select
+           -- video_room_url because it is a join capability that leaves the server
+           -- through GET /sessions/:id/video alone; the settlement branch needs to know
+           -- only whether one exists, so it is answered here rather than carried. Read
+           -- inside the lock rather than beside it, because the money decision is made
+           -- inside this transaction and a second read would be one outside it.
+           --
+           -- No backticks in this comment, deliberately: it is inside a tagged template
+           -- literal and one would end the query.
+           (s.video_room_url IS NOT NULL) AS "hasVideo",
            s.ends_at         AS "endsAt",
            s.ended_at        AS "endedAt",
            s.end_reason      AS "endReason",

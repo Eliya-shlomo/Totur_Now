@@ -76,6 +76,10 @@ const lockedRow = (overrides = {}) => ({
   blocksUsed: OPENING_BLOCKS,
   totalCharged: TOTAL_CHARGED,
   startedAt: STARTED_AT,
+  // 7.4 — a normal session had a room. `settleSession` refunds in full when no room was
+  // ever minted (§5.5's "platform technical failure"), so a fixture that omitted this
+  // would make every test in this file assert the refund path by accident.
+  hasVideo: true,
   endsAt: new Date(STARTED_AT.getTime() + 10 * 60 * 1000),
   endedAt: null,
   endReason: null,
@@ -474,5 +478,235 @@ describe('the lines this PR is most likely to get wrong', () => {
     const callback = code.slice(code.indexOf('runTransaction(async'), code.indexOf('announceEnd('));
 
     assert.equal(/notifyEnded/.test(callback), false);
+  });
+});
+
+describe("§5.5's two refunds — PR 7.4", () => {
+  /** A session that ended `seconds` after it started, with the student pressing End. */
+  const endedAfter = (seconds, overrides = {}) =>
+    lockedRow({ startedAt: new Date(Date.now() - seconds * 1000), ...overrides });
+
+  const settlement = (collaborators) => collaborators.closeSession.calls[0][0];
+  const refunds = (collaborators) => collaborators.refundStudent.calls;
+  const earnings = (collaborators) => collaborators.creditEarning.calls;
+
+  describe('case 1 — the platform never provided a room', () => {
+    /**
+     * Not hypothetical. Between PR 6.1 and 6b.1 every session on the deployed application
+     * ran without a room, because `render.yaml` never declared `DAILY_API_KEY` — and every
+     * one of them charged in full. §5.5 calls that a platform technical failure.
+     */
+    it('refunds the whole charge and writes `error` as the reason', async () => {
+      const collaborators = deps({
+        lockSession: spy(async () => endedAfter(600, { hasVideo: false })),
+      });
+
+      await terminateSession(
+        { sessionId: SESSION_ID, endReason: 'student_ended', actorId: STUDENT_ID },
+        collaborators,
+      );
+
+      const written = settlement(collaborators);
+
+      assert.equal(written.endReason, 'error');
+      assert.equal(written.platformFee, 0);
+      assert.equal(written.teacherEarning, 0);
+      assert.equal(refunds(collaborators)[0][0].amount, TOTAL_CHARGED);
+      assert.equal(earnings(collaborators).length, 0);
+    });
+
+    it('applies whoever ended it — the teacher, and the clock', async () => {
+      for (const actorId of [TEACHER_ID, null]) {
+        const collaborators = deps({
+          lockSession: spy(async () => endedAfter(600, { hasVideo: false })),
+        });
+
+        await terminateSession(
+          { sessionId: SESSION_ID, endReason: 'student_ended', actorId },
+          collaborators,
+        );
+
+        // A platform failure is not the participants' to bear, and which of them gave up
+        // first is not a fact about whose fault it was.
+        assert.equal(settlement(collaborators).endReason, 'error');
+        assert.equal(refunds(collaborators)[0][0].amount, TOTAL_CHARGED);
+      }
+    });
+
+    it('wins over case 2, and refunds once rather than twice', async () => {
+      const collaborators = deps({
+        lockSession: spy(async () => endedAfter(40, { hasVideo: false })),
+      });
+
+      await terminateSession(
+        { sessionId: SESSION_ID, endReason: 'student_ended', actorId: STUDENT_ID },
+        collaborators,
+      );
+
+      // A student who walks out at forty seconds *because there is no camera* is owed the
+      // refund for the platform's reason, and `end_reason` should say so.
+      assert.equal(settlement(collaborators).endReason, 'error');
+      assert.equal(refunds(collaborators).length, 1);
+    });
+
+    it('tells both sides the reason the row says, not the one it was asked for', async () => {
+      const collaborators = deps({
+        lockSession: spy(async () => endedAfter(600, { hasVideo: false })),
+      });
+
+      const result = await terminateSession(
+        { sessionId: SESSION_ID, endReason: 'student_ended', actorId: STUDENT_ID },
+        collaborators,
+      );
+
+      // `student_ended` on the wire for a session the platform failed to deliver would be
+      // the product blaming the student for its own outage.
+      assert.equal(result.endReason, 'error');
+      assert.equal(collaborators.notifyEnded.calls[0][1].endReason, 'error');
+    });
+  });
+
+  describe('case 2 — the student left inside the opening window', () => {
+    it('refunds in full and leaves the reason alone', async () => {
+      const collaborators = deps({ lockSession: spy(async () => endedAfter(40)) });
+
+      await terminateSession(
+        { sessionId: SESSION_ID, endReason: 'student_ended', actorId: STUDENT_ID },
+        collaborators,
+      );
+
+      const written = settlement(collaborators);
+
+      // The column says *why the session is over*. 6.6 refused to invent `teacher_ended`
+      // for the same reason; the refund is a fact about the money.
+      assert.equal(written.endReason, 'student_ended');
+      assert.equal(written.platformFee, 0);
+      assert.equal(written.teacherEarning, 0);
+      assert.equal(refunds(collaborators)[0][0].amount, TOTAL_CHARGED);
+      assert.equal(earnings(collaborators).length, 0);
+    });
+
+    it('charges at exactly the window — the boundary is strictly inside', async () => {
+      const collaborators = deps({
+        lockSession: spy(async () => endedAfter(NO_SHOW_WINDOW_SEC)),
+      });
+
+      await terminateSession(
+        { sessionId: SESSION_ID, endReason: 'student_ended', actorId: STUDENT_ID },
+        collaborators,
+      );
+
+      // The same boundary `reportSessionNoShow` draws. Two sixty-second windows that
+      // disagreed about the sixtieth second would be worse than either rule alone.
+      assert.equal(refunds(collaborators).length, 0);
+      assert.equal(earnings(collaborators).length, 1);
+    });
+
+    it('charges a student who left after the window', async () => {
+      const collaborators = deps({ lockSession: spy(async () => endedAfter(90)) });
+
+      await terminateSession(
+        { sessionId: SESSION_ID, endReason: 'student_ended', actorId: STUDENT_ID },
+        collaborators,
+      );
+
+      const written = settlement(collaborators);
+
+      assert.equal(refunds(collaborators).length, 0);
+      assert.equal(written.platformFee + written.teacherEarning, TOTAL_CHARGED);
+    });
+
+    it("is the student's alone — a teacher ending at forty seconds is charged", async () => {
+      const collaborators = deps({ lockSession: spy(async () => endedAfter(40)) });
+
+      await terminateSession(
+        { sessionId: SESSION_ID, endReason: 'student_ended', actorId: TEACHER_ID },
+        collaborators,
+      );
+
+      // Actor-blind, this would let the one party who benefits from a refund trigger it.
+      // A teacher leaving at forty seconds is nearer §5.5's no-show row than this one.
+      assert.equal(refunds(collaborators).length, 0);
+      assert.equal(earnings(collaborators).length, 1);
+    });
+
+    it('refuses a student who extended and then left inside the window', async () => {
+      const collaborators = deps({
+        lockSession: spy(async () =>
+          endedAfter(40, { blocksUsed: OPENING_BLOCKS + 1, totalCharged: TOTAL_CHARGED }),
+        ),
+      });
+
+      await terminateSession(
+        { sessionId: SESSION_ID, endReason: 'student_ended', actorId: STUDENT_ID },
+        collaborators,
+      );
+
+      // `reportSessionNoShow`'s second guard, word for word. Buying another block says the
+      // session is working; pressing End eight seconds later says it is not, and the clock
+      // alone would refund both blocks.
+      assert.equal(refunds(collaborators).length, 0);
+      assert.equal(earnings(collaborators).length, 1);
+    });
+  });
+
+  describe('case 3 — everything else is 6.6, unchanged', () => {
+    it('still splits the gross and still credits the teacher', async () => {
+      const collaborators = deps({ lockSession: spy(async () => endedAfter(600)) });
+
+      await terminateSession(
+        { sessionId: SESSION_ID, endReason: 'student_ended', actorId: STUDENT_ID },
+        collaborators,
+      );
+
+      const written = settlement(collaborators);
+
+      assert.equal(written.endReason, 'student_ended');
+      assert.equal(written.platformFee + written.teacherEarning, TOTAL_CHARGED);
+      assert.equal(refunds(collaborators).length, 0);
+      assert.equal(earnings(collaborators)[0][0].amount, written.teacherEarning);
+    });
+
+    it('never credits and refunds the same session', async () => {
+      for (const row of [endedAfter(40), endedAfter(600), endedAfter(600, { hasVideo: false })]) {
+        const collaborators = deps({ lockSession: spy(async () => row) });
+
+        await terminateSession(
+          { sessionId: SESSION_ID, endReason: 'student_ended', actorId: STUDENT_ID },
+          collaborators,
+        );
+
+        assert.ok(
+          refunds(collaborators).length === 0 || earnings(collaborators).length === 0,
+          'a session paid the teacher and refunded the student',
+        );
+      }
+    });
+
+    it('refunds nothing on a session that charged nothing', async () => {
+      const collaborators = deps({
+        lockSession: spy(async () => endedAfter(40, { totalCharged: 0 })),
+      });
+
+      await terminateSession(
+        { sessionId: SESSION_ID, endReason: 'student_ended', actorId: STUDENT_ID },
+        collaborators,
+      );
+
+      // `wallet.service.js` refuses a non-positive amount as a programming error, so the
+      // guard is the same one the earning has.
+      assert.equal(refunds(collaborators).length, 0);
+    });
+  });
+
+  it("leaves §10's table alone — this is a pricing rule, not a lifecycle one", async () => {
+    const stateSource = await readFile(
+      fileURLToPath(new URL('../src/services/session.state.js', import.meta.url)),
+      'utf8',
+    );
+
+    // A third terminal state meaning "the same ending, refunded" would be a table every
+    // future reader has to reconcile with a diagram that does not contain it.
+    assert.match(stateSource, /ACTIVE: Object\.freeze\(\['ENDED', 'NO_SHOW'\]\)/);
   });
 });

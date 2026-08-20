@@ -143,7 +143,7 @@ point — they are §17.5's human-written money.
 | 7.1 | [**Top-up: the wallet's fourth operation, and its last**](PR-7.1-topup-operation.md) | DEV-A | **human** · M | E6 | ☑ |
 | 7.2 | [The wallet read surface: `GET /wallet`, `GET /wallet/transactions`](PR-7.2-wallet-read-surface.md) | DEV-A | M | 7.1 | ☑ |
 | 7.3 | [`POST /wallet/topup`, and the balance that updates itself](PR-7.3-topup-endpoint.md) | DEV-A | M | 7.1, 7.2 | ☑ |
-| 7.4 | [**§5.5's two unwritten refunds: early exit and platform failure**](PR-7.4-remaining-refunds.md) | DEV-A | **human** · M | E6 | ☐ |
+| 7.4 | [**§5.5's two unwritten refunds: early exit and platform failure**](PR-7.4-remaining-refunds.md) | DEV-A | **human** · M | E6 | ☑ |
 | 7.5 | [The wallet screen — minutes, packages, ledger](PR-7.5-wallet-screen.md) | DEV-A | L | 7.3 | ☐ |
 | 7.6 | [Teacher earnings: the read, and the screen that reads it](PR-7.6-teacher-earnings.md) | DEV-A | L | 7.2 | ☐ |
 | 7.7 | [Out of credit, mid-session: top up from the 60-second warning](PR-7.7-out-of-credit.md) | DEV-A | S | 7.5 | ☐ |
@@ -323,6 +323,14 @@ truth for one figure.
   existing E2E fixtures may fall inside by accident, because a test session starts and
   ends in the same millisecond. Named because "the suite went red and I relaxed the
   assertion" is how a refund rule becomes a refund bug.
+- **There are two databases and the tooling does not agree on which.**
+  `scripts/reconcile.mjs` reads the repo-root `.env` (local Docker, `localhost:5433`);
+  anything run from `server/` reads `server/.env` (Neon, hosted). A probe script and a
+  reconciliation run started from different directories check different databases, and
+  the reconciliation passes because nothing wrote to what it is looking at. **This
+  happened in 7.3 and again in 7.4.** 7.8's pass now opens by naming the database. Neon
+  carries three probe sessions and two probe top-ups from those PRs, left in place by
+  decision; the sessions break invariant 2 there until cleaned up.
 - **Two migrations in flight is the rule this epic could break.** Nothing here needs a
   column and 6a.4 has one open. If a PR's scoping says otherwise, the answer is a chat
   message, not `prisma migrate dev`.

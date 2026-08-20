@@ -30,8 +30,8 @@
  * |---|---|---|
  * | 1 | `wallets.balance` = Σ that user's `wallet_transactions.amount` | money exists with no history, or history with no money |
  * | 2 | `sessions.total_charged` = Σ that session's `session_blocks.amount` | two correct transactions wrote the same column from different reads |
- * | 3 | `platform_fee + teacher_earning` = `total_charged` on a finished session, and both `0` on a `NO_SHOW` | a refund that took a commission, or a rounding done twice |
- * | 4 | Σ that session's `SESSION_CHARGE` rows = `-total_charged`, and a `NO_SHOW` refunds all of it | a charge with no ledger row, or a refund that was not the whole of it |
+ * | 3 | `platform_fee + teacher_earning` = `total_charged` on a finished session, and both `0` on a `NO_SHOW` or one of 7.4's refunds | a refund that took a commission, or a rounding done twice |
+ * | 4 | Σ that session's `SESSION_CHARGE` rows = `-total_charged`, and any session with a zero split refunds all of it | a charge with no ledger row, or a refund that was not the whole of it |
  * | 5 | no teacher is `IN_SESSION` without an `ACTIVE` session | E6's characteristic leak: a teacher invisible to E4's first hard filter for ever |
  *
  * Invariant 5 is not §11.3's and is here because it is the one E6 can break silently.
@@ -157,6 +157,18 @@ async function check() {
     // A `NO_SHOW` deliberately breaks the sum — both columns are zero while
     // `total_charged` still records what was taken and given back — so it is checked for
     // the opposite property. **A refund net of commission is the case this row catches.**
+    //
+    // **PR 7.4 gave `ENDED` the same shape.** §5.5's other two refunds — a session the
+    // platform never provided a room for, and a student who left inside the opening
+    // window — are full refunds that stay in `ENDED`, because §5.5 is a pricing rule and
+    // §10's state machine has no third terminal state for "the same ending, refunded".
+    // They write `0 / 0` with `total_charged` standing, exactly as a `NO_SHOW` does.
+    //
+    // So a zero split is exempted here rather than reported — **and invariant 4 below is
+    // where it is paid for.** That row now demands that a finished session with a zero
+    // split actually gave the whole charge back in the ledger, which is a stronger claim
+    // than the sum this row was making: "the split adds up, or the money went back". A
+    // session that simply lost its fee and earning would pass here and fail there.
     return prisma.$queryRaw`
       SELECT s.id,
              s.status::text,
@@ -165,7 +177,8 @@ async function check() {
              s.teacher_earning
         FROM sessions s
        WHERE (s.status IN ('ENDED', 'RATED')
-              AND s.platform_fee + s.teacher_earning <> s.total_charged)
+              AND s.platform_fee + s.teacher_earning <> s.total_charged
+              AND NOT (s.platform_fee = 0 AND s.teacher_earning = 0))
           OR (s.status = 'NO_SHOW'
               AND (s.platform_fee <> 0 OR s.teacher_earning <> 0))
     `;
@@ -191,6 +204,16 @@ async function check() {
           OR (s.status IN ('ENDED', 'RATED')
               AND COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'TEACHER_EARNING'), 0)
                   <> s.teacher_earning)
+          -- PR 7.4. A finished session with a zero split is one of §5.5's two refunds,
+          -- and invariant 3 above stops checking its arithmetic on that basis. This is
+          -- the check that replaces it, and it is the stricter one: the whole charge came
+          -- back, to the credit. A session that merely lost its fee and earning columns
+          -- has no REFUND rows and is reported here.
+          OR (s.status IN ('ENDED', 'RATED')
+              AND s.platform_fee = 0
+              AND s.teacher_earning = 0
+              AND s.total_charged > 0
+              AND COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'REFUND'), 0) <> s.total_charged)
     `;
   });
 

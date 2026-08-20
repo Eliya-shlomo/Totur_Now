@@ -80,6 +80,134 @@ const defaultDeps = {
 const TEACHER_NO_SHOW = 'teacher_no_show';
 
 /**
+ * §11.2's value for a session the platform failed to deliver — 7.4, §5.5 row 2.
+ *
+ * **The column has had this value since PR 0.2 and nothing has ever written it.** It is
+ * in `SessionEndReason` in `shared/api.d.ts` and in the comment above `end_reason` in
+ * `sessions.prisma`, and until this PR the only way a session could end was one of the
+ * five reasons that charge.
+ */
+const PLATFORM_ERROR = 'error';
+
+/**
+ * What a finished session costs — PR 7.4, MVP.md §5.5.
+ *
+ * **The whole of §5.5 for a session leaving `ACTIVE`, in one function, on purpose.** Three
+ * branches decided in one place and returned as one object, rather than three `if`s spread
+ * through a transaction: the *ordering* between them is a decision, and a decision spread
+ * over forty lines is a decision the next reader re-makes.
+ *
+ * §5.5 has six rows. 6.6 implemented four of them — the teacher no-show, the student who
+ * leaves after a minute, the student who did not like the answer, and the offer nobody
+ * accepted. These are the other two, and they are the two that give money back:
+ *
+ * ```
+ *   1. no room was ever minted            →  full refund, end_reason 'error'
+ *   2. the student left inside the window →  full refund, reason unchanged
+ *   3. otherwise                          →  6.6's split, unchanged
+ * ```
+ *
+ * **This is a pricing rule and not a lifecycle one, so §10's table is untouched.**
+ * `session.state.js` gives `ACTIVE` exactly two edges and neither is added to here. A
+ * third terminal state meaning "the same ending, refunded" would be a table every future
+ * reader has to reconcile with a diagram that does not contain it — and the session's own
+ * money columns already say what happened.
+ *
+ * ## Case 1 — the platform never provided the lesson
+ *
+ * `hasVideo` is false: the session reached `ACTIVE`, ran, and `sessions.video_room_url` is
+ * still null, so the student paid for a video lesson that was never delivered. That is
+ * §5.5's "platform technical failure" in the only form this product can actually detect,
+ * and it is not hypothetical — **between PR 6.1 and 6b.1 every session on the deployed
+ * application was exactly this**, because `render.yaml` never declared `DAILY_API_KEY`.
+ * Every one of them charged in full.
+ *
+ * It applies **whoever ends the session** — the student, the teacher, or the sweep. A
+ * platform failure is not the participants' to bear, and which of them gave up first is
+ * not a fact about whose fault it was. That is also why it is checked before case 2: a
+ * student who walks out at forty seconds *because there is no camera* is owed the refund
+ * for the platform's reason, and `end_reason` should say so rather than say they left.
+ *
+ * ## Case 2 — the student left inside the window
+ *
+ * §5.5: "Student closes within 60s of start — full refund". `NO_SHOW_WINDOW_SEC` is the
+ * same sixty seconds the teacher's no-show path uses, and until this PR that path was its
+ * only reader.
+ *
+ * **`endReason` is unchanged, and stays `student_ended`.** The column says *why the
+ * session is over*; 6.6 already refused to invent a `teacher_ended` value for the same
+ * reason. The refund is a fact about the money, and the money is on the session's own
+ * columns.
+ *
+ * **Actor-scoped, deliberately.** Only the student's own end button reaches this. The
+ * sweep cannot — the opening block is ten minutes and the window is sixty seconds — and a
+ * *teacher* ending at forty seconds is a teacher who walked out, which is nearer to
+ * §5.5's no-show row than to this one. Making it actor-blind would let the one party who
+ * benefits from a refund trigger it.
+ *
+ * Strictly inside, so a session ending at exactly `NO_SHOW_WINDOW_SEC` is charged — the
+ * same boundary `reportSessionNoShow` draws, and drawing it differently here would mean
+ * two sixty-second windows that disagree about the sixtieth second.
+ *
+ * **And a session somebody extended was not an early exit, whatever the clock says.**
+ * `reportSessionNoShow`'s second guard, word for word, because it is the same argument:
+ * buying another block is an affirmative act saying the session is working, and a student
+ * who pressed **Keep going** and then **End** eight seconds later has told the server two
+ * different things. The clock alone would refund them both blocks. `blocks_used` is
+ * still the opening block is the check, and it is what makes the window a rule about a
+ * session that never got going rather than a rule about the first minute.
+ *
+ * ## Both refunds are the whole charge, and the fee is zero rather than unset
+ *
+ * A refund net of commission is the platform keeping money for a lesson it is admitting
+ * did not happen. `reportSessionNoShow` writes both columns as explicit zeroes for exactly
+ * this reason, and invariant 3 of `scripts/reconcile.mjs` — `platform_fee +
+ * teacher_earning === total_charged` on a finished session — is what would catch a
+ * refunded session that quietly kept a fee.
+ *
+ * @param {object} locked the row `findSessionForMeter` returned, under its lock
+ * @param {object} context
+ * @param {string} context.endReason what the caller asked for
+ * @param {string|null} context.actorId who pressed it; `null` is the clock
+ * @param {Date} context.endedAt
+ * @returns {{platformFee: number, teacherEarning: number, refund: number, endReason: string}}
+ */
+function settleSession(locked, { endReason, actorId, endedAt }) {
+  const gross = locked.totalCharged;
+
+  // Case 1. Before case 2, so a student who walked out because there was no camera is
+  // refunded for the platform's reason rather than for their own.
+  if (!locked.hasVideo) {
+    return { platformFee: 0, teacherEarning: 0, refund: gross, endReason: PLATFORM_ERROR };
+  }
+
+  // Case 2. The student's own button, inside the window, measured from `started_at`.
+  const startedAt = locked.startedAt?.getTime() ?? 0;
+  const elapsedMs = endedAt.getTime() - startedAt;
+  const leftEarly = actorId !== null && actorId === locked.studentId;
+
+  const openingBlockOnly = locked.blocksUsed === OPENING_BLOCKS;
+
+  if (leftEarly && openingBlockOnly && elapsedMs < NO_SHOW_WINDOW_SEC * 1000) {
+    return { platformFee: 0, teacherEarning: 0, refund: gross, endReason };
+  }
+
+  // Case 3 — 6.6's arithmetic, moved here and otherwise unchanged.
+  const feeRate = platformFeeRate({
+    teacherCreatedAt: locked.teacherCreatedAt,
+    // **Not `endedAt`.** The rate the teacher was quoted when the session began.
+    at: locked.startedAt ?? endedAt,
+  });
+
+  // Rounded once, and the earning is the remainder rather than a second rounding — so
+  // `platform_fee + teacher_earning === total_charged` to the credit, which is an
+  // acceptance criterion and is what reconciliation reads.
+  const platformFee = Math.round(gross * feeRate);
+
+  return { platformFee, teacherEarning: gross - platformFee, refund: 0, endReason };
+}
+
+/**
  * Ends a session and pays the teacher.
  *
  * **`actorId` is `null` for the clock.** The auto-end sweep passes none, and that is what
@@ -99,10 +227,22 @@ export async function terminateSession(
   deps = defaultDeps,
 ) {
   const collaborators = { ...defaultDeps, ...deps };
-  const { runTransaction, lockSession, closeSession, creditEarning, releaseTeacher } =
-    collaborators;
+  const {
+    runTransaction,
+    lockSession,
+    closeSession,
+    creditEarning,
+    refundStudent,
+    releaseTeacher,
+  } = collaborators;
 
   const endedAt = new Date();
+
+  // Written by the transaction and read after it: §5.5 may overrule what the caller asked
+  // for, and the emit and the return value must say what actually happened rather than
+  // what was requested. `student_ended` on the wire for a session the platform failed to
+  // deliver would be the product blaming the student for its own outage.
+  let settledReason = endReason;
 
   await runTransaction(async (tx) => {
     const locked = await lockSession(sessionId, tx);
@@ -128,21 +268,29 @@ export async function terminateSession(
     // refuses every other pair §10 does not draw.
     assertTransition(locked.status, 'ENDED');
 
-    const gross = locked.totalCharged;
-    const feeRate = platformFeeRate({
-      teacherCreatedAt: locked.teacherCreatedAt,
-      // **Not `endedAt`.** The rate the teacher was quoted when the session began.
-      at: locked.startedAt ?? endedAt,
+    // §5.5, all three branches, decided once against the locked row — 7.4.
+    const {
+      platformFee,
+      teacherEarning,
+      refund,
+      endReason: reason,
+    } = settleSession(locked, {
+      endReason,
+      actorId,
+      endedAt,
     });
 
-    // Rounded once, and the earning is the remainder rather than a second rounding — so
-    // `platform_fee + teacher_earning === total_charged` to the credit, which is an
-    // acceptance criterion and is what reconciliation reads.
-    const platformFee = Math.round(gross * feeRate);
-    const teacherEarning = gross - platformFee;
+    settledReason = reason;
 
     const { count } = await closeSession(
-      { sessionId, status: 'ENDED', endReason, endedAt, platformFee, teacherEarning },
+      {
+        sessionId,
+        status: 'ENDED',
+        endReason: reason,
+        endedAt,
+        platformFee,
+        teacherEarning,
+      },
       tx,
     );
 
@@ -166,15 +314,40 @@ export async function terminateSession(
       );
     }
 
+    // 7.4 — §5.5's two refunds, and they are mutually exclusive with the credit above:
+    // `settleSession` returns a refund only in the branches where the earning is zero.
+    // The guard is the same one the earning has, for the same reason — `wallet.service.js`
+    // refuses a non-positive amount, and a session that charged nothing has nothing to
+    // give back.
+    //
+    // **After the close, like the credit.** `closeSession`'s `where` carries
+    // `status = 'ACTIVE'`, and winning that guard before moving money is what stops the
+    // student's button and the sweep both refunding the same session — 6.6's ordering
+    // argument, and it holds in this direction too.
+    if (refund > 0) {
+      await refundStudent(
+        {
+          userId: locked.studentId,
+          sessionId,
+          amount: refund,
+          note:
+            reason === PLATFORM_ERROR
+              ? 'Refund: no video was provided'
+              : 'Refund: ended within the opening window',
+        },
+        tx,
+      );
+    }
+
     // The counter is unconditional inside the repository; the status change is not. A
     // teacher who closed their laptop mid-session stays `OFFLINE` and still taught a
     // lesson.
     await releaseTeacher({ teacherId: locked.teacherId, sessionsCount: 1 }, tx);
   });
 
-  announceEnd({ sessionId, endReason, endedAt, actorId, collaborators });
+  announceEnd({ sessionId, endReason: settledReason, endedAt, actorId, collaborators });
 
-  return { sessionId, status: 'ENDED', endReason, endedAt: endedAt.toISOString() };
+  return { sessionId, status: 'ENDED', endReason: settledReason, endedAt: endedAt.toISOString() };
 }
 
 /**

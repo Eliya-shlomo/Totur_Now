@@ -34,6 +34,29 @@ already covered by a query written before either existed. **If a new invariant i
 genuinely needed, argue for it in the PR** — but the default is that E7 adds no query,
 because §18's 7.6 is this file.
 
+### 1a. Point everything at one database, and say which
+
+**There are two, and they are easy to mix up.** `scripts/reconcile.mjs` reads the
+repo-root `.env`, which is the local Docker Postgres on `localhost:5433`. Anything run
+with a working directory of `server/` picks up `server/.env` instead, which is the
+**Neon hosted database**. A verification script and a reconciliation run started from
+different directories check different databases, and the reconciliation passes because it
+is looking at a database nothing wrote to.
+
+That happened during PR 7.3 and again during 7.4, and it is why this section exists. Both
+PRs' probe writes landed in Neon while every `reconcile.mjs check` reported on the local
+database and said zero rows.
+
+So, before operation 1: run `node scripts/reconcile.mjs check` and confirm the host it
+connected to is the host the pass is about. **The twenty operations belong on the local
+database**, and the baseline, every check and the diff must all be that same one.
+
+**Neon carries three probe sessions from 7.4 and two probe top-ups from 7.3.** They were
+left in place by decision rather than deleted — an append-only ledger is not a thing to
+tidy by hand. The three sessions have `total_charged` with no `session_blocks` rows and
+so break invariant 2 on that database until they are cleaned up. If this pass is ever run
+against Neon, those five rows are known and are not findings.
+
 ### 2. Run the twenty operations
 
 Locally, two browsers, against a seeded database. **Not on the deployed application** —
