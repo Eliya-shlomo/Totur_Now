@@ -144,7 +144,7 @@ point — they are §17.5's human-written money.
 | 7.2 | [The wallet read surface: `GET /wallet`, `GET /wallet/transactions`](PR-7.2-wallet-read-surface.md) | DEV-A | M | 7.1 | ☑ |
 | 7.3 | [`POST /wallet/topup`, and the balance that updates itself](PR-7.3-topup-endpoint.md) | DEV-A | M | 7.1, 7.2 | ☑ |
 | 7.4 | [**§5.5's two unwritten refunds: early exit and platform failure**](PR-7.4-remaining-refunds.md) | DEV-A | **human** · M | E6 | ☑ |
-| 7.5 | [The wallet screen — minutes, packages, ledger](PR-7.5-wallet-screen.md) | DEV-A | L | 7.3 | ☐ |
+| 7.5 | [The wallet screen — minutes, packages, ledger](PR-7.5-wallet-screen.md) | DEV-A | L | 7.3 | ☑ |
 | 7.6 | [Teacher earnings: the read, and the screen that reads it](PR-7.6-teacher-earnings.md) | DEV-A | L | 7.2 | ☐ |
 | 7.7 | [Out of credit, mid-session: top up from the 60-second warning](PR-7.7-out-of-credit.md) | DEV-A | S | 7.5 | ☐ |
 | 7.8 | [E7 close: the twenty-operation reconciliation pass, and the retro](PR-7.8-e7-close.md) | DEV-A | S | 7.4, 7.6, 7.7 | ☐ |

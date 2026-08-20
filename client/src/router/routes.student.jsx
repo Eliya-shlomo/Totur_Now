@@ -3,8 +3,10 @@ import Placeholder from '@/components/Placeholder';
 import Ask from '@/pages/student/Ask';
 import ChooseTeacher from '@/pages/student/ChooseTeacher';
 import Classifying from '@/pages/student/Classifying';
+import Dashboard from '@/pages/student/Dashboard';
 import RateSession from '@/pages/student/RateSession';
 import Session from '@/pages/student/Session';
+import Wallet from '@/pages/student/Wallet';
 import ProtectedRoute from '@/router/ProtectedRoute';
 
 /**
@@ -24,7 +26,10 @@ export const studentRoutes = [
       </ProtectedRoute>
     ),
     children: [
-      { index: true, element: <Placeholder title="Student dashboard" pr="E1/E7" /> },
+      // The placeholder said `pr="E1/E7"` because in 1.5 the balance had no epic that
+      // owned it yet. E7 does, and §14.1's third element — recent sessions — is E8's:
+      // 8.6 owns the history screen and the reads behind it.
+      { index: true, element: <Dashboard /> },
       { path: 'ask', element: <Ask /> },
       { path: 'ask/:id/matching', element: <Classifying /> },
       { path: 'ask/:id/teachers', element: <ChooseTeacher /> },
@@ -33,7 +38,11 @@ export const studentRoutes = [
       // rating the only way out of an `ENDED` session, so E6 could not leave it to E8.
       // The `pr=` is corrected by the PR that replaces it, which is E1's retro rule.
       { path: 'session/:id/review', element: <RateSession /> },
-      { path: 'wallet', element: <Placeholder title="Wallet" pr="7.7" /> },
+      // Said `pr="7.7"` against §18's numbering, which E7's own brief reordered: the
+      // wallet screen is 7.5 and 7.7 is the out-of-credit path that builds on it. The
+      // `pr=` is corrected by the PR that replaces the placeholder — E1's retro rule,
+      // and the second time this file has applied it.
+      { path: 'wallet', element: <Wallet /> },
       { path: 'history', element: <Placeholder title="Session history" pr="8.6" /> },
     ],
   },

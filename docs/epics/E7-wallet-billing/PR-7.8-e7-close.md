@@ -156,6 +156,7 @@ docs/epics/E6b-*/**                  6b.4 is open and is DEV-A's other close. No
 - [ ] Operations 4, 11 and 12 wrote no balance change and no ledger row — the three refusals
 - [ ] Operations 19 and 20 produced one row each, not two
 - [ ] The three screen-versus-SQL checks agree to the credit
+- [ ] **`/app/wallet` shows the `SESSION_CHARGE` row** — negative, dated, with a running total that matches the balance. Handed over by 7.5, which could not reach a real session charge without writing a ledger row by hand; it is the last claim that screen makes that nobody has watched happen
 - [ ] The undo ran and `diff --baseline` shows the database back at the baseline, output pasted
 - [ ] `RETRO.md` exists and names every open item as an item
 - [ ] `docs/README.md`'s epic index lists E7 with its split and status

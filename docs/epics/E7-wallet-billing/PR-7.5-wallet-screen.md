@@ -45,9 +45,14 @@ transaction: a sentence built from `type`, the signed `amount` in credits, the d
 `balanceAfter` as the running total. **The client owns the sentence** — the server sends
 an enum and `note` is deliberately not on the wire (7.2). Map `SESSION_CHARGE` →
 "Session", `TOPUP` → "Top-up", `REFUND` → "Refund", `TEACHER_EARNING` → "Earning", and
-render an unmapped type as the type itself rather than as nothing: `tx_type` has six
-values, two of which (`PAYOUT`, `PROMO`) no code writes yet, and a client that renders an
-unknown enum as a blank row is a client that hides money.
+render an unmapped type as the type itself rather than as nothing: a client that renders
+an unknown enum as a blank row is a client that hides money.
+
+**Corrected while writing it: all six values are mapped, not four.** `PAYOUT` and `PROMO`
+are in the Prisma enum and in `shared/api.d.ts` today, so they are values this client
+already knows the meaning of — leaving them to the fallback would print `PAYOUT` in a
+column of ordinary English words for no reason except that the feature is unbuilt. The
+fallback is for the value the *server* adds next, which is the case it was written for.
 
 Sign is the meaning: negative is money leaving. Colour is not the only carrier — a `−`
 and a `+` in the text, per §14.4's own accessibility posture.
@@ -105,20 +110,23 @@ docs/epics/E6a-*/**                     another epic's chain
 
 ## Acceptance criteria
 
-- [ ] `/app/wallet` shows the credits balance and a minutes figure that equals `Math.floor(balance / pricing.price.default) * pricing.block.minutes`
-- [ ] The minutes label names the price it assumed. A bare "≈ 40 minutes" fails this criterion
-- [ ] The three top-up buttons are exactly `pricing.topupPackages`, in the order the server sent them — no hardcoded 50/100/200 anywhere in `client/`
-- [ ] Pressing one raises the balance without a reload, and the new row appears in the ledger
-- [ ] A second tab open on `/app/wallet` shows the new balance too, from `wallet:updated`, without a reload
-- [ ] With the socket disconnected, the top-up still updates the balance — the POST response is trusted
-- [ ] Double-pressing a package sends one request
-- [ ] A `429` renders a readable sentence, not "something went wrong"
-- [ ] A ledger row with an unrecognised `type` renders the type string rather than an empty cell
-- [ ] An empty ledger shows an empty state **and** the top-up buttons
-- [ ] `/app` shows the balance and the "I'm stuck" action, and no session list
-- [ ] Both screens are usable at 375px (§14.4) with no horizontal scroll
-- [ ] `grep -rn "note" client/src/components/wallet/` returns nothing — the field is not on the wire and no screen may expect it
-- [ ] `npm run lint` clean
+- [x] `/app/wallet` shows the credits balance and a minutes figure that equals `Math.floor(balance / pricing.price.default) * pricing.block.minutes`
+- [x] The minutes label names the price it assumed. A bare "≈ 40 minutes" fails this criterion
+- [x] The three top-up buttons are exactly `pricing.topupPackages`, in the order the server sent them — no hardcoded 50/100/200 anywhere in `client/`
+- [x] Pressing one raises the balance without a reload, and the new row appears in the ledger
+- [x] A second tab open on `/app/wallet` shows the new balance too, from `wallet:updated`, without a reload
+- [x] With the socket disconnected, the top-up still updates the balance — the POST response is trusted
+- [x] Double-pressing a package sends one request
+- [x] A `429` renders a readable sentence, not "something went wrong"
+- [x] A ledger row with an unrecognised `type` renders the type string rather than an empty cell
+- [x] An empty ledger shows an empty state **and** the top-up buttons
+- [x] `/app` shows the balance and the "I'm stuck" action, and no session list
+- [x] Both screens are usable at 375px (§14.4) with no horizontal scroll
+- [x] No expression anywhere in `client/` reads a `note` off a ledger row — the field is not on the wire and no screen may expect it. **The check as first written was `grep -rn "note" client/src/components/wallet/` returns nothing, and that grep is wrong**: it matches the comments that explain why the field is absent, so writing the reason down would fail the criterion that the reason exists to satisfy. The check that tests the thing ignores comment lines:
+      ```bash
+      grep -rn "note" client/src | grep -vE ':[0-9]+:\s*\*'
+      ```
+- [x] `npm run lint` clean
 
 ## Manual test
 
@@ -164,3 +172,38 @@ interaction that makes "the end" unreachable on a phone.
 `components/match/CreditMinutes.jsx` already renders `minutesFor` — read both before
 writing the balance card. The loading and error states are `components/state/*`, which
 every screen since E2 has used rather than rolling its own.
+
+**What the walk actually proved, and the one step it did not.** Everything above was run
+against the **local** database — `localhost:5433`, the repo-root `.env`, the same
+database `scripts/reconcile.mjs` reads — and the host was confirmed before anything was
+written rather than after. That is the 7.3-and-7.4 mistake this epic has now made twice
+and is not making a third time. Twelve top-ups later, `node scripts/reconcile.mjs check`
+returns **zero rows on all five invariants**, and the eleven `TOPUP` rows on the demo
+student sum to exactly the balance the screen shows.
+
+Two of the criteria could not be observed by pressing a button, and were established
+another way rather than assumed:
+
+- **"With the socket disconnected, the top-up still updates the balance."** The socket
+  cannot be reached from a screen — `lib/socket.js` is module state by design — so the
+  emit was suppressed at its source instead: `emitWalletUpdated` was given an early
+  `return`, the server restarted, and a top-up was pressed with two tabs open. The
+  pressing tab went 150 → 200 from the POST's own response; the other tab stayed at 150,
+  because no event was sent. That is the property stated, demonstrated from the other end.
+  The edit was reverted immediately and `git status server/` is clean.
+- **"A ledger row with an unrecognised `type` renders the type string."** No code writes
+  a type this client does not know, so there is no way to get one onto the wire without
+  fabricating a ledger row by hand — which is the one thing an append-only ledger must not
+  have done to it. `txLabel.js` is pure and JSX-free precisely so this can be checked
+  without a row: `txLabel('PROMO_2026')` returns `'PROMO_2026'`, and `LedgerList` calls
+  nothing else to build the label.
+
+**Manual test step 5 — the `SESSION_CHARGE` row — is deferred to 7.8, on purpose.** It
+needs a real session: a teacher online, a classified question, an offer accepted, a block
+charged. That is the twenty-operation pass 7.8 exists to run, and the alternative was to
+write a negative row into the ledger by hand so that a screen could be photographed
+rendering it. The rendering it would have proved is `signedCredits(-12) === '−12'` and a
+`c="red"` on the same element, both of which are one expression each and both of which are
+checked above. **7.8 must confirm on screen that a session charge lands in this list with
+the right sign and a running total that matches** — it is on that PR's list, and it is the
+last unobserved claim this screen makes.
