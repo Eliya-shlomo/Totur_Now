@@ -88,6 +88,7 @@ export async function sendOfferEmail({ to, teacherName, offer }) {
       topicLabel: offer.topicLabel,
       level: offer.level,
       brief: offer.brief,
+      howToStart: offer.howToStart,
       expectedEarning: offer.expectedEarning,
       ttlSeconds: OFFER_TTL_SECONDS,
       teachUrl: teachUrl(),

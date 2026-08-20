@@ -122,6 +122,21 @@ export const DIFFICULTY_MAX = 5;
 export const TITLE_MAX_LENGTH = 160;
 
 /**
+ * §8.1's `how_to_start`, extended in 6a.4 — the ceiling on the opening move.
+ *
+ * Not a column width: `questions.how_to_start` is unbounded text, and the two fields
+ * differ there for a reason. `TITLE_MAX_LENGTH` protects a VARCHAR; this one protects
+ * the *prose rule* — three lines naming the substitution, not the substitution carried
+ * out. A model that answers with a worked solution overruns this and falls back, which
+ * is the coarse half of a rule the prompt states properly and only a reader can judge.
+ *
+ * 400 rather than tighter because Hebrew arrives here too and it tokenizes and renders
+ * longer than the English the rule was drafted in; a bound that rejected good Hebrew
+ * answers would spend the fallback on the language this product is mostly used in.
+ */
+export const HOW_TO_START_MAX_LENGTH = 400;
+
+/**
  * The Cloudinary transform every classification fetch asks for. PR 6a.2.
  *
  * The bytes now transit this server on their way to the model, and the thing being

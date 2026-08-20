@@ -198,6 +198,7 @@ function toClassificationColumns(classification) {
     difficulty: classification.difficulty,
     estimatedLevel: classification.estimatedLevel,
     teacherBrief: classification.teacherBrief,
+    howToStart: classification.howToStart,
     studentConfirmation: classification.studentConfirmation,
     llmConfidence: classification.confidence,
     classificationOk: classification.classificationOk,

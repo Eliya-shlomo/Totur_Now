@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   DIFFICULTY_MAX,
   DIFFICULTY_MIN,
+  HOW_TO_START_MAX_LENGTH,
   MATH_LEVELS,
   TITLE_MAX_LENGTH,
 } from '#config/constants/index.js';
@@ -53,7 +54,10 @@ const DIFFICULTY_VALUES = Array.from(
  * - `confidence` carries its 0–1 range here **and** in Zod,
  * - `TITLE_MAX_LENGTH` is enforced in Zod alone. It is a column width
  *   (`questions.title` is VARCHAR(160)), so something has to hold it before the row is
- *   written, and the wire schema cannot.
+ *   written, and the wire schema cannot,
+ * - `HOW_TO_START_MAX_LENGTH` likewise, and for the opposite reason: that column is
+ *   unbounded text, and the bound exists to catch an answer that solved the exercise
+ *   instead of opening it. Same missing feature in the subset, different motive.
  *
  * `required` is derived from the property names rather than listed twice.
  *
@@ -68,6 +72,7 @@ const CLASSIFICATION_PROPERTIES = {
   difficulty: { type: 'integer', enum: DIFFICULTY_VALUES },
   estimated_level: { type: 'integer', enum: [...MATH_LEVELS] },
   teacher_brief: { type: 'string' },
+  how_to_start: { type: 'string' },
   student_confirmation: { type: 'string' },
   confidence: { type: 'number', minimum: 0, maximum: 1 },
 };
@@ -97,6 +102,11 @@ const oneOf = (values) =>
  * satisfies `type: string` on the wire and is a failed classification here — a teacher
  * opening a blank brief is worse than the fallback, which at least shows the student's
  * own words.
+ *
+ * `how_to_start` is required here and non-nullable on the wire, like everything else:
+ * a model with no opening move to offer answers with a low `confidence` and the
+ * service turns that into the §8.1 fallback, where the field is null. The row's column
+ * is nullable because the fallback writes null into it; the *answer* never may be.
  */
 export const classificationSchema = z
   .object({
@@ -106,6 +116,7 @@ export const classificationSchema = z
     difficulty: oneOf(DIFFICULTY_VALUES),
     estimated_level: oneOf(MATH_LEVELS),
     teacher_brief: z.string().trim().min(1),
+    how_to_start: z.string().trim().min(1).max(HOW_TO_START_MAX_LENGTH),
     student_confirmation: z.string().trim().min(1),
     confidence: z.number().min(0).max(1),
   })

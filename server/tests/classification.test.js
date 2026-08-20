@@ -6,6 +6,7 @@ import {
   DIFFICULTY_MAX,
   GEMINI_MIN_DEADLINE_MS,
   DIFFICULTY_MIN,
+  HOW_TO_START_MAX_LENGTH,
   LLM_MAX_OUTPUT_TOKENS,
   LLM_MODEL,
   LLM_THINKING_LEVEL,
@@ -101,6 +102,7 @@ const ANSWER = {
   difficulty: 3,
   estimated_level: 5,
   teacher_brief: 'Knows the antiderivative, stuck substituting the bounds.',
+  how_to_start: 'Ask which bound goes where before evaluating anything.',
   student_confirmation: 'A question about definite integrals?',
   confidence: 0.9,
 };
@@ -158,6 +160,7 @@ function expectedFallback(rawText = RAW_TEXT) {
     difficulty: null,
     estimatedLevel: null,
     teacherBrief: rawText,
+    howToStart: null,
     studentConfirmation: rawText,
     confidence: 0,
     classificationOk: false,
@@ -229,9 +232,38 @@ describe('classificationSchema', () => {
     assert.equal(classificationSchema.safeParse({ ...ANSWER, title: tooLong }).success, false);
   });
 
+  it('rejects an opening move longer than the prose rule allows', () => {
+    // Not a column width — `questions.how_to_start` is unbounded text. The bound is the
+    // coarse half of "name the move, do not work the solution": a model that solved the
+    // exercise writes past it and falls back, which is the failure this epic prefers to
+    // a worked solution sitting in the teacher's modal.
+    const long = 'a'.repeat(HOW_TO_START_MAX_LENGTH + 1);
+
+    assert.equal(classificationSchema.safeParse({ ...ANSWER, how_to_start: long }).success, false);
+    assert.equal(
+      classificationSchema.safeParse({
+        ...ANSWER,
+        how_to_start: 'a'.repeat(HOW_TO_START_MAX_LENGTH),
+      }).success,
+      true,
+    );
+  });
+
+  it('rejects an answer with no opening move at all', () => {
+    // Nothing on the wire is nullable, and this field is not the exception: a model with
+    // no opening move to offer says so with a low confidence, and the service turns that
+    // into the fallback where `howToStart` is null. One way to say "I could not".
+    const { how_to_start: move, ...missing } = ANSWER;
+
+    assert.equal(typeof move, 'string');
+    assert.equal(classificationSchema.safeParse(missing).success, false);
+    assert.equal(classificationSchema.safeParse({ ...ANSWER, how_to_start: null }).success, false);
+  });
+
   it('rejects strings that are only whitespace', () => {
     // Valid JSON, valid `type: string`, and a blank brief in front of a teacher.
     assert.equal(classificationSchema.safeParse({ ...ANSWER, teacher_brief: '  ' }).success, false);
+    assert.equal(classificationSchema.safeParse({ ...ANSWER, how_to_start: '  ' }).success, false);
   });
 
   it('rejects a key it did not ask for', () => {
@@ -298,6 +330,7 @@ describe('classifyQuestion — the happy path', () => {
       difficulty: ANSWER.difficulty,
       estimatedLevel: ANSWER.estimated_level,
       teacherBrief: ANSWER.teacher_brief,
+      howToStart: ANSWER.how_to_start,
       studentConfirmation: ANSWER.student_confirmation,
       confidence: ANSWER.confidence,
       classificationOk: true,
@@ -497,6 +530,25 @@ describe('classifyQuestion — every way it falls back', () => {
     {
       name: 'an answer that fails the schema',
       overrides: { createMessage: async () => reply({ ...ANSWER, difficulty: 42 }) },
+    },
+    {
+      name: 'an answer with no how_to_start',
+      overrides: {
+        createMessage: async () => {
+          const missing = { ...ANSWER };
+
+          delete missing.how_to_start;
+
+          return reply(missing);
+        },
+      },
+    },
+    {
+      name: 'an opening move that ran on into a worked solution',
+      overrides: {
+        createMessage: async () =>
+          reply({ ...ANSWER, how_to_start: 'a'.repeat(HOW_TO_START_MAX_LENGTH + 1) }),
+      },
     },
     {
       name: 'a response that is not JSON at all',

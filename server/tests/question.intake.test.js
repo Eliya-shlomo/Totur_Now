@@ -56,6 +56,7 @@ const CLASSIFIED = {
   difficulty: 3,
   estimatedLevel: 5,
   teacherBrief: 'התלמיד צריך אינטגרציה בחלקים.',
+  howToStart: 'להתחיל מבחירת u ו-dv, לפני שמחשבים משהו.',
   studentConfirmation: 'נפתור יחד באינטגרציה בחלקים?',
   confidence: 0.91,
   classificationOk: true,
@@ -69,6 +70,7 @@ const FELL_BACK = {
   difficulty: null,
   estimatedLevel: null,
   teacherBrief: RAW_TEXT,
+  howToStart: null,
   studentConfirmation: RAW_TEXT,
   confidence: 0,
   classificationOk: false,
@@ -86,6 +88,7 @@ function row(overrides = {}) {
     difficulty: null,
     estimatedLevel: null,
     teacherBrief: null,
+    howToStart: null,
     studentConfirmation: null,
     llmConfidence: null,
     classificationOk: false,
@@ -260,6 +263,7 @@ describe('createAndClassifyQuestion', () => {
     assert.equal(written.llmConfidence, CLASSIFIED.confidence);
     assert.equal('confidence' in written, false);
     assert.equal(written.topicId, CLASSIFIED.topicId);
+    assert.equal(written.howToStart, CLASSIFIED.howToStart);
     assert.equal(written.classificationOk, true);
   });
 
@@ -280,6 +284,9 @@ describe('createAndClassifyQuestion', () => {
     assert.equal(response.classification.topicId, UNCLASSIFIED_TOPIC_ID);
     assert.equal(response.classification.classificationOk, false);
     assert.equal(response.classification.teacherBrief, RAW_TEXT);
+    // The brief echoes the student because there are words to echo. The opening move has
+    // no honest echo, so it stays null rather than becoming the question again.
+    assert.equal(response.classification.howToStart, null);
     assert.equal(response.rawText, RAW_TEXT);
   });
 });
