@@ -226,11 +226,18 @@ describe("E6's socket contract", () => {
     }
   });
 
-  it('leaves wallet:updated to E7', () => {
-    // §13 lists it and E6 does not append it: there is no wallet screen to update,
-    // and the session screen learns its balance from `session:extended`, which it is
-    // already listening to.
-    assert.ok(!Object.values(SOCKET_EVENTS).includes('wallet:updated'));
+  it('left wallet:updated to E7, and E7 took it', () => {
+    // §13 lists it and E6 did not append it: there was no wallet screen to update, and
+    // the session screen learns its balance from `session:extended`, which it is already
+    // listening to. **PR 7.3 appended it** — the rule both epics wrote down is "added by
+    // the epic that emits them", and E7 is that epic.
+    //
+    // The half of this test that is still E6's, and the reason it stayed here rather
+    // than moving: **E6's six are untouched by that append.** A later epic may add a
+    // name; it may not rename one of these.
+    assert.equal(SOCKET_EVENTS.WALLET_UPDATED, 'wallet:updated');
+    assert.equal(SOCKET_EVENTS.SESSION_EXTENDED, 'session:extended');
+    assert.equal(SOCKET_EVENTS.SESSION_BLOCK_WARNING, 'session:block_warning');
   });
 
   it('addresses a session room by id, with a prefix, and not the user room', () => {

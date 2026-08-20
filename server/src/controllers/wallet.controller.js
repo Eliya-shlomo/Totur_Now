@@ -1,8 +1,9 @@
+import { topUpBalance } from '#services/wallet.topup.service.js';
 import { getWallet, getWalletTransactions } from '#services/wallet.view.service.js';
 
 /**
- * The wallet's read surface — `GET /wallet` and `GET /wallet/transactions`. PR 7.2,
- * MVP.md §12.
+ * The wallet endpoints — `GET /wallet`, `GET /wallet/transactions` (PR 7.2) and
+ * `POST /wallet/topup` (PR 7.3). MVP.md §12.
  *
  * Controllers read the request and write the response (`CONVENTIONS.md` → Server
  * layering), so both handlers are a call and a send. There is no `prisma` import in this
@@ -41,4 +42,20 @@ export async function listWalletTransactions(req, res) {
     success: true,
     data: await getWalletTransactions({ userId: req.user.id, ...req.query }),
   });
+}
+
+/**
+ * `POST /wallet/topup` — credit one package. PR 7.3.
+ *
+ * **`201`, because this creates a ledger row.** The same call `sendOffer` makes: the
+ * response identifies the row it wrote, and `transactionId` is the handle a support
+ * conversation has when a student says money went missing.
+ *
+ * The user is `req.user.id` and the package is the only thing the body may carry — a
+ * body naming a user would be a request to credit somebody else's wallet.
+ */
+export async function topUpWalletBalance(req, res) {
+  const result = await topUpBalance({ userId: req.user.id, packageId: req.body.packageId });
+
+  res.status(201).json({ success: true, data: result });
 }
