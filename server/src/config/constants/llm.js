@@ -112,3 +112,17 @@ export const GEMINI_MIN_DEADLINE_MS = 10000;
  * validator.
  */
 export { MAX_ATTACHMENTS as MAX_IMAGES } from './question.js';
+
+/**
+ * How long the image fetch may take before the classification goes on without it.
+ *
+ * **Derived, never typed.** The images are fetched *inside* the same budget the student
+ * is waiting on, so a second hardcoded number beside `LLM_TIMEOUT_MS` is a number that
+ * stops meaning what it meant the first time the timeout moves. Three photographs that
+ * each take four seconds is a timeout with no request made — the fetch has to finish
+ * well inside the budget, not merely below it.
+ *
+ * Forty percent leaves the model six of the eight seconds. That split is a guess until
+ * 6a.3's bench measures it; the bench is where it changes, and it changes here.
+ */
+export const IMAGE_FETCH_BUDGET_MS = Math.round(LLM_TIMEOUT_MS * 0.4);

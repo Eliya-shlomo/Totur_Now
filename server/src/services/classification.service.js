@@ -9,6 +9,7 @@ import {
 } from '#config/constants/index.js';
 import { geminiClient, isGeminiConfigured } from '#config/gemini.js';
 import { buildMessages, isPromptReady } from '#services/llm.prompt.js';
+import { fetchImagesForClassification } from '#services/media.service.js';
 import { getTopicTree } from '#services/topic.service.js';
 import { logger } from '#utils/logger.js';
 import {
@@ -79,6 +80,11 @@ import {
 const defaultDeps = {
   loadTaxonomy: getTopicTree,
   createMessage: (params) => geminiClient.models.generateContent(params),
+  // Injected for the same reason `createMessage` is, and it is not a formality: this
+  // one reaches the network too, and a test that forgot to override it would pass on a
+  // machine with connectivity, fail on one without, and quietly fetch a student's
+  // homework from Cloudinary on every run of the suite (6a.2).
+  fetchImages: fetchImagesForClassification,
   timeoutMs: LLM_TIMEOUT_MS,
   // The two guards are injected rather than read directly, and for the same reason:
   // both short-circuit before the schema, the taxonomy and the confidence floor, so a
@@ -96,7 +102,9 @@ const defaultDeps = {
  *
  * `imageUrls` are Cloudinary URLs from `POST /questions/attachments`, uploaded before
  * the question row existed — which is why the upload endpoint comes first in the epic
- * and why an image bound after creation would be one the model never saw.
+ * and why an image bound after creation would be one the model never saw. They are URLs
+ * at this seam and bytes by the time they reach the model: 6a.2 fetches them through
+ * `fetchImages`, because Gemini has no image-by-URL content part and never had one.
  *
  * `declaredLevel` is the student's claim (3, 4 or 5) or null. It is an input here and
  * is never the answer: `estimatedLevel` in the return value is the model's own
@@ -111,7 +119,7 @@ const defaultDeps = {
  */
 export async function classifyQuestion(input = {}, deps = {}) {
   const { rawText, imageUrls = [], declaredLevel = null } = input ?? {};
-  const { loadTaxonomy, createMessage, timeoutMs, promptReady, configured } = {
+  const { loadTaxonomy, createMessage, fetchImages, timeoutMs, promptReady, configured } = {
     ...defaultDeps,
     ...deps,
   };
@@ -136,9 +144,17 @@ export async function classifyQuestion(input = {}, deps = {}) {
     if (!promptReady) return fallback('llm.prompt.js still holds its placeholder');
 
     const topicTree = await loadTaxonomy();
+
+    // The bytes, before the prompt. Gemini has no image-by-URL part, so the photographs
+    // are fetched here and inlined — `media.service.js` owns the host, the transform,
+    // the sniff and the budget, and drops what it cannot get rather than throwing. A
+    // classification with two of three photographs is the point of that; a throw here
+    // would land in the `catch` below and cost the student all three.
+    const images = await fetchImages(imageUrls);
+
     const { systemInstruction, contents } = buildMessages({
       rawText,
-      imageUrls,
+      images,
       declaredLevel,
       topicTree,
     });
