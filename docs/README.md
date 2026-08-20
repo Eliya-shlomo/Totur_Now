@@ -37,7 +37,12 @@ touched, which files must not be, and what "done" means. Per `MVP.md` §17.3, th
 | E1 — Auth & Users | by flow: A registration, B session | done | [`E1-auth/`](epics/E1-auth/) |
 | E2 — Teacher Onboarding | by audience: A public read, B the teacher's own record | closed provisionally — 4 items open | [`E2-teacher-onboarding/`](epics/E2-teacher-onboarding/) |
 | E3 — Question Intake & LLM Classification | by seam: A capture, B classification | not started | [`E3-question-intake/`](epics/E3-question-intake/) |
-| E4–E11 | not written yet | — | — |
+| E4 — Matching | by seam: A the pool, B the score | done | [`E4-matching/`](epics/E4-matching/) |
+| E5 — Offers & Realtime | single developer: B | done | [`E5-offers-realtime/`](epics/E5-offers-realtime/) |
+| E6 — Session Lifecycle | single developer: B | 6.9 open | [`E6-session-lifecycle/`](epics/E6-session-lifecycle/) |
+| E6a — Classification Repair & the Teacher Brief | single developer: B | not started | [`E6a-classification-repair/`](epics/E6a-classification-repair/) |
+| E6b — Live-Path Repair | by defect: A deployment, B offer delivery | not started — runs beside E6a | [`E6b-live-path-repair/`](epics/E6b-live-path-repair/) |
+| E7–E11 | not written yet | — | — |
 
 DEV-A is eliya, DEV-B is rotem — see [`OWNERSHIP.md`](OWNERSHIP.md) §0.
 
