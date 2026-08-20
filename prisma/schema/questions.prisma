@@ -38,6 +38,17 @@ model Question {
   // the fallback path both are written from the student's own words.
   studentConfirmation String? @map("student_confirmation")
 
+  // The opening move the teacher reads beside the brief (PR 6a.4, MVP.md §8.1
+  // extended to nine output fields). One to three lines: the substitution, the
+  // theorem, the first thing you would say — never the worked solution.
+  //
+  // Beside `teacher_brief` and for the same reasons `student_confirmation` is:
+  // same producer, same call, same failure mode. Nullable because the fallback
+  // path has no opening move to write — `teacher_brief` echoes the student's own
+  // words there because there are words to echo, and there is no honest echo for
+  // "how would you begin".
+  howToStart String? @map("how_to_start")
+
   // Teachers who declined this question, so matching can exclude them on the
   // next pass. A UUID[] rather than a join table: it is read on every matching
   // run, never joined, and never grows past a handful of entries.

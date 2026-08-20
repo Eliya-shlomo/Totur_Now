@@ -80,6 +80,11 @@ export function toOfferResponse({ offer, sessionId, teacher, pricePerBlock }) {
  * student's own words — so the coalesce below is belt-and-braces for a row that came
  * from somewhere other than intake.
  *
+ * `howToStart` is the brief's other half (6a.4) and is `null`, never `''`: the
+ * coalesce above exists for a row written outside intake, but this field is null on
+ * every fallback classification, and a modal that cannot tell "no opening move" from
+ * "an empty one" renders a heading over nothing.
+ *
  * `level` prefers the classifier's estimate over the student's declaration, the same
  * order `matching.candidates.service.js` reads them in. Both are nullable and `null` is
  * a legal answer: a question on the sentinel topic has neither.
@@ -111,6 +116,7 @@ export function toIncomingOffer({ offer, sessionId, question, pricePerBlock, fee
     offerId: offer.id,
     sessionId,
     brief: question?.teacherBrief ?? '',
+    howToStart: question?.howToStart ?? null,
     topicLabel: question?.subtopic?.nameHe ?? question?.topic?.nameHe ?? null,
     level: question?.estimatedLevel ?? question?.declaredLevel ?? null,
     expectedEarning: pricePerBlock * OPENING_BLOCKS * (1 - feeRate),

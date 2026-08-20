@@ -49,6 +49,10 @@ export function toQuestionResponse(row) {
  * can legally see that window, so the two defaults live here rather than in a
  * consumer that would have to invent them.
  *
+ * `howToStart` does **not** fall back to the raw text, and it is the one field here
+ * that may legitimately be null: the student's words are their question, never their
+ * opening move. The same argument `classification.service.js`'s fallback makes.
+ *
  * `confidence` is a `Decimal`, which serializes to a **string** through
  * `JSON.stringify` and would reach the client as `"0.91"`. The contract says
  * number; `Number()` is that conversion, in the one place that owns the payload.
@@ -61,6 +65,7 @@ function toClassification(row) {
     difficulty: row.difficulty ?? null,
     estimatedLevel: row.estimatedLevel ?? null,
     teacherBrief: row.teacherBrief ?? row.rawText,
+    howToStart: row.howToStart ?? null,
     studentConfirmation: row.studentConfirmation ?? row.rawText,
     confidence: row.llmConfidence === null ? 0 : Number(row.llmConfidence),
     classificationOk: row.classificationOk,

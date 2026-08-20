@@ -57,6 +57,7 @@ const QUESTION_VIEW = {
   difficulty: true,
   estimatedLevel: true,
   teacherBrief: true,
+  howToStart: true,
   studentConfirmation: true,
   llmConfidence: true,
   classificationOk: true,

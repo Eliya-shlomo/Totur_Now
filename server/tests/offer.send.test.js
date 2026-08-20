@@ -658,6 +658,7 @@ describe('toIncomingOffer — the teacher’s shape', () => {
 
   const question = (overrides = {}) => ({
     teacherBrief: 'Stuck on the chain rule.',
+    howToStart: 'Name the outer function before differentiating anything.',
     estimatedLevel: 5,
     declaredLevel: 4,
     topic: { nameHe: 'חשבון דיפרנציאלי' },
@@ -675,16 +676,27 @@ describe('toIncomingOffer — the teacher’s shape', () => {
       ...overrides,
     });
 
-  it('emits exactly the seven contract keys', () => {
+  it('emits exactly the eight contract keys', () => {
     assert.deepEqual(Object.keys(build()).sort(), [
       'brief',
       'expectedEarning',
       'expiresAt',
+      'howToStart',
       'level',
       'offerId',
       'sessionId',
       'topicLabel',
     ]);
+  });
+
+  it('carries the opening move beside the brief, and null when there is none', () => {
+    // The modal renders the two together inside E5's sixty seconds, so they travel in
+    // one payload. `null` is the fallback's answer and it must survive the trip — a
+    // modal that cannot tell "no opening move" from "an empty one" renders a heading
+    // over nothing.
+    assert.equal(build().howToStart, 'Name the outer function before differentiating anything.');
+    assert.equal(build({ question: question({ howToStart: null }) }).howToStart, null);
+    assert.equal(build({ question: null }).howToStart, null);
   });
 
   it('prefers the subtopic label over the parent topic', () => {

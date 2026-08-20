@@ -199,6 +199,7 @@ export async function classifyQuestion(input = {}, deps = {}) {
       difficulty: answer.difficulty,
       estimatedLevel: answer.estimated_level,
       teacherBrief: answer.teacher_brief,
+      howToStart: answer.how_to_start,
       studentConfirmation: answer.student_confirmation,
       confidence: answer.confidence,
       classificationOk: true,
@@ -337,6 +338,13 @@ function countWords(rawText) {
  * because this function's whole contract is that a catastrophic input still answers:
  * an undefined `rawText` must produce a string, not a crash two layers up.
  *
+ * **`howToStart` is `null` here, and not the raw text.** The two fields above echo the
+ * student because there are words to echo — the question is still the question. There
+ * is no fallback opening move: nothing in this file has read the exercise, and writing
+ * "start by reading the question carefully" would be product copy of the kind the
+ * paragraph above refuses. The contract types it `string | null` for this one path, and
+ * 6a.5's modal reads the null and says the question was not classified.
+ *
  * `confidence: 0` and `classificationOk: false` are what 3.8's retro counts. Neither
  * is an error — nothing in this epic ever throws `LLM_FAILED`.
  *
@@ -353,6 +361,7 @@ function fallbackClassification(rawText) {
     difficulty: null,
     estimatedLevel: null,
     teacherBrief: text,
+    howToStart: null,
     studentConfirmation: text,
     confidence: 0,
     classificationOk: false,

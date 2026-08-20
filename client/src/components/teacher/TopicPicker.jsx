@@ -24,9 +24,8 @@ import { Checkbox, Divider, Radio, ScrollArea, Stack, Text } from '@mantine/core
  * `components/question/` would be two components that disagree about what a leaf is,
  * which is the defect E2's retro asked this codebase to stop shipping.
  *
- * `nameEn` is the label. `client/index.html` fixed the UI as English and LTR at PR
- * 0.5, so a Hebrew topic list would be the only Hebrew on the screen; `nameHe` rides
- * along in the payload for the day that changes and for the E3 classifier.
+ * The label is `topicName` below, which is the badge rule for the whole client. See
+ * its comment: that day has come.
  *
  * @param {Array} topics  the two-level tree from `GET /public/topics`
  * @param {number[]|number|null} value  selected leaf ids, or the one selected leaf
@@ -64,7 +63,12 @@ export default function TopicPicker({
         <TopicTree
           groups={groups}
           renderLeaf={(leaf) => (
-            <Radio key={leaf.id} value={String(leaf.id)} label={leaf.nameEn} disabled={disabled} />
+            <Radio
+              key={leaf.id}
+              value={String(leaf.id)}
+              label={<span dir="auto">{topicName(leaf)}</span>}
+              disabled={disabled}
+            />
           )}
         />
       </Radio.Group>
@@ -83,7 +87,12 @@ export default function TopicPicker({
       <TopicTree
         groups={groups}
         renderLeaf={(leaf) => (
-          <Checkbox key={leaf.id} value={String(leaf.id)} label={leaf.nameEn} disabled={disabled} />
+          <Checkbox
+            key={leaf.id}
+            value={String(leaf.id)}
+            label={<span dir="auto">{topicName(leaf)}</span>}
+            disabled={disabled}
+          />
         )}
       />
 
@@ -108,8 +117,8 @@ function TopicTree({ groups, renderLeaf }) {
           <Stack key={parent.id} gap="xs">
             {index > 0 && <Divider />}
 
-            <Text fw={600} size="sm">
-              {parent.nameEn}
+            <Text fw={600} size="sm" dir="auto">
+              {topicName(parent)}
             </Text>
 
             <Stack gap={8} pl="xs">
@@ -138,4 +147,33 @@ function SelectionCount({ count }) {
         : `${count} ${count === 1 ? 'topic' : 'topics'} selected.`}
     </Text>
   );
+}
+
+/**
+ * **The badge rule: a topic is named in Hebrew, and falls back to English.** One
+ * answer, written here once, applied by this picker, by `Classifying.jsx`'s label and
+ * by the teacher's offer modal — PR 6a.5's third item, which existed because those
+ * three screens disagreed.
+ *
+ * The choice was not free. `offerView.js` builds `IncomingOffer.topicLabel` from
+ * `nameHe`, that field is a resolved string on the wire, and 6a.5 may touch neither
+ * `server/src/**` nor `shared/**` — so the teacher's badge is Hebrew whatever this
+ * file decides, and "English everywhere" was never one of the two defensible answers
+ * the brief offered. Hebrew everywhere is.
+ *
+ * It also happens to be the right one. The taxonomy names Bagrut material, the
+ * questions filed under it are Hebrew, and a Hebrew-speaking student reading
+ * "Calculus — Integrals" over their own question was PR 0.5's English-UI decision
+ * outliving the content it was made about. The surrounding chrome stays English; this
+ * is data, and data is `dir="auto"` — see `ClassificationCard.jsx`.
+ *
+ * `nameEn` is the fallback and not decoration: `GET /public/topics` is the shape both
+ * names ride in, and a taxonomy row seeded without a Hebrew name should render as
+ * something rather than as nothing.
+ *
+ * @param {{nameHe?: string|null, nameEn?: string|null}} topic
+ * @returns {string}
+ */
+export function topicName(topic) {
+  return topic?.nameHe || topic?.nameEn || '';
 }

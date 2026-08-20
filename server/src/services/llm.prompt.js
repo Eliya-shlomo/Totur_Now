@@ -30,9 +30,14 @@ import { MIN_CONFIDENCE } from '#config/constants/index.js';
  *
  * - the taxonomy is **closed** — answer with the ids given and never invent one;
  * - `title` is short and human, and it is what a teacher sees in a list;
- * - `teacher_brief` says **what the student is stuck on**, not what the exercise is.
- *   A brief that restates the question has failed §8.1's intent even though every
- *   field validates, and that is the thing to read out loud before merging;
+ * - `teacher_brief` and `how_to_start` are **one brief split across two fields**, and
+ *   3–5 lines in total: what the exercise asks, where a student at that level usually
+ *   stalls, and the opening move. A brief that only transcribes the question has failed
+ *   §8.1's intent even though every field validates, and that is the thing to read out
+ *   loud before merging;
+ * - `how_to_start` is an **opening move and never a worked solution**. The teacher is
+ *   about to teach the exercise, and a solved one in the offer modal invites reading it
+ *   out. No test can tell the two apart — reading ten bench answers can;
  * - `student_confirmation` is one sentence a 12th-grader would recognise as describing
  *   their own question;
  * - `difficulty`, `estimated_level` and `confidence` are judgements about the exercise,
@@ -61,22 +66,30 @@ Guidelines:
 - Keep it well under one line. If a teacher scanning ten of these could not tell yours apart, it is too vague.
 
 3. Teacher Brief (teacher_brief):
-- Write a concise, actionable summary specifically highlighting the student's core difficulty or conceptual obstacle.
-- Focus on what the student is stuck on rather than merely repeating or transcribing the problem statement.
+- Two short parts, separated by a blank line, 2-4 lines in total.
+- What the exercise asks: name the mathematical object and the demand made on it, rather than transcribing it.
+- Then where a student at the level you estimated typically stalls on an exercise like this one. Write it as the guess it is — you are looking at the exercise, not at the person.
 
-4. Student Confirmation (student_confirmation):
+4. How to Start (how_to_start):
+- One to three lines: the first thing you would say to open this exercise. Name the move — the substitution, the theorem, the identity, the construction, the first line to write down.
+- Name it and stop. No further steps, no intermediate work, no answer. The teacher is about to teach this exercise, and a worked solution invites reading it out instead.
+- Under 400 characters.
+
+5. Student Confirmation (student_confirmation):
 - Provide a single, friendly sentence that a high-school student (12th grader) will immediately recognize as clearly capturing their specific question.
 
-5. Difficulty (difficulty):
+6. Difficulty (difficulty):
 - Rate how hard this exercise is for a student studying at the level you estimated, on a scale where 1 is a routine drill straight out of a textbook chapter and 5 is among the hardest items a Bagrut exam would ask.
 - Rate the exercise, not the student. A basic question asked by a struggling student is still a 1.
 
-6. Estimated Level (estimated_level):
+7. Estimated Level (estimated_level):
 - Provide your independent pedagogical evaluation of the curriculum level (3, 4, or 5 units / units of study).
 - Do not blindly echo declared_level; use your own domain analysis of the mathematical depth.
 
-7. Language:
-- Detect the language of the student's input (Hebrew or English) and write title, teacher_brief and student_confirmation in that exact same language.`;
+8. Language:
+- Detect the language of the student's input (Hebrew or English) and write title, teacher_brief, how_to_start and student_confirmation in that exact same language.
+- Match the student and nothing else: Hebrew in, Hebrew out; English in, English out. These instructions are in English and the taxonomy prints both names — neither decides the answer's language.
+- The images are part of the input. With little or no typed text, the handwriting on the page decides.`;
 
 /**
  * Whether the prompt above has actually been written.

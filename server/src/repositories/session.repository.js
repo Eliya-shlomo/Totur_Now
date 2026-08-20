@@ -96,6 +96,7 @@ export async function findSessionForOffer(sessionId) {
       question: {
         select: {
           teacherBrief: true,
+          howToStart: true,
           topicId: true,
           subtopicId: true,
           estimatedLevel: true,
@@ -177,6 +178,7 @@ export async function findSessionForView(sessionId) {
       question: {
         select: {
           teacherBrief: true,
+          howToStart: true,
           estimatedLevel: true,
           declaredLevel: true,
           topic: { select: { id: true, nameHe: true, nameEn: true } },

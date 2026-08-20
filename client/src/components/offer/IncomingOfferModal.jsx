@@ -38,6 +38,17 @@ import { notify } from '@/lib/notify';
  * **Decline asks nothing.** Sixty seconds is not enough time to ask twice, and a
  * confirmation dialog over a countdown is a way to run out the clock on a teacher who
  * has already decided.
+ *
+ * **The brief is three parts and reads without scrolling (PR 6a.5).** What the
+ * exercise asks and where the student is stuck — both `teacher_brief` — then
+ * `how_to_start` under its own heading. E5 gave the teacher sixty seconds to decide;
+ * 6a.4 wrote the field that makes those seconds enough, and a scroll box would put
+ * half of it below a fold nobody reaches with a clock running.
+ *
+ * **Every field the model or the student wrote carries `dir="auto"`, never
+ * `dir="rtl"`.** The prompt writes in the student's language (rule 8), so the
+ * direction is a property of the string and not of the screen — a hardcoded RTL would
+ * break the English case, and the page shell stays LTR either way.
  */
 
 /**
@@ -62,6 +73,23 @@ export default function IncomingOfferModal({ offer, onClose }) {
    * accepts, and one who taps Accept then Decline must not send both.
    */
   const [pending, setPending] = useState(null);
+
+  /**
+   * Whether a classifier ever read this question — and `howToStart` is the only thing
+   * in the payload that can answer it.
+   *
+   * `IncomingOffer` carries no `classificationOk`, and 6a.5 may not widen it. It does
+   * not need to: `how_to_start` is required and non-empty on the wire
+   * (`classification.schema.js`) and null on exactly one path, the §8.1 fallback, where
+   * `fallbackClassification` writes null rather than inventing an opening move. So a
+   * null here means the fallback ran, and that is the reading `classification.service.js`
+   * names in its own comment.
+   *
+   * `topicLabel` cannot stand in for it. The fallback files the question under the
+   * seeded `General / Unclassified` sentinel, which is a real row with a real Hebrew
+   * name, so the badge is populated on both paths.
+   */
+  const isClassified = offer.howToStart !== null && offer.howToStart !== undefined;
 
   const onAccept = useCallback(async () => {
     setPending('accept');
@@ -159,7 +187,10 @@ export default function IncomingOfferModal({ offer, onClose }) {
 
         <Group gap="xs">
           {offer.topicLabel && (
-            <Badge variant="light" size="lg">
+            // `dir="auto"` because the server answers this one in Hebrew —
+            // `offerView.js` reads `nameHe`, and the badge rule the client follows is
+            // written out in `components/teacher/TopicPicker.jsx`.
+            <Badge variant="light" size="lg" dir="auto">
               {offer.topicLabel}
             </Badge>
           )}
@@ -171,21 +202,70 @@ export default function IncomingOfferModal({ offer, onClose }) {
           )}
         </Group>
 
-        <Stack gap={4}>
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-            What they are stuck on
-          </Text>
+        {isClassified ? (
+          <>
+            <Stack gap={4}>
+              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                What they are stuck on
+              </Text>
 
-          {/*
-            The brief in full, scrolling inside its own box rather than pushing the
-            buttons off a phone screen. It is E3's `teacher_brief` — shown as written,
-            never re-summarised here, and on the classifier's fallback path it is the
-            student's own words.
-          */}
-          <ScrollArea.Autosize mah={isPhone ? 220 : 260} type="auto">
-            <Text style={{ whiteSpace: 'pre-wrap' }}>{offer.brief}</Text>
-          </ScrollArea.Autosize>
-        </Stack>
+              {/*
+                No scroll box. E3's `teacher_brief` is two sentences about the exercise
+                and two about where the student is stuck, and a brief that needs a
+                scroll inside a sixty-second countdown is a brief nobody reads — the
+                whole point of 6a.4 was that the teacher arrives knowing what they are
+                walking into. Shown as written and never re-summarised here.
+
+                `dir="auto"` on every one of these: the model writes in the student's
+                language (prompt rule 8), so the direction is not known until the
+                payload arrives, and the browser's first-strong-character heuristic is
+                exactly the right answer for a string like that.
+              */}
+              <Text dir="auto" style={{ whiteSpace: 'pre-wrap' }}>
+                {offer.brief}
+              </Text>
+            </Stack>
+
+            {offer.howToStart && (
+              <Stack gap={4}>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                  How to begin
+                </Text>
+
+                <Text dir="auto" style={{ whiteSpace: 'pre-wrap' }}>
+                  {offer.howToStart}
+                </Text>
+              </Stack>
+            )}
+          </>
+        ) : (
+          offer.brief && (
+            <Stack gap={4}>
+              {/*
+                The fallback path, and it says so. `classification.service.js` writes
+                the student's raw text into `teacher_brief` when the classifier is
+                down, so the field is full and the heading above it would be a lie: a
+                teacher reading "what they are stuck on" over a paste of the homework
+                is being told a summary was written when none was. The heading changes
+                and the text stays what it is.
+
+                This one keeps its scroll box. The good path is bounded prose; this is
+                `raw_text`, up to `RAW_TEXT_MAX_LENGTH` (2000) characters of it, and
+                nothing about the not-classified path should be able to push Accept and
+                Decline off a phone screen.
+              */}
+              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                Not classified — the student&rsquo;s own words
+              </Text>
+
+              <ScrollArea.Autosize mah={isPhone ? 220 : 260} type="auto">
+                <Text dir="auto" style={{ whiteSpace: 'pre-wrap' }}>
+                  {offer.brief}
+                </Text>
+              </ScrollArea.Autosize>
+            </Stack>
+          )
+        )}
 
         <Group grow={isPhone} justify="flex-end" mt="xs">
           <Button

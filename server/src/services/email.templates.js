@@ -16,15 +16,17 @@
  *
  * **English, LTR, because the client is.** `client/index.html` is `lang="en" dir="ltr"`
  * and every screen's copy is English, including the dashboard this email links to. The
- * two Hebrew things in it are data — the topic label is `topics.name_he` and the brief
- * is the student's own words — so they carry `dir="auto"`, which lets the client
- * resolve direction from the text itself rather than mirroring the whole message.
+ * Hebrew in it is all data — the topic label is `topics.name_he`, the brief is the
+ * student's own words on the fallback path and the model's on the good one, and
+ * `how_to_start` is written in the student's language by rule 8 of the prompt — so
+ * each carries `dir="auto"`, which lets the client resolve direction from the text
+ * itself rather than mirroring the whole message.
  *
  * **No student PII, and the review checklist asks for it by name.** The teacher is
- * being asked to answer a question, so the question is here: the topic, the level and
- * the brief. Who asked it is not — no name, no address, no balance. `IncomingOffer` is
- * the only thing this renders and that shape carries none of them, so the rule holds
- * by construction rather than by remembering.
+ * being asked to answer a question, so the question is here: the topic, the level, the
+ * brief and the opening move. Who asked it is not — no name, no address, no balance.
+ * `IncomingOffer` is the only thing this renders and that shape carries none of them,
+ * so the rule holds by construction rather than by remembering.
  */
 
 /**
@@ -78,11 +80,19 @@ function escapeHtml(value) {
  * sentinel topic has neither — and each is omitted rather than rendered as an empty
  * row or as the word "null".
  *
+ * **`howToStart` is the brief's other half (6a.4), and it follows the brief here in
+ * the same order 6a.5's modal puts them in.** A teacher who reads the email before
+ * opening the app should not get less than one who does not. It is null on every
+ * fallback classification and the block is dropped entirely rather than rendered as a
+ * heading over nothing — the same rule `topicLabel` and `level` already follow, and
+ * the same one the modal applies to the same field.
+ *
  * @param {object} params
  * @param {string} params.teacherName            greeting only; never the student's
  * @param {string|null} params.topicLabel        `IncomingOffer.topicLabel`
  * @param {number|null} params.level             Bagrut units, §6.1
  * @param {string} params.brief                  `questions.teacher_brief`
+ * @param {string|null} [params.howToStart]      `questions.how_to_start`, 6a.4
  * @param {number} params.expectedEarning        credits, net of §5.3's commission
  * @param {number} params.ttlSeconds             `OFFER_TTL_SECONDS`
  * @param {string} params.teachUrl               absolute link to the dashboard
@@ -93,6 +103,7 @@ export function offerEmail({
   topicLabel,
   level,
   brief,
+  howToStart = null,
   expectedEarning,
   ttlSeconds,
   teachUrl,
@@ -106,7 +117,7 @@ export function offerEmail({
     ['Time to answer', `${ttlSeconds} seconds`],
   ].filter(Boolean);
 
-  const parts = { teacherName, details, brief, ttlSeconds, teachUrl };
+  const parts = { teacherName, details, brief, howToStart, ttlSeconds, teachUrl };
 
   return {
     subject: `New request: ${topicLabel ?? 'a new question'} — ${earning} credits`,
@@ -123,7 +134,7 @@ export function offerEmail({
  * pixel: the whole message is legible with remote content blocked, which is the
  * default in most clients for a sender the teacher has not written to.
  */
-function renderHtml({ teacherName, details, brief, ttlSeconds, teachUrl }) {
+function renderHtml({ teacherName, details, brief, howToStart, ttlSeconds, teachUrl }) {
   const rows = details
     .map(
       ([label, value]) =>
@@ -139,6 +150,12 @@ function renderHtml({ teacherName, details, brief, ttlSeconds, teachUrl }) {
     `<table style="border-collapse:collapse;margin:16px 0;">${rows}</table>`,
     `<p style="margin-bottom:4px;color:#666;">What they asked:</p>`,
     `<blockquote dir="auto" style="margin:0 0 20px;padding:8px 12px;border-inline-start:3px solid #ddd;color:#333;white-space:pre-wrap;">${escapeHtml(brief)}</blockquote>`,
+    ...(howToStart
+      ? [
+          `<p style="margin-bottom:4px;color:#666;">How to begin:</p>`,
+          `<blockquote dir="auto" style="margin:0 0 20px;padding:8px 12px;border-inline-start:3px solid #ddd;color:#333;white-space:pre-wrap;">${escapeHtml(howToStart)}</blockquote>`,
+        ]
+      : []),
     `<p><a href="${escapeHtml(teachUrl)}" style="display:inline-block;padding:10px 18px;background:#1971c2;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Open your dashboard</a></p>`,
     `<p style="color:#666;font-size:13px;">You accept or decline from the dashboard — this email cannot do it for you, and the request expires ${ttlSeconds} seconds after it was sent.</p>`,
     `</div>`,
@@ -152,7 +169,7 @@ function renderHtml({ teacherName, details, brief, ttlSeconds, teachUrl }) {
  * a wall of text with the link glued to the sentence before it, and this is a dozen
  * lines.
  */
-function renderText({ teacherName, details, brief, ttlSeconds, teachUrl }) {
+function renderText({ teacherName, details, brief, howToStart, ttlSeconds, teachUrl }) {
   return [
     `Hi ${teacherName},`,
     '',
@@ -163,6 +180,7 @@ function renderText({ teacherName, details, brief, ttlSeconds, teachUrl }) {
     'What they asked:',
     brief,
     '',
+    ...(howToStart ? ['How to begin:', howToStart, ''] : []),
     `Open your dashboard: ${teachUrl}`,
     '',
     `You accept or decline from the dashboard — this email cannot do it for you, and the request expires ${ttlSeconds} seconds after it was sent.`,

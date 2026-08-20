@@ -316,6 +316,9 @@ export interface Classification {
   estimatedLevel: number | null;
   /** What the teacher reads before accepting. On the fallback path this is the student's raw text. */
   teacherBrief: string;
+  /** The opening move, for the teacher who is about to teach it. 1–3 lines, in the
+   *  student's language. Null when the fallback ran. */
+  howToStart: string | null;
   /** One sentence shown to the student on the confirmation screen. */
   studentConfirmation: string;
   /** 0–1. `0` when the fallback ran. */
@@ -460,11 +463,18 @@ export interface OfferResponse {
  *
  * `brief` is E3's `teacher_brief`, which is the student's own words when the
  * classifier fell back. It is shown, never re-summarised here.
+ *
+ * `howToStart` is the other half of the same brief (6a.4). It travels with `brief`
+ * rather than being fetched beside it because the modal renders the two together and
+ * has sixty seconds to do it; `null` means the fallback ran, and 6a.5's modal reads
+ * that null rather than rendering a heading over nothing.
  */
 export interface IncomingOffer {
   offerId: string;
   sessionId: string;
   brief: string;
+  /** The opening move, beside the brief. Null when the classifier fell back. */
+  howToStart: string | null;
   topicLabel: string | null;
   level: number | null;
   /** What this offer is worth to the teacher after §5.3's commission. */

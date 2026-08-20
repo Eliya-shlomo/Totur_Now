@@ -126,9 +126,9 @@ Three reasons the one-line fix is not the work.
 |---|---|---|---|---|
 | 6a.1 | [Repair the Gemini request, the response read, and the model id](PR-6a.1-gemini-request-repair.md) | M | E6 | ☑ |
 | 6a.2 | [Images: fetch the bytes, send `inlineData`](PR-6a.2-image-bytes.md) | M | 6a.1 | ☑ |
-| 6a.3 | [The 50-question bench: fixture, harness, scored report](PR-6a.3-bagrut-bench.md) | M | 6a.2 | ☐ |
-| 6a.4 | [**The brief the teacher reads: `how_to_start`**](PR-6a.4-teacher-brief.md) | **human** · M | 6a.1 | ☐ |
-| 6a.5 | [Surfacing the brief, and the RTL the client never got](PR-6a.5-brief-ui-rtl.md) | M | 6a.4 | ☐ |
+| 6a.3 | [The 50-question bench: fixture, harness, scored report](PR-6a.3-bagrut-bench.md) | M | 6a.2 | ☑ |
+| 6a.4 | [**The brief the teacher reads: `how_to_start`**](PR-6a.4-teacher-brief.md) | **human** · M | 6a.1 | ☑ |
+| 6a.5 | [Surfacing the brief, and the RTL the client never got](PR-6a.5-brief-ui-rtl.md) | M | 6a.4 | ☑ |
 | 6a.6 | [E6a close: bench re-run, verification, retro](PR-6a.6-e6a-close.md) | S | 6a.3, 6a.5 | ☐ |
 
 Status: ☐ not started · ◐ partial · ☑ done. Size: S (<2h) · M (2–4h) · L (half day+).
@@ -157,8 +157,8 @@ touch the same two files; whichever lands second rebases.
 
 ## Contract freeze
 
-Appended to `shared/api.d.ts` in 6a.4. One field, and the only contract change in the
-epic:
+Appended to `shared/api.d.ts` in 6a.4, and nothing else in the epic changes the
+contract:
 
 ```ts
 export interface Classification {
@@ -170,6 +170,22 @@ export interface Classification {
    * student's own words because there are words to echo, and there is no fallback
    * opening move to invent.
    */
+  howToStart: string | null;
+}
+```
+
+`IncomingOffer` gains the same field, and for a reason worth writing down: 6a.5 renders
+the opening move in the teacher's modal and in the offer email, and 6a.5 may touch
+neither `shared/**` nor `server/src/**`. A field on `Classification` alone would have
+reached `GET /questions/:id` and stopped one layer short of the screen it was written
+for. Two interfaces, one field, one PR — carried here rather than left for a PR whose
+own scoping forbids it:
+
+```ts
+export interface IncomingOffer {
+  // ... every existing field is unchanged ...
+
+  /** The opening move, beside the brief. Null when the classifier fell back. */
   howToStart: string | null;
 }
 ```
@@ -290,6 +306,46 @@ disagree, and the model has not changed its mind since. It is worth stating plai
 because it is the whole mechanism: the review is what converts an agreement into a
 finding.
 
+## What 6a.4 measured
+
+Same fixture, same key, same machine, 2026-08-20. Two runs an hour after 6a.3's, with a
+**control**: the branch stashed, so the control is this repository one commit earlier
+answering eight fields instead of nine.
+
+| | 6a.3 run 3 | control (8 fields, today) | 6a.4 (9 fields) |
+|---|---|---|---|
+| parent-topic accuracy | 76.0% | 68.0% | 70.0% |
+| leaf accuracy | 70.0% | 64.0% | 64.0% |
+| **fallback rate** | 4.0% (2 pages) | 6.0% (3 pages) | 4.0% (2 pages) |
+| p50 latency | 3032 ms | 2981 ms | 3453 ms |
+| p95 latency | 4056 ms | 3703 ms | 5109 ms |
+
+**Read the control column first.** Both accuracy figures sit below this epic's own floors
+(72% / 67%) *without this PR's changes in the tree*. Whatever moved them moved before
+6a.4 — same fixture, same expectations file, same model id, six to eight points down on
+a run four hours later. The floors were set from two runs taken minutes apart, which is
+the narrowest sample that can be called a range, and this is what the third scored day
+looks like. That is a finding for 6a.6's re-run and not a licence to lower the bar here.
+
+**Against the control, the ninth field costs latency and nothing else.** Accuracy is
+level or two points up, the fallback rate is a page lower, and p95 is **1.4 seconds
+slower** — 5109 ms against a budget of 8000, and against §4.1's promise of 2–4 seconds
+to the student. The p50 moved half as much. These pages are the worst case the product
+has: full photographed Bagrut sheets with no typed text. Two typed Hebrew and English
+questions through `POST /questions` on the same build answered in 1504 ms and 2832 ms.
+
+**The prose was rewritten twice against this bench, and the first draft is why the
+column exists.** A first version — the same rules, ~15 lines longer, with the language
+instruction restated inside rules 3 and 4 — scored 62% parent and 58% leaf, ten points
+under the control. Trimming it to the wording in `llm.prompt.js` today recovered all of
+it. An instruction that is *correct* and *long* is not free: it competes with rule 1 for
+the same attention, and rule 1 is the one that picks the subtopic id.
+
+**Neither fallback was a truncated response.** Both pages (14 and 36) fell back with
+`the ids are not in the taxonomy` — the model answered valid JSON, in full, naming a
+pair the tree does not have. Nothing in either run failed to parse, which is what the
+2048-token ceiling raised in 6a.1 was for.
+
 ### The tolerance
 
 **±3 percentage points on either accuracy figure.** Observed across the two scored runs:
@@ -338,6 +394,44 @@ the taxonomy has no leaf for. It fell back in run 2 and landed on
 `word-problems / buy-sell-problems` in run 3. That one is a gap in §7's taxonomy rather
 than a defect in the classifier, and the follow-up should say which of the two it is
 fixing before it edits a prompt.
+
+## What 6a.5 settled
+
+**The badge rule is Hebrew, and it was not a free choice.** The brief offered two
+defensible answers and only one of them was reachable: `offerView.js` resolves
+`IncomingOffer.topicLabel` from `nameHe`, the field crosses the wire as a finished
+string, and 6a.5 may touch neither `server/src/**` nor `shared/**`. So the teacher's
+badge is Hebrew whatever the client decides, and "English everywhere" was never on the
+table. The rule is written out once, above `topicName` in
+`client/src/components/teacher/TopicPicker.jsx`, and applied by the picker, by
+`Classifying.jsx`'s label and by the offer modal. `Classifying.jsx` read `nameEn` until
+now, which showed a Hebrew-speaking student "Calculus · Integrals" over their own Hebrew
+question while the teacher's badge for the same row said אינטגרלים.
+
+**`howToStart === null` is how the modal knows the classifier fell back**, and it is the
+only thing in the payload that can tell it. `IncomingOffer` carries no
+`classificationOk` and 6a.5 may not widen it; `how_to_start` is required and non-empty
+on the wire and null on exactly one path, which is the reading
+`classification.service.js` already names in its own comment. `topicLabel` cannot stand
+in for it — the fallback files the question under the sentinel, a real row with a real
+Hebrew name, so the badge is populated on both paths.
+
+**One consequence, and it is not fixed here.** Rows written before 6a.4 have
+`classification_ok true` and `how_to_start` null, so the modal calls them not
+classified. The only such rows are `prisma/seed/questions.js`'s two demo questions,
+which sit outside this PR's allowlist. Either the seed gains an opening move or the
+signal needs a field the contract does not carry; 6a.6 picks one.
+
+**Measured in the running app on 2026-08-20**, three offers driven through
+`POST /sessions/:id/offer` to a real teacher tab at 375px:
+
+| Hebrew, classified | brief and opening move both `direction: rtl`, English chrome `ltr` |
+| English, classified | same components, both `ltr`, nothing else moved |
+| Fallback, produced rather than reasoned about | "Not classified — the student's own words", no empty opening-move block |
+| Modal at 375×812 | 453px of content in the body, **no scroll container anywhere inside it**, no horizontal overflow |
+
+The student's confirmation screen was checked in the same run: `raw_text` computes
+`rtl` for Hebrew and `ltr` for English, from one `dir="auto"` and no branch.
 
 ## Deliberate deviations from `MVP.md` §18
 
