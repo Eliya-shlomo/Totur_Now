@@ -97,14 +97,15 @@ export async function addToWalletBalance({ userId, delta }, tx) {
  * to answer "what happened to my credits".
  *
  * `sessionId` is nullable in the schema because E7's top-ups belong to no session.
- * Everything this epic writes carries one, which is what makes "show me every credit
- * this lesson moved" a `WHERE` rather than a search through notes.
+ * Everything E6 writes carries one, which is what makes "show me every credit this
+ * lesson moved" a `WHERE` rather than a search through notes. E7's `topUpWallet` is the
+ * first caller to pass `null`, and it passes it explicitly — see PR 7.1.
  *
  * `note` is operator-facing text and never reaches a client. Nothing renders it in E6.
  *
  * @param {object} params
  * @param {string} params.userId
- * @param {'SESSION_CHARGE'|'TEACHER_EARNING'|'REFUND'} params.type §11.2's `tx_type`
+ * @param {'SESSION_CHARGE'|'TEACHER_EARNING'|'REFUND'|'TOPUP'} params.type §11.2's `tx_type`
  * @param {number} params.amount       signed, integer
  * @param {number} params.balanceAfter the balance this row produced
  * @param {string|null} params.sessionId

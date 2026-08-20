@@ -25,7 +25,8 @@ process.env.JWT_ACCESS_SECRET ??= 'test-access-secret-at-least-32-characters';
 process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret-at-least-32-characters';
 
 const { ERROR_CODES } = await import('#config/errors/codes.js');
-const { chargeStudent, creditTeacher, refundSession } = await import('#services/wallet.service.js');
+const { chargeStudent, creditTeacher, refundSession, topUpWallet } =
+  await import('#services/wallet.service.js');
 
 const STUDENT_ID = '11111111-1111-4111-8111-111111111111';
 const TEACHER_ID = '44444444-4444-4444-8444-444444444444';
@@ -239,6 +240,110 @@ describe('creditTeacher and refundSession — the two credits', () => {
   });
 });
 
+describe('topUpWallet — the fourth operation, and the only credit from outside', () => {
+  it('moves the balance up and writes a positive TOPUP row', async () => {
+    const collaborators = deps({ balance: 6 });
+
+    const { balanceAfter } = await topUpWallet(
+      { userId: STUDENT_ID, amount: 50, note: 'Package 50' },
+      TX,
+      collaborators,
+    );
+
+    const [move] = collaborators.moveBalance.calls;
+    const [ledger] = collaborators.appendLedger.calls;
+
+    assert.equal(balanceAfter, 56);
+    assert.deepEqual(move.args[0], { userId: STUDENT_ID, delta: 50 });
+
+    assert.equal(ledger.args[0].type, 'TOPUP');
+    assert.equal(ledger.args[0].amount, 50);
+    assert.equal(ledger.args[0].balanceAfter, 56);
+    assert.equal(ledger.args[0].note, 'Package 50');
+  });
+
+  /**
+   * `null`, not `undefined`, and the difference is the point. The column is nullable
+   * because a top-up belongs to no session, and the repository defaults it — so an
+   * explicit `null` at the call site is the operation saying "there is no session here",
+   * while an absent key is the operation having forgotten one. The first is a decision
+   * and the second is indistinguishable from a bug in every future reader.
+   */
+  it('belongs to no session, and says so rather than omitting it', async () => {
+    const collaborators = deps();
+
+    await topUpWallet({ userId: STUDENT_ID, amount: 100 }, TX, collaborators);
+
+    const [ledger] = collaborators.appendLedger.calls;
+
+    assert.equal(ledger.args[0].sessionId, null);
+  });
+
+  it('takes the same four steps in the same order, and the lock is still first', async () => {
+    const collaborators = deps();
+
+    await topUpWallet({ userId: STUDENT_ID, amount: 50 }, TX, collaborators);
+
+    // Not because a credit can fail on affordability — it cannot. Because `balance_after`
+    // on the row is a number read before somebody else's concurrent debit committed
+    // unless the read was locked, and invariant 1 of `reconcile.mjs` sums `amount` rather
+    // than `balance_after`, so nothing downstream would ever catch it.
+    assert.deepEqual(order(collaborators), ['lock', 'move', 'ledger']);
+  });
+
+  it('hands every statement the caller’s tx and opens none of its own', async () => {
+    const collaborators = deps();
+
+    await topUpWallet({ userId: STUDENT_ID, amount: 50 }, TX, collaborators);
+
+    for (const call of collaborators.calls) {
+      assert.equal(call.args.at(-1), TX);
+    }
+  });
+
+  it('takes no affordability branch — an empty wallet tops up like any other', async () => {
+    const collaborators = deps({ balance: 0 });
+
+    const { balanceAfter } = await topUpWallet(
+      { userId: STUDENT_ID, amount: 200 },
+      TX,
+      collaborators,
+    );
+
+    assert.equal(balanceAfter, 200);
+    assert.deepEqual(order(collaborators), ['lock', 'move', 'ledger']);
+  });
+
+  /**
+   * The allowlist that stops a client naming its own amount is 7.3's validator, one layer
+   * up. What this file keeps is the guard the other three already apply: an amount that is
+   * not a positive integer is a programming error, and it fails before step 1 rather than
+   * rounding its way into the ledger and taking reconciliation with it.
+   */
+  it('refuses a non-integer, zero or negative amount before it reads anything', async () => {
+    const collaborators = deps();
+
+    for (const amount of [12.5, 0, -50]) {
+      const error = await thrownBy(topUpWallet({ userId: STUDENT_ID, amount }, TX, collaborators));
+
+      assert.equal(error.code, ERROR_CODES.INTERNAL_ERROR);
+    }
+
+    assert.deepEqual(order(collaborators), []);
+  });
+
+  it('treats a missing wallet row as a bug here too', async () => {
+    const collaborators = deps({ balance: null });
+
+    const error = await thrownBy(
+      topUpWallet({ userId: STUDENT_ID, amount: 50 }, TX, collaborators),
+    );
+
+    assert.equal(error.code, ERROR_CODES.INTERNAL_ERROR);
+    assert.deepEqual(order(collaborators), ['lock']);
+  });
+});
+
 describe('what is a bug rather than a user error', () => {
   /**
    * All three answer `INTERNAL_ERROR` and not a 402. A student told to top up an account
@@ -331,11 +436,22 @@ describe('the properties a call cannot demonstrate', () => {
     assert.equal(/walletTransaction/.test(withoutComments(serviceSource)), false);
   });
 
-  it('exports three operations and no fourth', () => {
+  /**
+   * **Four, and the fourth is the last.** The header said three until E7, and the reason
+   * it could was that nothing put credit into the system — every balance in the database
+   * came from a seed. `topUpWallet` is the entry point; there is no fifth operation
+   * waiting, and a diff that adds one is a diff that needs §17.5's argument made again.
+   */
+  it('exports four operations and no fifth', () => {
     const exported = [...serviceSource.matchAll(/^export (?:async )?function (\w+)/gm)].map(
       (match) => match[1],
     );
 
-    assert.deepEqual(exported.sort(), ['chargeStudent', 'creditTeacher', 'refundSession']);
+    assert.deepEqual(exported.sort(), [
+      'chargeStudent',
+      'creditTeacher',
+      'refundSession',
+      'topUpWallet',
+    ]);
   });
 });
