@@ -140,7 +140,7 @@ point — they are §17.5's human-written money.
 
 | # | PR | Owner | Size | Depends on | Status |
 |---|---|---|---|---|---|
-| 7.1 | [**Top-up: the wallet's fourth operation, and its last**](PR-7.1-topup-operation.md) | DEV-A | **human** · M | E6 | ☐ |
+| 7.1 | [**Top-up: the wallet's fourth operation, and its last**](PR-7.1-topup-operation.md) | DEV-A | **human** · M | E6 | ☑ |
 | 7.2 | [The wallet read surface: `GET /wallet`, `GET /wallet/transactions`](PR-7.2-wallet-read-surface.md) | DEV-A | M | 7.1 | ☐ |
 | 7.3 | [`POST /wallet/topup`, and the balance that updates itself](PR-7.3-topup-endpoint.md) | DEV-A | M | 7.1, 7.2 | ☐ |
 | 7.4 | [**§5.5's two unwritten refunds: early exit and platform failure**](PR-7.4-remaining-refunds.md) | DEV-A | **human** · M | E6 | ☐ |
