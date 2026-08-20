@@ -103,17 +103,26 @@ would let an unreviewed branch write to real data.
 
 | Variable | Production | Preview | Source |
 |---|---|---|---|
-| `VITE_API_URL` | `https://tutor-now-api.onrender.com/api/v1` | the Render URL, or a scratch instance | PR 0.9 produces the Render URL |
+| `VITE_API_URL` | `/api/v1` | `/api/v1` | **Relative since PR 6b.2** — the API is served from this origin through the rewrite below. It was the absolute Render URL until then, and that is what made the refresh cookie third-party |
+| `VITE_SOCKET_URL` | `https://tutor-now-api.onrender.com` | the same, or a scratch instance | PR 6b.2. The socket cannot use the rewrite — Vercel does not carry a WebSocket upgrade — so it names the origin itself |
 
 That is the whole list, and it is the whole list on purpose. Only `VITE_`-prefixed
 variables reach the bundle, and everything with that prefix is readable by anyone who
 opens devtools. **Do not add the server's keys to this project** to keep them in one
-place — `DATABASE_URL`, the JWT secrets, Cloudinary, Gemini, Zoom and Resend belong
+place — `DATABASE_URL`, the JWT secrets, Cloudinary, Gemini, Daily and Resend belong
 to the Render service and nowhere else. One prefix rename is all that separates a key
 in this list from a key in the browser.
 
 Include `/api/v1` in the value. `client/src/api/client.js` appends only the route, so
 `api.get('/auth/login')` becomes `<VITE_API_URL>/auth/login`.
+
+**Both of these must move together with `REFRESH_COOKIE_SAMESITE` on Render.** The
+three describe one arrangement: HTTP proxied through this origin, the socket going
+direct, and the cookie declared same-site. Setting two of the three leaves a client
+that either cannot reach the socket or hands the browser a cookie whose flag disagrees
+with the request that carries it. The order that never has a broken window is: deploy
+the rewrite, set `VITE_SOCKET_URL`, redeploy the client, confirm the socket connects,
+*then* set `REFRESH_COOKIE_SAMESITE=lax` on Render.
 
 `/health` is the exception and does not go through that client at all: `app.js` mounts
 it at the **root**, above the versioned API, because Render polls it as infrastructure
@@ -124,9 +133,34 @@ resolve to `/api/v1/health`, which is a 404. Check it against the origin —
 Changing a variable does **not** rebuild. Vite inlines these at build time, so the old
 value stays in the deployed bundle until the next deploy — redeploy after editing one.
 
+### The API rewrite, and why the cookie needed it
+
+`vercel.json` serves `/api/*` from this origin, proxying to the Render service, and it
+is listed **before** the SPA catch-all — Vercel takes the first match, so a catch-all
+above it would answer every API call with `index.html`.
+
+This is not a performance decision. `tn_refresh` is set by the API; with the client on
+`*.vercel.app` and the API on `*.onrender.com` it was a **third-party** cookie.
+`SameSite=None; Secure` makes a cookie eligible to travel cross-site and does nothing
+about a browser that declines to store third-party cookies at all — the default in
+Safari, in Firefox's Total Cookie Protection, and in every private window. The access
+token expires at fifteen minutes, `POST /auth/refresh` arrives with no cookie, and the
+user is logged out. It was observed mid-session, with a meter running, on 2026-08-20.
+
+Proxied through this origin the browser sees one site and the rule stops applying.
+
+**The socket is deliberately not proxied.** Vercel's rewrites do not carry a WebSocket
+upgrade, so Socket.IO connects straight to the Render origin via `VITE_SOCKET_URL`, and
+`CORS_ORIGINS` on Render is what allows that handshake — it is still load-bearing after
+the proxy, for the socket and for anyone calling the API directly.
+
+The better answer is one registrable domain: `app.example.com` and `api.example.com`,
+a plain `SameSite=Lax` cookie, no proxy hop. It needs a purchased domain, and the
+rewrite is what ships without one.
+
 ### The SPA rewrite
 
-`vercel.json` rewrites every path to `/index.html`:
+`vercel.json` rewrites every remaining path to `/index.html`:
 
 ```json
 { "source": "/(.*)", "destination": "/index.html" }

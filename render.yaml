@@ -91,6 +91,15 @@ services:
       - key: CORS_ORIGINS
         sync: false
 
+      # ── the refresh cookie's site boundary (PR 6b.2) ─────────────────────
+      # Set this to `lax` once the client is serving `/api` through its own
+      # origin (`client/vercel.json`). Until then leave it unset and the
+      # original rule applies — `none` in production — which is what shipped
+      # from PR 1.4 and is exactly the arrangement Safari, Firefox and every
+      # private window drop the cookie in.
+      - key: REFRESH_COOKIE_SAMESITE
+        sync: false
+
       # ── required in production by env.js ─────────────────────────────────
       # `requiredInProduction` in server/src/config/env.js exits the process on
       # boot if any of these four is missing. That is deliberate — a deployed

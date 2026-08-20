@@ -60,7 +60,31 @@ const schema = z.object({
 
   // ── CORS ──────────────────────────────────────────────────────────────────
   // Comma-separated list. PR 0.4 splits and whitelists it.
+  //
+  // Still needed after 6b.2's proxy, and for two callers rather than one: the socket
+  // connects to this origin directly, because Vercel's rewrites do not carry a
+  // WebSocket upgrade, and the API must stay callable directly if the proxy is ever
+  // removed. A proxy that quietly became the only working path would be this list
+  // rotting untested until the day something needs it.
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
+
+  // ── the refresh cookie's site boundary (PR 6b.2) ──────────────────────────
+  // `lax` when the browser reaches this API on the same site as the client — which
+  // is what the Vercel `/api` proxy arranges, and the only arrangement in which a
+  // browser reliably keeps the cookie. `none` for a client on a different
+  // registrable domain calling this origin directly; it works in a plain window and
+  // is dropped by Safari, by Firefox's Total Cookie Protection and by every private
+  // window, which is the defect 6b.2 exists to fix rather than a supported mode.
+  //
+  // Unset falls back to `auth.token.service.js`'s original rule, so an existing
+  // deployment behaves exactly as it did until somebody sets this on purpose.
+  // Blank reads as unset, for the same reason `optionalPositiveInt` above does it:
+  // `.env.example` ships the variable with nothing after the `=`, and a reader who
+  // leaves it that way must get the default rather than a server that will not boot.
+  REFRESH_COOKIE_SAMESITE: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z.enum(['lax', 'none', 'strict']).optional(),
+  ),
 
   // ── external services — optional until their epic ─────────────────────────
   CLOUDINARY_CLOUD_NAME: z.string().optional(), // E3

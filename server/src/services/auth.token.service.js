@@ -139,11 +139,23 @@ export function verifyRefreshToken(token) {
  * with a different `path` leaves the original in the browser and the user stays
  * logged in after pressing log out.
  *
- * `sameSite` is the environment-dependent part, and getting it wrong is the failure
- * mode the epic README calls out. In production the client is on Vercel and the API
- * on Render — different registrable domains, so the refresh request is cross-site
- * and only `'none'` lets the browser attach the cookie. Locally both sides are
- * `localhost`, which is same-site, and `'lax'` is the tighter choice available there.
+ * `sameSite` says whether the browser is being asked to send this cookie across a
+ * site boundary, and **it is read from `REFRESH_COOKIE_SAMESITE` rather than inferred
+ * from `NODE_ENV` — PR 6b.2.** The inference was `env.isProduction ? 'none' : 'lax'`,
+ * and it was correct about the deployment it was written for and wrong about the
+ * browser. Vercel and Render are different registrable domains, so `tn_refresh` was a
+ * **third-party** cookie: `'none'` makes a cookie *eligible* to travel cross-site, and
+ * does nothing about a browser that declines to store third-party cookies at all —
+ * which is the default in Safari, in Firefox's Total Cookie Protection, and in every
+ * private window. The access token expired at fifteen minutes, `/auth/refresh` arrived
+ * with no cookie, and a student with a running meter was sent to the login screen.
+ *
+ * 6b.2's answer is to stop being third-party: the client proxies `/api` through its own
+ * origin, the request is same-site, and `'lax'` is both correct and tighter. But the
+ * Render origin must keep working when called directly — a QA run against the API, a
+ * second client, the fallback if the proxy is ever removed — so the value is a variable
+ * rather than a property of `NODE_ENV`, and it defaults to what this line did before.
+ * Two deployments of the same build can differ in this and only this.
  *
  * `secure` is always on. `'none'` without it is rejected outright by every current
  * browser, and on `http://localhost` it costs nothing: localhost is a trustworthy
@@ -156,7 +168,7 @@ function refreshCookieOptions() {
     // out of the client bundle's reach (§15.5).
     httpOnly: true,
     secure: true,
-    sameSite: env.isProduction ? 'none' : 'lax',
+    sameSite: env.REFRESH_COOKIE_SAMESITE ?? (env.isProduction ? 'none' : 'lax'),
     path: REFRESH_COOKIE_PATH,
   };
 }
