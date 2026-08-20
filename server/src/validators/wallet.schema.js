@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-import { DEFAULT_PAGE_SIZE, FIRST_PAGE, MAX_PAGE_SIZE } from '#config/constants/index.js';
+import {
+  DEFAULT_PAGE_SIZE,
+  FIRST_PAGE,
+  MAX_PAGE_SIZE,
+  TOPUP_PACKAGES,
+} from '#config/constants/index.js';
 
 /**
  * Zod schemas for the wallet router — PR 7.2, MVP.md §12 "Wallet".
@@ -57,4 +62,45 @@ export const walletTransactionsSchema = z.object({
         .transform((value) => Math.min(value, MAX_PAGE_SIZE)),
     })
     .strict(),
+});
+
+/**
+ * `POST /wallet/topup` — PR 7.3. **The most important schema in this epic.**
+ *
+ * The top-up is a mock and it credits immediately (§18's own word, and §21 puts a real
+ * provider in Phase 2), so this file is the whole of what stands between the endpoint and
+ * an infinite-money URL. Two rules do the work.
+ *
+ * **The client names a package, never an amount.** `packageId` must be a *member* of
+ * `TOPUP_PACKAGES` — not a range, not a minimum, not a maximum. A `min/max` pair would
+ * accept 137, and a body that carries credits is a body that grants them. The membership
+ * check is written against the constant, so adding a package is one edit to
+ * `constants/money.js` and no edit here.
+ *
+ * The values are already on the wire as `PublicPricingResponse.topupPackages`, so the
+ * client has no second representation to map through and cannot offer a package the
+ * server would refuse. Naming them by their credit value rather than inventing string
+ * ids is what keeps those two lists the same list.
+ *
+ * **`z.number()`, not `z.coerce.number()`.** A query string has no types and
+ * `teacherListSchema` coerces for that reason; a JSON body does, and `"50"` arriving
+ * where a number belongs is a client bug worth a `400` rather than a value worth
+ * rescuing. Money is the wrong place to be helpful about types.
+ *
+ * `.strict()` on the body too: `{ packageId: 50, amount: 999 }` is a `400` naming the
+ * extra key, rather than a request whose ignored second field looks like it worked.
+ */
+export const walletTopUpSchema = z.object({
+  body: z
+    .object({
+      packageId: z
+        .number()
+        .int('Pick one of the top-up packages.')
+        .refine((value) => TOPUP_PACKAGES.includes(value), {
+          message: `Pick one of the top-up packages: ${TOPUP_PACKAGES.join(', ')}.`,
+        }),
+    })
+    .strict(),
+  params: z.object({}).strict(),
+  query: z.object({}).strict(),
 });

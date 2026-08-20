@@ -88,6 +88,41 @@ export async function addToWalletBalance({ userId, delta }, tx) {
 }
 
 /**
+ * The newest ledger row for one user, **read inside the caller's transaction.**
+ *
+ * PR 7.3, and it exists for one reason: `POST /wallet/topup` answers with the id of the
+ * row it wrote, and `applyWalletDelta` returns a balance rather than a row. Changing
+ * what that function returns is an edit to `wallet.service.js`, which MVP.md §17.5 makes
+ * human-written — so the caller reads back instead.
+ *
+ * **This lives here rather than in `wallet.read.repository.js` because of what it takes,
+ * not what it does.** The line between the two files is "takes the caller's transaction"
+ * against "opens its own", and `lockWalletBalance` above is already a read on this side
+ * of it. A function taking a `tx` cannot go in the file that has no `prisma` import.
+ *
+ * **Newest is unambiguous here only because the caller holds the wallet's row lock.**
+ * `applyWalletDelta` takes `SELECT … FOR UPDATE` as its first statement, so for the
+ * length of that transaction no other wallet operation for this user can commit — the
+ * newest row is therefore the one this transaction just wrote, and not a charge that
+ * landed in between. Called without that lock held, this function is a guess.
+ *
+ * Ordered like every other read of this table: `created_at` descending with `id` as the
+ * tiebreak, because two rows written in one transaction share an instant to the
+ * microsecond and a non-total order picks between them at random.
+ *
+ * @param {string} userId
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @returns {Promise<{id: string}|null>} `null` for a user who has never moved money
+ */
+export async function findLatestWalletTransaction(userId, tx) {
+  return tx.walletTransaction.findFirst({
+    where: { userId },
+    select: { id: true },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+  });
+}
+
+/**
  * Step 4 — one row in the ledger, **inserted and never touched again.**
  *
  * `amount` is signed the same way the delta is: negative is money leaving the wallet,

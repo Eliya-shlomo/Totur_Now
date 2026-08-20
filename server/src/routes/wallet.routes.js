@@ -1,10 +1,19 @@
 import { Router } from 'express';
 
-import { getWalletBalance, listWalletTransactions } from '#controllers/wallet.controller.js';
+import {
+  getWalletBalance,
+  listWalletTransactions,
+  topUpWalletBalance,
+} from '#controllers/wallet.controller.js';
 import { authenticate } from '#middlewares/authenticate.js';
+import { makeStrictLimiter } from '#middlewares/rateLimit.js';
 import { validate } from '#middlewares/validate.js';
 import { asyncHandler } from '#utils/asyncHandler.js';
-import { walletSchema, walletTransactionsSchema } from '#validators/wallet.schema.js';
+import {
+  walletSchema,
+  walletTopUpSchema,
+  walletTransactionsSchema,
+} from '#validators/wallet.schema.js';
 
 /**
  * The wallet endpoints, mounted at `/api/v1/wallet` — PR 7.2, MVP.md §12.
@@ -21,10 +30,10 @@ import { walletSchema, walletTransactionsSchema } from '#validators/wallet.schem
  * to whoever typed the URL, and the answer to "may I read this ledger" is never in a
  * path segment. That is why both schemas declare an empty, `.strict()` `params`.
  *
- * **No rate limiter on either.** `strictLimiter` is for routes that spend money on an
- * external call, and `session.routes.js` already declined it twice for the same reason —
- * these are two indexed reads and `globalLimiter` in `app.js` covers them. 7.3's
- * `POST /topup` is a different matter and brings its own instance.
+ * **No rate limiter on the two reads.** `strictLimiter` is for routes that spend money on
+ * an external call, and `session.routes.js` already declined it twice for the same
+ * reason — these are two indexed reads and `globalLimiter` in `app.js` covers them.
+ * `POST /topup` is a different matter and has its own budget below.
  *
  * Route order is not load-bearing here: `/` and `/transactions` cannot shadow each
  * other. It is written most-specific-last anyway, matching `teacher.routes.js`, so that
@@ -41,4 +50,30 @@ walletRoutes.get(
   authenticate,
   validate(walletTransactionsSchema),
   asyncHandler(listWalletTransactions),
+);
+
+/**
+ * This router's own budget for `POST /topup`, **not the shared `strictLimiter`.**
+ *
+ * `question.routes.js` made this call first and wrote down why: one shared instance
+ * guarded login, register and question creation at once, so the three shared a counter —
+ * a few sign-ins during a test run spent the questions a student was allowed to ask, and
+ * the ask screen answered `429` having made one request. Same window and same production
+ * number (§15.5); what changes is that the count is about this endpoint, which is what a
+ * rate limit is supposed to mean.
+ *
+ * **A mock top-up credits immediately, so an unlimited one is an infinite-money loop.**
+ * The allowlist in `walletTopUpSchema` stops a client naming its own amount; this stops
+ * them asking for the largest package a thousand times a minute. Both are needed and
+ * neither is a substitute for the other.
+ */
+const topUpLimiter = makeStrictLimiter();
+
+/** 7.3 — credit one of §5.4's packages. `201`, and the body names a package, not an amount. */
+walletRoutes.post(
+  '/topup',
+  authenticate,
+  topUpLimiter,
+  validate(walletTopUpSchema),
+  asyncHandler(topUpWalletBalance),
 );

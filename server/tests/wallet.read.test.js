@@ -323,14 +323,17 @@ describe('the properties a call cannot demonstrate', () => {
 
   it('authenticates every route and role-gates none of them', () => {
     // A wallet is per-user, not per-role: teachers hold a balance too. 7.6's /earnings is
-    // the one route on this router that will carry authorize('teacher').
+    // the one route on this router that will carry authorize('teacher'), and it is the PR
+    // that gets to relax the last assertion here.
     const code = withoutComments(routesSource);
     const routes = [...code.matchAll(/walletRoutes\.\w+\(/g)];
 
-    // `authenticate,` with the comma: the middleware position on a route, which the
-    // import line does not match.
-    assert.equal(routes.length, 2);
-    assert.equal((code.match(/authenticate,/g) ?? []).length, 2);
+    // A count against a count rather than against a literal, so a router that grows a
+    // route without authenticating it fails while one that grows a route correctly does
+    // not. `authenticate,` with the comma is the middleware position, which the import
+    // line does not match.
+    assert.ok(routes.length >= 2);
+    assert.equal((code.match(/authenticate,/g) ?? []).length, routes.length);
     assert.equal(/authorize/.test(code), false);
   });
 

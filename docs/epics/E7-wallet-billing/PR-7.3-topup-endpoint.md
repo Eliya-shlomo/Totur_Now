@@ -41,6 +41,21 @@ down why: one shared instance meant a few sign-ins during a test run spent the q
 a student was allowed to ask, and "the count is about this endpoint" is what a rate limit
 is supposed to mean. Same window, same production number (§15.5).
 
+**The response's `transactionId` costs one read, and the reason is §17.5.**
+`applyWalletDelta` awaits the ledger insert and discards the row, so the id the contract
+promises is not on anything `topUpWallet` returns. Changing that is an edit to
+`wallet.service.js`, which this PR may not open — so the service reads the row back
+inside the same transaction, through a new `findLatestWalletTransaction(userId, tx)` in
+`wallet.repository.js`. That file is the right home for it because the line between the
+two wallet repositories is *takes the caller's transaction* against *opens its own*, and
+`lockWalletBalance` is already a read on that side of it.
+
+The read-back is only unambiguous because step 1 of `applyWalletDelta` holds the wallet's
+`FOR UPDATE` lock for the length of the transaction: no other wallet operation for that
+user can commit in between, so "newest" is the row this transaction just wrote and not a
+charge that landed alongside. **If the lock ever stops being first, this read stops being
+correct** — which is one more reason for it never to move.
+
 **A thin service, `wallet.topup.service.js`, opens the transaction.** It is the caller
 `topUpWallet` was written to have: `prisma.$transaction(tx => topUpWallet({…}, tx))`,
 then the emit **after** the commit. It does not compute the amount from the body — it
@@ -68,6 +83,9 @@ knows. A second event for the same number is two sources of truth for one figure
 ```
 server/src/validators/wallet.schema.js         the topup body — membership of TOPUP_PACKAGES
 server/src/services/wallet.topup.service.js    NEW. Opens the transaction; emits after commit
+server/src/repositories/wallet.repository.js   ONE tx-taking read: the id of the row just written
+server/tests/offer.core.test.js                the E5 catalogue tripwire, by design — see Notes
+server/tests/session.state.test.js             the E6 catalogue tripwire, same
 server/src/controllers/wallet.controller.js    one handler, 201, no prisma
 server/src/routes/wallet.routes.js             one route + its own makeStrictLimiter() instance
 server/src/sockets/events.js                   emitWalletUpdated, through emitToUser
@@ -141,6 +159,14 @@ believed.
 scrolls to after a top-up, and 7.5 uses it to highlight the new line rather than
 re-fetching and diffing. If 7.5 does not end up needing it, it stays — a ledger row's id
 is the only handle a support conversation has.
+
+**Two catalogue tripwires go red in this PR, and that is what they are for.**
+`offer.core.test.js` asserts `SOCKET_EVENTS` has twelve names and no `WALLET_UPDATED`;
+`session.state.test.js` asserts `wallet:updated` is absent. Both are correct until the
+epic that emits the name arrives, and E5's own comment says so out loud — "changing it is
+the deliberate act it was written to force". They move to thirteen and to a positive
+assertion here. Neither is relaxed: both keep pinning that the earlier epics' names were
+appended to and never renamed.
 
 **This PR is where the epic's second risk lives.** Free credit is deliberate for the MVP,
 so the defence is not "make it real" — it is the allowlist, the rate limiter, and the fact

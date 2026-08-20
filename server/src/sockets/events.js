@@ -313,3 +313,29 @@ export function emitParticipantLeft(sessionId, payload) {
 export function emitTeacherAwayWarning(teacherId, payload) {
   emitToUser(teacherId, SOCKET_EVENTS.TEACHER_AWAY_WARNING, payload);
 }
+
+/**
+ * `wallet:updated` — credit arrived. 7.3 calls it after the top-up commits; 7.5's wallet
+ * screen sets the balance from it.
+ *
+ * **After the commit, never inside.** 6.3's room creation, 6.5's `session:extended` and
+ * 6.6's `session:ended` all made this call, and the reason is the same every time: an
+ * emit inside a transaction tells a client about a balance that may still roll back, and
+ * there is no second event to take it back with.
+ *
+ * **The only emitter of this name, and top-up is its only caller.** A charge and a refund
+ * do not raise it — they happen inside `wallet.service.js`, where an emit would be inside
+ * somebody else's transaction, and the screen that shows a balance during a session is
+ * already told by `session:block_warning` and `session:extended`.
+ *
+ * **The payload is the balance and not the delta.** A client that added a delta to a
+ * number it was holding would drift the first time it missed a frame; an absolute figure
+ * computed by the same transaction that wrote the row cannot. Same argument `endsAt` and
+ * `expiresAt` already won.
+ *
+ * @param {string} userId
+ * @param {{balance: number}} payload
+ */
+export function emitWalletUpdated(userId, payload) {
+  emitToUser(userId, SOCKET_EVENTS.WALLET_UPDATED, payload);
+}

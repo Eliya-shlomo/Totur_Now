@@ -68,4 +68,20 @@ export const SOCKET_EVENTS = {
 
   // ── E6, client → server ────────────────────────────────────────────────────
   SESSION_JOIN: 'session:join',
+
+  // ── E7, server → client ────────────────────────────────────────────────────
+  // The last name in §13's catalogue, and the one E5 and E6 both left alone. E5
+  // could not emit it — no wallet — and E6 said so out loud above: the session
+  // screen learns its balance from `session:extended`, which it already listens
+  // to. 7.5's wallet screen is the first surface that shows a balance nothing
+  // else on the page would update.
+  //
+  // **Emitted after a committed top-up and nowhere else.** Not on a charge and
+  // not on a refund: an emit inside `wallet.service.js` would be an emit inside
+  // the caller's transaction, which is the one thing 6.3, 6.5 and 6.6 all
+  // established never to do — and the session's two balance changes already ride
+  // on events the session screen is listening to. A second event carrying the
+  // same number to the same tab is two sources of truth for one figure.
+  /** The balance moved. Payload: `{ balance }`. Sent to `user:{userId}`. */
+  WALLET_UPDATED: 'wallet:updated',
 };

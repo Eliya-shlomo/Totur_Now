@@ -168,13 +168,16 @@ describe('the socket contract', () => {
     // six because a catalogue of names nothing emits stops being trustworthy, and
     // the rule it wrote down was "added by the epic that emits them". E6 is that
     // epic for five of the remaining names plus `session:join`, so the count moved
-    // to twelve. `wallet:updated` is still unappended and still E7's.
+    // to twelve. **PR 7.3 appends the last one, `wallet:updated`, and the count is
+    // thirteen** — §13's catalogue is complete, and every name in it now has an
+    // emitter. E7 is the epic that emits it: 7.5's wallet screen is the first
+    // surface showing a balance that nothing else on the page would update.
     //
     // What the test pins now is the property that actually matters and that a bare
     // count never checked: **E5's six are all still here and none of them was
     // renamed.** A later epic may append; it may not edit.
-    assert.equal(Object.keys(SOCKET_EVENTS).length, 12);
-    assert.ok(!('WALLET_UPDATED' in SOCKET_EVENTS));
+    assert.equal(Object.keys(SOCKET_EVENTS).length, 13);
+    assert.equal(SOCKET_EVENTS.WALLET_UPDATED, 'wallet:updated');
   });
 
   it("names E5's events exactly as its contract freeze does", () => {
