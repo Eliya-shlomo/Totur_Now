@@ -1,5 +1,6 @@
 /**
- * The rating — one insert and one aggregate write. PR 6.6, MVP.md §6.2 and §11.2.
+ * The rating — one insert and the two sets of columns it moves. PR 6.6 and PR 8.1,
+ * MVP.md §6.2, §7, §9.3 and §11.2.
  *
  * **A file of its own, and the alternative was worse.** The aggregates belong to
  * `teacher_profiles`, but the only repository that writes that table today is
@@ -9,12 +10,18 @@
  * reputation write live side by side. `session.repository.js` was the other candidate and
  * it already carries the epic's whole read/write set.
  *
- * So: reviews and the four columns a review moves, in one place, written by one service.
+ * So: reviews and the columns a review moves, in one place, written by one service.
  *
- * **Both functions take a `tx`.** The insert and the counters are one transaction with
- * the session's own `RATED` write — a review that exists while `resolved_count` does not
- * is a KPI that under-reports for ever, and there is no reconciliation query that would
- * find it.
+ * **8.1 added the second set of columns rather than a second file.** `teacher_topic_stats`
+ * is moved by the same review, by the same rule and inside the same transaction, and §18's
+ * "8.2 `rating.service`" would have been a second service with a second transaction — a
+ * `reviews` row committed without its topic stats. This file's remit was already stated as
+ * "the columns a review moves", and these are the other ones.
+ *
+ * **Every function here takes a `tx` and none opens one.** The insert, the profile
+ * counters and the topic rows are one transaction with the session's own `RATED` write —
+ * a review that exists while `resolved_count` does not is a KPI that under-reports for
+ * ever, and there is no reconciliation query that would find it.
  *
  * **Everything that *reads* these columns is E8's.** The badge, the history screen, the
  * public profile. This file is the writer and E4's ranking is the reader, and between
@@ -95,4 +102,102 @@ export async function applyReviewAggregates(
       ratingCount: { increment: ratingCount },
     },
   });
+}
+
+/**
+ * The question's two topic ids, for the session being rated — PR 8.1.
+ *
+ * **A second read rather than a wider first one.** The topics are not on anything the
+ * review service holds: `findSessionForMeter` selects the session's money and clock
+ * state and does not join `questions`. Widening *that* function was the alternative and
+ * it is refused — it is a `$queryRaw … FOR UPDATE OF s` that the meter and the
+ * settlement also call, so every tick of every session would pay for two columns
+ * neither of them reads, and the lock's `OF s` argument would have a third table to
+ * explain.
+ *
+ * **Nothing here is racing anything, which is why a plain read is enough.** The
+ * classification override (3.5) is a pre-session edit, and the `ENDED → RATED` edge has
+ * already been won under the lock by the time this runs. It takes the `tx` anyway,
+ * because a read outside the transaction that its own write depends on is the seam
+ * where a rollback stops meaning anything.
+ *
+ * Answers `{topicId: null, subtopicId: null}` rather than `null` for a session whose
+ * question has vanished, so the caller feeds `topicStatDeltas` the same shape either
+ * way and gets `[]` — a rating whose question was deleted is a rating with no topical
+ * evidence, which is the sentinel case by another route.
+ *
+ * @param {string} sessionId
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @returns {Promise<{topicId: number|null, subtopicId: number|null}>}
+ */
+export async function findReviewTopicIds(sessionId, tx) {
+  const session = await tx.session.findUnique({
+    where: { id: sessionId },
+    select: { question: { select: { topicId: true, subtopicId: true } } },
+  });
+
+  return {
+    topicId: session?.question?.topicId ?? null,
+    subtopicId: session?.question?.subtopicId ?? null,
+  };
+}
+
+/**
+ * The `teacher_topic_stats` rows one review moves — PR 8.1, and **the first writer this
+ * table has ever had outside the seed.**
+ *
+ * **An upsert per row, never a read-then-write.** The primary key is composite —
+ * `(teacher_id, topic_id)` — and the row may not exist: a teacher's first session in a
+ * topic has to create it at the values an increment from zero would have produced. A
+ * `findUnique` followed by a `create` or an `update` is two statements with a gap, and
+ * the gap is where two of that teacher's reviews landing together lose one of the two.
+ * Prisma's `upsert` is one statement per row and the `increment` in its update branch is
+ * `column = column + $n`, evaluated by Postgres rather than by this process.
+ *
+ * **Two round trips at most, both inside the caller's transaction.** `rows` is what
+ * `topicStatDeltas` returned: zero, one or two. `tx` is not optional and this file opens
+ * nothing — a `prisma.$transaction` here would be a second transaction, and a `reviews`
+ * row that commits while its topic stats do not is a KPI that under-reports for ever
+ * with no reconciliation query that would ever find it.
+ *
+ * **The weight is already in the numbers.** This function multiplies nothing and knows
+ * nothing about §7; `topicStats.js` applied the discount and is the only place that
+ * does. `Decimal(8,2)` is what rounds `0.3 × 3`, on the way in.
+ *
+ * `teacherId` arrives here rather than on each row because it is not the pure
+ * function's to know: `topicStatDeltas` answers what a review does to a topic, and whose
+ * topic it is comes off the locked session.
+ *
+ * @param {object} params
+ * @param {string} params.teacherId
+ * @param {Array<{topicId: number, sessionsCount: number, resolvedCount: number,
+ *                ratingSum: number, ratingCount: number}>} params.rows `topicStatDeltas`'s answer
+ * @param {import('@prisma/client').Prisma.TransactionClient} tx
+ * @returns {Promise<number>} how many rows were written — `rows.length`
+ */
+export async function applyTopicStats({ teacherId, rows }, tx) {
+  // Sequential, not `Promise.all`: these run on one transaction's connection, and two
+  // upserts issued concurrently against the same interactive transaction is the shape
+  // that deadlocks when both rows belong to the same teacher.
+  for (const row of rows) {
+    await tx.teacherTopicStat.upsert({
+      where: { teacherId_topicId: { teacherId, topicId: row.topicId } },
+      create: {
+        teacherId,
+        topicId: row.topicId,
+        sessionsCount: row.sessionsCount,
+        resolvedCount: row.resolvedCount,
+        ratingSum: row.ratingSum,
+        ratingCount: row.ratingCount,
+      },
+      update: {
+        sessionsCount: { increment: row.sessionsCount },
+        resolvedCount: { increment: row.resolvedCount },
+        ratingSum: { increment: row.ratingSum },
+        ratingCount: { increment: row.ratingCount },
+      },
+    });
+  }
+
+  return rows.length;
 }

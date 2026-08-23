@@ -238,7 +238,17 @@ const TEACHERS = [
   },
 ];
 
-/** Rating propagates from a subtopic to its parent at this weight. MVP.md §7, §9.3. */
+/**
+ * Rating propagates from a subtopic to its parent at this weight. MVP.md §7, §9.3.
+ *
+ * **This is the second copy of `PARENT_TOPIC_WEIGHT` and it must equal the first**, which
+ * is `server/src/config/constants/matching.js` and is what `server/src/utils/topicStats.js`
+ * imports to perform the same propagation after every review (8.1). The copy exists
+ * because `prisma/seed/*` cannot reach `server`'s `#config` subpath imports, and moving a
+ * ranking parameter into `@tutor/shared` would put it in the package the *client* imports.
+ * Unifying them is an open item for E8's retro. A third copy is what §5.3's commission
+ * turned into before 7.9 unpicked it — three call sites, three answers, two of them wrong.
+ */
 const PARENT_WEIGHT = 0.3;
 
 /** Prisma Decimal(8,2) — two places, as a string, so no float ever reaches the column. */

@@ -17,6 +17,12 @@ import { fileURLToPath } from 'node:url';
  * assert refusing a session still running, one already rated, and a `NO_SHOW` nobody
  * should be rating. §10's table does that work and this file checks that the table is what
  * is being consulted, rather than a list of statuses typed into the service.
+ *
+ * **8.1 added a third half: the topic rows.** What is asserted here is the *wiring* — that
+ * the same four numbers reach both writers, that the rows arrive with the locked session's
+ * teacher and the transaction's `tx`, and that a failure anywhere in the flow leaves the
+ * topic table alone. §7's arithmetic itself is `topicStats.test.js`'s and is not restated
+ * here, because a rule asserted in two files is a rule that can be changed in one.
  */
 
 process.env.NODE_ENV ??= 'test';
@@ -31,6 +37,10 @@ const STUDENT_ID = '11111111-1111-4111-8111-111111111111';
 const STRANGER_ID = '22222222-2222-4222-8222-222222222222';
 const SESSION_ID = '33333333-3333-4333-8333-333333333333';
 const TEACHER_ID = '44444444-4444-4444-8444-444444444444';
+
+/** The question's two topics — a classified question, which is the ordinary case. */
+const TOPIC_ID = 9;
+const SUBTOPIC_ID = 91;
 
 const TX = Object.freeze({ transactionClient: true });
 
@@ -64,6 +74,8 @@ function deps(overrides = {}) {
     lockSession: spy(async () => lockedRow()),
     saveReview: spy(async () => ({ id: 'review-1' })),
     moveAggregates: spy(async () => ({ userId: TEACHER_ID })),
+    loadTopicIds: spy(async () => ({ topicId: TOPIC_ID, subtopicId: SUBTOPIC_ID })),
+    moveTopicStats: spy(async ({ rows }) => rows.length),
     markRated: spy(async () => ({ count: 1 })),
     ...overrides,
   };
@@ -149,6 +161,118 @@ describe('the aggregates — the arithmetic every average in the product depends
     // student may rate a teacher well for a question that stayed open.
     assert.equal(aggregates.resolvedCount, 0);
     assert.equal(aggregates.ratingCount, 1);
+  });
+});
+
+describe('the topic rows — §7 propagation, joined to the same transaction (8.1)', () => {
+  it('hands the topic writer the same four numbers the profile writer got', async () => {
+    const collaborators = deps();
+
+    await review(collaborators, { isResolved: true, stars: 5 });
+
+    const [aggregates] = collaborators.moveAggregates.calls[0];
+    const [{ rows }] = collaborators.moveTopicStats.calls[0];
+    const leaf = rows.find((row) => row.topicId === SUBTOPIC_ID);
+
+    // One computation, two writers. Two expressions for `stars == null ? 0 : 1` is how
+    // the topic table and the profile columns come to disagree about the same review —
+    // and nothing would ever report it, because each is internally consistent.
+    assert.equal(leaf.ratingSum, aggregates.ratingSum);
+    assert.equal(leaf.ratingCount, aggregates.ratingCount);
+    assert.equal(leaf.resolvedCount, aggregates.resolvedCount);
+  });
+
+  it('counts the session once however long it ran', async () => {
+    const collaborators = deps({
+      lockSession: spy(async () => lockedRow({ totalCharged: 240 })),
+    });
+
+    await review(collaborators, { stars: 4 });
+
+    const [{ rows }] = collaborators.moveTopicStats.calls[0];
+
+    // Money is what scales with blocks; reputation is not. §14.2's card says "solved 12
+    // questions in Integrals", not twelve hours of them.
+    assert.equal(rows.find((row) => row.topicId === SUBTOPIC_ID).sessionsCount, 1);
+  });
+
+  it('writes them for the locked session’s teacher, inside the transaction', async () => {
+    const collaborators = deps();
+
+    await review(collaborators, { stars: 3 });
+
+    const [payload, tx] = collaborators.moveTopicStats.calls[0];
+
+    // Off the locked row and never off the request — the same rule the review row itself
+    // is written under.
+    assert.equal(payload.teacherId, TEACHER_ID);
+    assert.equal(tx, TX);
+    assert.deepEqual(collaborators.loadTopicIds.calls[0], [SESSION_ID, TX]);
+  });
+
+  it('asks for the topics after the counters moved and before the session is rated', async () => {
+    const order = [];
+    const collaborators = deps({
+      moveAggregates: spy(async () => order.push('aggregates')),
+      moveTopicStats: spy(async () => order.push('topics')),
+      markRated: spy(async () => {
+        order.push('rated');
+
+        return { count: 1 };
+      }),
+    });
+
+    await review(collaborators, { stars: 5 });
+
+    assert.deepEqual(order, ['aggregates', 'topics', 'rated']);
+  });
+
+  it('passes an empty row set through when the question was never classified', async () => {
+    const collaborators = deps({
+      loadTopicIds: spy(async () => ({ topicId: 0, subtopicId: null })),
+    });
+
+    await review(collaborators, { stars: 5 });
+
+    // The service does not branch on the sentinel — `topicStatDeltas` answers `[]` and
+    // the repository writes nothing. A guard here would be a second place that knows
+    // what "unclassified" means.
+    const [{ rows }] = collaborators.moveTopicStats.calls[0];
+
+    assert.deepEqual(rows, []);
+  });
+
+  it('writes no topic rows when the review row was refused', async () => {
+    const collaborators = deps({
+      saveReview: spy(async () => {
+        throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+      }),
+    });
+
+    await thrownBy(review(collaborators, { stars: 5 }));
+
+    // The double submit. `reviews` is `UNIQUE` on `session_id`, and the second click
+    // must not move a reputation column of either kind.
+    assert.equal(collaborators.moveTopicStats.calls.length, 0);
+    assert.equal(collaborators.loadTopicIds.calls.length, 0);
+    assert.equal(collaborators.runTransaction.rolledBack, true);
+  });
+
+  it('rolls the whole thing back when the topic write fails', async () => {
+    const collaborators = deps({
+      moveTopicStats: spy(async () => {
+        throw Object.assign(new Error('deadlock detected'), { code: 'P2034' });
+      }),
+    });
+
+    const error = await thrownBy(review(collaborators, { stars: 5 }));
+
+    // The direction that matters: the review and the profile counters are already
+    // written at this point, and they must not survive without the topic rows. Nothing
+    // reconciles this table — that is the whole argument for one transaction.
+    assert.equal(error.code, 'P2034');
+    assert.equal(collaborators.markRated.calls.length, 0);
+    assert.equal(collaborators.runTransaction.rolledBack, true);
   });
 });
 
@@ -301,6 +425,25 @@ describe('the lines this PR is most likely to get wrong', () => {
   });
 
   it('reads no review back — every reader of these columns is E8’s', () => {
-    assert.equal(/findReview|review\.findMany|review\.findUnique/.test(code), false);
+    // `findReviewTopicIds` is 8.1's and reads `questions`, not `reviews`; the negative
+    // lookahead keeps this assertion about review *rows*, which is what it always meant.
+    assert.equal(/findReview(?!TopicIds)|review\.findMany|review\.findUnique/.test(code), false);
+  });
+
+  it('propagates through the shared rule rather than restating §7 here', () => {
+    // 8.1. The weight exists in `topicStats.js` and in the seed, and a third copy is
+    // what §5.3's commission turned into before 7.9 unpicked it.
+    assert.match(code, /topicStatDeltas\(/);
+    assert.equal(/0\.3|PARENT_TOPIC_WEIGHT/.test(code), false);
+  });
+
+  it('writes the topic rows inside the same transaction callback', () => {
+    // A `prisma.$transaction` anywhere in this flow is the defect 8.1 is most likely to
+    // introduce and the one a green suite cannot see: both writers are stubbed in every
+    // test above, so only the source says which transaction they run in.
+    const callback = code.slice(code.indexOf('runTransaction(async (tx)'));
+
+    assert.match(callback, /moveTopicStats\(/);
+    assert.equal(/\$transaction/.test(callback), false);
   });
 });
