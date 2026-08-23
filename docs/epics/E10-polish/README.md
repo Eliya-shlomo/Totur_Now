@@ -143,7 +143,7 @@ widened E10 brief.
 
 | # | PR | Owner | Size | Depends on | Status |
 |---|---|---|---|---|---|
-| 10.1 | [The guest surface, judged rather than built — and the online-only ruling](PR-10.1-guest-surface.md) | DEV-A | S | — | ☐ |
+| 10.1 | [The guest surface, judged rather than built — and the online-only ruling](PR-10.1-guest-surface.md) | DEV-A | S | — | ☑ |
 | 10.2 | [The four-state contract, and the async views that are missing one](PR-10.2-state-contract.md) | DEV-A | M | — | ☐ |
 | 10.3 | [A screen-sized hole instead of a blank shell — the second boundary, and the 404 in the wrong shell](PR-10.3-error-ux.md) | DEV-A | M | — | ☐ |
 | 10.4 | [The teacher who cannot hear the server — a global connection banner](PR-10.4-connection-banner.md) | DEV-A | S | 10.3 (shares `AppLayout.jsx`) | ☐ |
