@@ -69,6 +69,13 @@ export default function MatchCard({
       <Button
         fullWidth
         mt="auto"
+        /* The card is a grid item stretched to the row's height, and every child of
+           this `Stack` is a flex item free to shrink into it. The button is the one
+           that loses: at 375px it came out 26px tall against `Look again`'s 36 —
+           §14.2's decisive screen, with its primary action the smallest control on
+           it. Nothing else in the stack shrinks visibly, so the button opts out
+           rather than the layout changing (PR 10.5). */
+        style={{ flexShrink: 0 }}
         leftSection={<IconSend size={16} />}
         onClick={() => onChoose({ teacherId: teacher.id, pricePerBlock: teacher.pricePerBlock })}
         /* Disabled for the whole screen while any choice is in flight, not just this

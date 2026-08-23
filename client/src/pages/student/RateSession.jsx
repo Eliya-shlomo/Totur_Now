@@ -1,4 +1,15 @@
-import { Button, Card, Group, Rating, Stack, Switch, Text, Textarea, Title } from '@mantine/core';
+import {
+  Button,
+  Card,
+  Group,
+  Rating,
+  Stack,
+  Switch,
+  Text,
+  Textarea,
+  Title,
+  rem,
+} from '@mantine/core';
 import { ERROR_CODES } from '@tutor/shared';
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -108,7 +119,12 @@ export default function RateSession() {
               Optional. Leaving it blank changes nothing about their rating.
             </Text>
             <Group>
-              <Rating value={stars} onChange={setStars} size="lg" />
+              {/* `size="lg"` is 28px, and five 28px targets sitting shoulder to
+                  shoulder on a phone is a mis-tap that silently rates the wrong
+                  number on the one screen a session cannot be left without. 44 is
+                  the touch target E10 measures against; five of them are 220px
+                  wide, which fits 375px with room to spare (PR 10.5). */}
+              <Rating value={stars} onChange={setStars} size={rem(44)} />
             </Group>
           </Stack>
 
