@@ -3,6 +3,7 @@ import { Router } from 'express';
 import {
   endSession,
   extendSession,
+  getMySessions,
   getSession,
   getSessionVideo,
   reportNoShow,
@@ -13,7 +14,12 @@ import { authenticate } from '#middlewares/authenticate.js';
 import { authorize } from '#middlewares/authorize.js';
 import { validate } from '#middlewares/validate.js';
 import { asyncHandler } from '#utils/asyncHandler.js';
-import { reviewSchema, sendOfferSchema, sessionByIdSchema } from '#validators/session.schema.js';
+import {
+  reviewSchema,
+  sendOfferSchema,
+  sessionByIdSchema,
+  sessionHistorySchema,
+} from '#validators/session.schema.js';
 
 /**
  * Sessions, mounted at `/api/v1/sessions` — MVP.md §12.
@@ -58,6 +64,46 @@ sessionRoutes.post(
   authorize('student'),
   validate(sendOfferSchema),
   asyncHandler(sendOffer),
+);
+
+// ── E8 ───────────────────────────────────────────────────────────────────────
+//
+// **One route, and it is the only entry in this file that is not appended at the bottom.**
+// Everything since 5.1 has been added in contiguous blocks at the end, which is what keeps
+// the diff of a reopened frozen file readable. `/mine` cannot be: Express walks the stack
+// in order, `GET /:id` below matches one segment, and a `/mine` declared after it never
+// runs — `sessionByIdSchema`'s uuid check would answer `400 VALIDATION_ERROR` for a
+// request that is not malformed at all, which is a failure that reads like a client bug
+// for the rest of its life. `teacher.routes.js` already carries this note for `/me` before
+// `/:id`; this is the same hazard on a different router.
+//
+// So the diff is one insertion here and nothing below it is edited or reordered. 8.4's
+// review checklist says to confirm exactly that, and the ordering is the one mistake in
+// this PR that produces a confusing error rather than an obvious one.
+
+/**
+ * 8.4 — the student's own finished sessions, paged.
+ *
+ * `authorize('student')`, and it is the first role gate on this router that is about
+ * *which list you are asking for* rather than about what you may do to a session. The
+ * teacher's equivalent is `GET /wallet/earnings` (7.6), which carries gross, fee and net;
+ * one endpoint answering both roles would be one serializer with a role branch inside it.
+ *
+ * **No id in the path and no `params` in the schema.** The student is the token, so there
+ * is nothing to tamper with and no ownership check to make — `studentId` is a `where` on
+ * both queries rather than a comparison after the fact. `§12` spells this endpoint
+ * `GET /students/me/sessions`; there is no `/students` router and never has been, and the
+ * deviation is E8's README's.
+ *
+ * `validate` for `page` and `pageSize` — coerced, defaulted and capped there, so the
+ * service never branches on "did they say".
+ */
+sessionRoutes.get(
+  '/mine',
+  authenticate,
+  authorize('student'),
+  validate(sessionHistorySchema),
+  asyncHandler(getMySessions),
 );
 
 /**

@@ -1,3 +1,5 @@
+import { UNCLASSIFIED_TOPIC_ID } from '#config/constants/index.js';
+
 /**
  * The one shape a session leaves the server in once it is `ACTIVE` — `SessionState`
  * in `shared/api.d.ts`. PR 6.3, MVP.md §12 and §14.3.
@@ -102,4 +104,99 @@ export function toSessionState({ session, role, balance = null }) {
 /** ISO 8601 UTC, or `null`. Every instant on the wire is absolute — 5.8's lesson. */
 function toIso(value) {
   return value ? value.toISOString() : null;
+}
+
+// ── E8 ───────────────────────────────────────────────────────────────────────
+
+/**
+ * One finished session, from the student's side — `SessionHistoryRecord`, PR 8.4.
+ *
+ * **A second serializer in this file rather than a widened `toSessionState`.** The live
+ * shape is one session read by two roles at the same moment; this one is a list of rows
+ * that are already over, read by exactly one of those roles. They agree on four fields
+ * and disagree on everything the screen is for: no counterpart, no clock, no balance, no
+ * `hasVideo`, and a `review` that `SessionState` answers with a boolean.
+ *
+ * **`review` is `null` on an `ENDED` row and that is the actionable state, not an empty
+ * one.** §10 makes the rating the only edge out of `ENDED`, so a session that has one is
+ * finished and a session that does not is a screen the student closed. The client links
+ * that row back to `/app/session/:id/review`; a serializer that flattened the absence
+ * into `stars: null` would make an unrated session indistinguishable from one rated
+ * without stars, which is the most common rating in the product.
+ *
+ * **`stars` stays `null` and is never coerced**, for the reason `toTeacherReview` states
+ * and `session.review.service.js` spends a paragraph on: `isResolved` is the only
+ * required field on a review (§6.2), so a `?? 0` here would turn "no opinion" into the
+ * harshest rating a student can give — on their own receipt this time.
+ *
+ * **No minutes.** They are `blocksUsed × block.minutes` and `client/src/lib/credits.js`
+ * owns that translation for the whole product, from the `block.minutes` that
+ * `GET /public/pricing` derives from the same constant the wallet charges against. A
+ * server-computed minute figure would be a second rounding of a number the client already
+ * renders, shown next to the first. E7 ruled on this for `GET /wallet` and the ruling
+ * holds.
+ *
+ * **No money beyond `totalCharged`, and it is read off the column.** Not summed from
+ * `session_blocks` and not read back out of `wallet_transactions`: `reconcile.mjs`
+ * invariant 2 already checks those two agree, and a third computation of the same number
+ * is 7.9's shape — one rule, three call sites, two of them wrong.
+ *
+ * Pure, like everything else in this file: no Prisma, no clock, no `req`.
+ *
+ * @param {object} session a `findStudentSessionPage` row
+ * @returns {import('@tutor/shared').SessionHistoryRecord}
+ */
+export function toSessionHistoryRecord(session) {
+  const question = session.question;
+
+  return {
+    sessionId: session.id,
+    status: session.status,
+    endedAt: toIso(session.endedAt),
+
+    // `onDelete: Restrict` on the relation is what makes the teacher present rather than
+    // merely likely — but the column is nullable, and a history row is a receipt: a name
+    // that came back missing degrades to an empty string here rather than taking the
+    // whole list down over one row nobody can delete.
+    teacher: { id: session.teacher?.id ?? '', fullName: session.teacher?.fullName ?? '' },
+
+    topicLabel: topicLabelOf(question?.subtopic) ?? topicLabelOf(question?.topic) ?? null,
+    questionTitle: question?.title ?? null,
+
+    blocksUsed: session.blocksUsed ?? 0,
+    totalCharged: session.totalCharged ?? 0,
+
+    review: session.review
+      ? { stars: session.review.stars ?? null, isResolved: session.review.isResolved }
+      : null,
+  };
+}
+
+/**
+ * One topic's label, or `null` when there is nothing worth labelling.
+ *
+ * **The sentinel is excluded by id, and it has to be excluded at all because it is a real
+ * row with a real name.** `topics` id `0` is seeded as "General / Unclassified" (§8.1's
+ * fallback), so a plain name chain answers that label for every question the classifier
+ * could not place — a chip on a history row reading *general / unclassified* says less
+ * than no chip at all. The comparison is written against the constant rather than as
+ * `if (topic.id)`, because a real topic id is never zero and a reader of the truthiness
+ * check cannot tell that.
+ *
+ * English first, Hebrew as the fallback — `topicName()` on the client states the rule and
+ * every label-resolving serializer on the server follows it, so a taxonomy row seeded
+ * without an English name renders as something rather than as nothing.
+ *
+ * **`teacherView.js` carries the same eight lines and this is deliberately not an
+ * import.** That file is 8.3's and is not on this PR's allowlist, and a third home for
+ * the rule — a shared `topicLabel.js` — is a file this PR was not given either. Both
+ * copies name the other, which is the arrangement `PARENT_TOPIC_WEIGHT` already has: two
+ * implementations of one rule is one more than the repo wants, and the next person to
+ * change one should know there are two. Unifying them is filed in E8's retro, not
+ * smuggled in here.
+ */
+function topicLabelOf(topic) {
+  if (!topic || topic.id === UNCLASSIFIED_TOPIC_ID) return null;
+
+  return topic.nameEn || topic.nameHe;
 }

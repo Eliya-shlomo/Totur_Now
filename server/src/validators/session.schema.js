@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { DEFAULT_PAGE_SIZE, FIRST_PAGE, MAX_PAGE_SIZE } from '#config/constants/index.js';
+
 /**
  * Zod schemas for the session surface — `POST /sessions/:id/offer` and
  * `GET /sessions/:id` (MVP.md §12).
@@ -116,4 +118,50 @@ export const reviewSchema = z.object({
     .strict(),
   params: z.object({ id: z.string().uuid('That is not a valid session id.') }).strict(),
   query: z.object({}).strict(),
+});
+
+// ── E8 ───────────────────────────────────────────────────────────────────────
+
+/**
+ * `GET /sessions/mine?page&pageSize` — the student's own history (8.4).
+ *
+ * **No `params`, and the empty object is the authorisation decision written down.**
+ * There is no id anywhere on this route: the student is the token. `walletSchema` and
+ * `walletTransactionsSchema` say the same thing the same way, and it is the property that
+ * makes "another student's sessions never appear" a fact about the query rather than a
+ * check somebody has to remember to write.
+ *
+ * `page` and `pageSize` are `walletTransactionsSchema`'s, including the asymmetry between
+ * them, which is deliberate on both sides:
+ *
+ * **`pageSize` is capped by `.transform()` rather than rejected by `.max()`.** A client
+ * cannot know our ceiling before it asks, so asking for 1000 returns `MAX_PAGE_SIZE`
+ * rows; a `400` would turn one over-eager parameter into a blank screen. `total` on the
+ * response still reports the true unpaged count, so a client that hit the cap can tell.
+ *
+ * **`page` *is* rejected below `FIRST_PAGE`.** `?page=0` is not an over-eager request
+ * that can be honoured smaller — it is a request for a page that does not exist, and
+ * silently answering it with page 1 would make a paging bug in a client look like a
+ * working screen.
+ *
+ * `.strict()` on all three parts, the posture every validator in this codebase keeps. A
+ * client that invents `?status=ENDED` gets a `VALIDATION_ERROR` naming the parameter
+ * rather than a silently ignored filter and a bug report about a history "not filtering"
+ * — and `?studentId=<somebody else>` is a `400` rather than a parameter nothing reads,
+ * which is the friendlier failure for a request nobody should be making.
+ */
+export const sessionHistorySchema = z.object({
+  body: z.object({}).strict(),
+  params: z.object({}).strict(),
+  query: z
+    .object({
+      page: z.coerce.number().int().min(FIRST_PAGE, 'Pages start at 1.').default(FIRST_PAGE),
+      pageSize: z.coerce
+        .number()
+        .int()
+        .min(1, 'Ask for at least one row.')
+        .default(DEFAULT_PAGE_SIZE)
+        .transform((value) => Math.min(value, MAX_PAGE_SIZE)),
+    })
+    .strict(),
 });

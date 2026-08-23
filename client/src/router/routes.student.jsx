@@ -1,9 +1,9 @@
 import StudentLayout from '@/layouts/StudentLayout';
-import Placeholder from '@/components/Placeholder';
 import Ask from '@/pages/student/Ask';
 import ChooseTeacher from '@/pages/student/ChooseTeacher';
 import Classifying from '@/pages/student/Classifying';
 import Dashboard from '@/pages/student/Dashboard';
+import History from '@/pages/student/History';
 import RateSession from '@/pages/student/RateSession';
 import Session from '@/pages/student/Session';
 import Wallet from '@/pages/student/Wallet';
@@ -28,7 +28,7 @@ export const studentRoutes = [
     children: [
       // The placeholder said `pr="E1/E7"` because in 1.5 the balance had no epic that
       // owned it yet. E7 does, and §14.1's third element — recent sessions — is E8's:
-      // 8.6 owns the history screen and the reads behind it.
+      // 8.4 owns the history screen and the read behind it.
       { index: true, element: <Dashboard /> },
       { path: 'ask', element: <Ask /> },
       { path: 'ask/:id/matching', element: <Classifying /> },
@@ -43,7 +43,11 @@ export const studentRoutes = [
       // `pr=` is corrected by the PR that replaces the placeholder — E1's retro rule,
       // and the second time this file has applied it.
       { path: 'wallet', element: <Wallet /> },
-      { path: 'history', element: <Placeholder title="Session history" pr="8.6" /> },
+      // The placeholder said `pr="8.6"` against §18's numbering, which E8's README
+      // reordered: the history screen is 8.4 and 8.6 is the epic's close. The `pr=` is
+      // corrected by the PR that replaces the placeholder — E1's retro rule, and the
+      // third time this file has applied it.
+      { path: 'history', element: <History /> },
     ],
   },
 ];

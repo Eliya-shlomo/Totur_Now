@@ -1,3 +1,4 @@
+import { DEFAULT_PAGE_SIZE } from '#config/constants/index.js';
 import { prisma } from '#config/db.js';
 
 /**
@@ -1049,4 +1050,146 @@ export async function releaseTeacherAfterSession(
   // `=== 1` rather than `> 0`, matching `releaseTeacherLock`: `userId` is the primary
   // key, so a match of two cannot happen and the stricter comparison says so.
   return { released: count === 1 };
+}
+
+// ── E8 ───────────────────────────────────────────────────────────────────────
+//
+// **The file's fifth entry in `git log`, and the first one that only reads.** 8.4's
+// history screen asks this table a question nothing has asked it before: not "what is
+// this session doing right now" but "what has this student finished". Every read above
+// is keyed by a session id and answers one row; both of the two below are keyed by a
+// student id and answer a set.
+//
+// It is this repository's rather than a new `student.repository.js`, for the reason the
+// epic README gives twice: **the read belongs to the router that owns the table.** A
+// repository whose only job was reading `sessions` on behalf of `/students` would be a
+// second file with a second idea of what a session's columns mean — the move E7 refused
+// when it put `GET /wallet/earnings` on the wallet router.
+//
+// **Neither takes a `tx` and neither opens one.** Every writer in this file requires a
+// transaction because it is racing something; these race nothing. A history screen is one
+// snapshot of rows that have already reached a terminal state, and a transaction here
+// would be ceremony around two `SELECT`s.
+
+/**
+ * The session statuses that belong in a student's history — 8.4.
+ *
+ * **A session in this list is one that is over.** `PENDING` and `OFFER_SENT` are a
+ * question that has not found a teacher, and `ACTIVE` is the live screen at
+ * `/app/session/:id` — putting either in a history is showing somebody the past tense of
+ * something still happening.
+ *
+ * `CANCELLED` is here even though **nothing writes it**: §10 gives it no inbound edge,
+ * `session.state.js` records that in as many words, and §12 has no cancel endpoint. It is
+ * in the enum and in `SessionHistoryRecord`, so the filter that excludes the live
+ * statuses is written as the set it means rather than as a `NOT IN` that would silently
+ * start including a status somebody adds later.
+ */
+const HISTORY_STATUSES = ['ENDED', 'RATED', 'CANCELLED', 'NO_SHOW'];
+
+/**
+ * One page of this student's finished sessions, newest first, and how many there are —
+ * PR 8.4, `GET /sessions/mine`.
+ *
+ * **`studentId` is a `where` here and not a check in the service**, which is the opposite
+ * call `findSessionForOffer` makes at the top of this file — and the difference is that
+ * this read has no id in the path to compare against. There is nothing for a caller to
+ * tamper with and nothing to answer `NOT_FOUND` about: the filter *is* the authorisation,
+ * and it comes from the verified token.
+ *
+ * **The row is a session and the review hangs off it**, which is the whole shape of this
+ * endpoint. `review` is a nullable one-to-one and a `null` on an `ENDED` row is the state
+ * the screen exists to rescue — so it is `select`ed rather than joined through a filter,
+ * and a session whose student closed the tab comes back like any other.
+ *
+ * `student_id` is deliberately the only thing filtered on beyond the status set. A
+ * `where` on "has a review" or on `ended_at IS NOT NULL` would each hide exactly the rows
+ * this screen is for.
+ *
+ * The teacher's name rides along on the same statement rather than in a second read —
+ * E2's N+1 lesson — and so do the question's title and its two topics. The ids come with
+ * the names because the sentinel topic (`topic_id = 0`) is a real row with a real label,
+ * and only the serializer can tell it apart from a topic worth putting on a chip.
+ *
+ * **`teacher_earning` and `platform_fee` are not selected.** They are on the row and they
+ * are the teacher's side of the same session; `GET /wallet/earnings` (7.6) is where they
+ * belong. A student's receipt says what the student paid.
+ *
+ * Ordering is `ended_at` descending with **nulls last**, then `created_at`, then `id`.
+ * The first key is what "newest" means on a screen about finished sessions; the second
+ * dates a `CANCELLED` session that never ran and therefore has no `ended_at`; the third
+ * is the total order every paged read in this repository carries, because two rows
+ * written in one transaction share an instant to the microsecond and a non-total order
+ * lets page 2 repeat a row from page 1.
+ *
+ * One `$transaction`, the read-only array form: the page and the count against one
+ * snapshot, so a session that ends between them cannot make the pager disagree with the
+ * list.
+ *
+ * @param {object} params
+ * @param {string} params.studentId from the verified token, never from the path
+ * @param {number} [params.skip]
+ * @param {number} [params.take]
+ * @returns {Promise<{sessions: object[], total: number}>}
+ */
+export async function findStudentSessionPage({ studentId, skip = 0, take = DEFAULT_PAGE_SIZE }) {
+  const where = { studentId, status: { in: HISTORY_STATUSES } };
+
+  const [sessions, total] = await prisma.$transaction([
+    prisma.session.findMany({
+      where,
+      select: {
+        id: true,
+        status: true,
+        endedAt: true,
+        blocksUsed: true,
+        totalCharged: true,
+        teacher: { select: { id: true, fullName: true } },
+        question: {
+          select: {
+            title: true,
+            topic: { select: { id: true, nameEn: true, nameHe: true } },
+            subtopic: { select: { id: true, nameEn: true, nameHe: true } },
+          },
+        },
+        review: { select: { stars: true, isResolved: true } },
+      },
+      orderBy: [
+        { endedAt: { sort: 'desc', nulls: 'last' } },
+        { createdAt: 'desc' },
+        { id: 'desc' },
+      ],
+      skip,
+      take,
+    }),
+    prisma.session.count({ where }),
+  ]);
+
+  return { sessions, total };
+}
+
+/**
+ * How many of this student's sessions are `ENDED` with no review — PR 8.4.
+ *
+ * **A second query rather than a number derived from the page**, because the client only
+ * ever holds one page and the badge is about the whole set. A count computed from twenty
+ * rows would say 1 until you paged and then say 2, which is a badge nobody would trust
+ * again.
+ *
+ * `ENDED` alone, not `ENDED` or `NO_SHOW`. §10's only edge out of `ENDED` is the rating,
+ * so an `ENDED` row with no review is a session that has not reached a terminal state and
+ * whose teacher is missing reputation it earned. `NO_SHOW` is terminal and is deliberately
+ * never rated — 6.7 sends the student back to the match list rather than to the rating
+ * screen — so counting it here would badge the student with work they cannot do.
+ *
+ * `review: null` is the Prisma spelling of "the one-to-one has no row"; `reviews.session_id`
+ * is `UNIQUE`, which is what makes the absence a fact rather than a coincidence.
+ *
+ * @param {string} studentId
+ * @returns {Promise<number>}
+ */
+export async function countUnratedStudentSessions(studentId) {
+  return prisma.session.count({
+    where: { studentId, status: 'ENDED', review: null },
+  });
 }

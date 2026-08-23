@@ -202,3 +202,41 @@ export function reportNoShow(sessionId) {
 export function submitReview(sessionId, review) {
   return api.post(`/sessions/${sessionId}/review`, review);
 }
+
+/**
+ * The student's own finished sessions — `GET /sessions/mine`, paged. PR 8.4.
+ *
+ * **`/mine` and not `/students/me/sessions`.** §12 spells it the second way; there is no
+ * `/students` router on the server and never has been, and the read belongs to the router
+ * that owns the `sessions` table. The deviation is E8's README's.
+ *
+ * **Student-only, and no id is sent.** The student is the token, so there is nothing here
+ * to name and nothing for a caller to tamper with — a teacher's token gets `403`, and a
+ * teacher's own finished sessions are `GET /wallet/earnings` (7.6), which carries the
+ * money that side needs.
+ *
+ * Three things on the answer the screen depends on:
+ *
+ * **`review: null` on an `ENDED` row is the actionable state**, not an empty one. §10
+ * makes the rating the only edge out of `ENDED`, so that session never reached a terminal
+ * state; the row links back to `/app/session/:id/review`. A review that exists with
+ * `stars: null` is a different thing entirely — a rated session whose student declined to
+ * give stars, which is the most common rating in the product.
+ *
+ * **`unratedCount` is over the whole set**, not the page, so a badge built from it does
+ * not change as the student pages.
+ *
+ * **`total` is the unpaged count**, so a caller that hit the `pageSize` ceiling can tell.
+ * `pageSize` is capped rather than rejected by the server; `page` below 1 *is* rejected,
+ * because a page that does not exist cannot be honoured smaller.
+ *
+ * There is no `minutes` field and there is not going to be one: minutes are
+ * `blocksUsed × block.minutes` and `lib/credits.js` owns that translation, from the
+ * `block.minutes` on `GET /public/pricing`.
+ *
+ * @param {{page?: number, pageSize?: number}} [query]
+ * @returns {Promise<import('@tutor/shared').SessionHistoryResponse>}
+ */
+export function getMySessions(query = {}) {
+  return api.get('/sessions/mine', { params: query });
+}
