@@ -48,7 +48,12 @@ export default function LedgerList({
   onRetry,
   onPageChange,
 }) {
-  if (loading && !result) return <LoadingState label="Loading your transactions…" />;
+  // 240 rather than the 200 default: a three-row ledger card measures 231px at 375px,
+  // which is the shortest a non-empty page of this list gets. Measured, not chosen —
+  // and the measurement is the argument for why E10 adds no skeletons. See the epic's
+  // contract freeze §1.
+  if (loading && !result)
+    return <LoadingState label="Loading your transactions…" minHeight={240} />;
 
   if (error) {
     return <ErrorState error={error} title="Could not load your transactions" onRetry={onRetry} />;

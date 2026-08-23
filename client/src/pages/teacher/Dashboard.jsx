@@ -199,7 +199,12 @@ export default function Dashboard() {
           />
         )}
 
-        {!teacherError && !teacher && <LoadingState label="Loading your standing…" />}
+        {/* 220: the standing grid is 2×2 at 375px and measures 218px. "Your topics"
+            sits directly below it, so this is the one of the three reserves where a
+            wrong number actually moves something. */}
+        {!teacherError && !teacher && (
+          <LoadingState label="Loading your standing…" minHeight={220} />
+        )}
 
         {!teacherError && teacher && (
           <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">
