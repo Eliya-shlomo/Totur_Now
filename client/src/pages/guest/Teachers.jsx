@@ -66,6 +66,18 @@ export default function Teachers() {
   const page = Number(searchParams.get('page') ?? 1);
   const hasFilters = FILTER_KEYS.some((key) => filters[key] !== undefined);
 
+  /**
+   * Online-only, and nothing else — the state the landing page's "See who is online
+   * right now" link lands a visitor in (10.1).
+   *
+   * It gets its own empty state because "clear the filters" is the wrong instruction
+   * for it. Nobody chose a level or a band; they followed one link, and at 23:40 the
+   * honest answer is that the rest of the list is still worth reading. With a second
+   * filter set, clearing is exactly right again and the generic branch handles it.
+   */
+  const onlineOnlyIsTheOnlyFilter =
+    filters.onlineOnly === 'true' && Object.keys(filters).length === 1;
+
   useEffect(() => {
     let cancelled = false;
 
@@ -183,6 +195,7 @@ export default function Teachers() {
         error={error}
         result={result}
         hasFilters={hasFilters}
+        onlineOnlyIsTheOnlyFilter={onlineOnlyIsTheOnlyFilter}
         page={page}
         onRetry={load}
         onClear={clearFilters}
@@ -204,6 +217,7 @@ function TeacherResults({
   error,
   result,
   hasFilters,
+  onlineOnlyIsTheOnlyFilter,
   page,
   onRetry,
   onClear,
@@ -223,16 +237,18 @@ function TeacherResults({
     // An empty state without a way out is a dead end, and a filtered empty list is
     // the most common place to build one. When nothing is filtered there is nothing
     // to clear, so the action is omitted rather than shown doing nothing.
+    //
+    // Three branches, not two: `onClear` is the same handler for the last two — the
+    // online switch is the only filter, so clearing it *is* showing everyone — and
+    // what differs is what the visitor is told they are about to do.
     return (
       <EmptyState
         icon={IconUsersGroup}
-        title={hasFilters ? 'No teachers match those filters' : 'No teachers yet'}
-        message={
-          hasFilters
-            ? 'Try a wider price ceiling, a lower level, or clear the filters.'
-            : 'Nobody has finished setting up a teaching profile yet.'
+        title={emptyTitle(hasFilters, onlineOnlyIsTheOnlyFilter)}
+        message={emptyMessage(hasFilters, onlineOnlyIsTheOnlyFilter)}
+        actionLabel={
+          onlineOnlyIsTheOnlyFilter ? 'Show all teachers' : hasFilters ? 'Clear filters' : undefined
         }
-        actionLabel={hasFilters ? 'Clear filters' : undefined}
         onAction={hasFilters ? onClear : undefined}
         minHeight={320}
       />
@@ -258,4 +274,23 @@ function TeacherResults({
       )}
     </Stack>
   );
+}
+
+/** @see TeacherResults — the three empty cases, kept out of the JSX so it stays readable. */
+function emptyTitle(hasFilters, onlineOnlyIsTheOnlyFilter) {
+  if (onlineOnlyIsTheOnlyFilter) return 'Nobody is online right now';
+  if (hasFilters) return 'No teachers match those filters';
+
+  return 'No teachers yet';
+}
+
+/** @see emptyTitle */
+function emptyMessage(hasFilters, onlineOnlyIsTheOnlyFilter) {
+  if (onlineOnlyIsTheOnlyFilter) {
+    return 'Teachers go online when they are free, so this changes through the day. The rest of the list is still worth reading — every card says what that teacher has done here.';
+  }
+
+  if (hasFilters) return 'Try a wider price ceiling, a lower level, or clear the filters.';
+
+  return 'Nobody has finished setting up a teaching profile yet.';
 }
