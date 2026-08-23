@@ -110,6 +110,6 @@ export function toEarningRecord({ amount, createdAt, session }) {
     totalCharged: session.totalCharged,
     platformFee: session.platformFee,
     teacherEarning: amount,
-    topicName: session.question?.subtopic?.nameHe ?? session.question?.topic?.nameHe ?? null,
+    topicName: session.question?.subtopic?.nameEn ?? session.question?.topic?.nameEn ?? null,
   };
 }

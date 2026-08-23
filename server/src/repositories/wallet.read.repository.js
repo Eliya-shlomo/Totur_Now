@@ -155,8 +155,8 @@ const EARNING_VIEW = {
       // teacher than one reading "Calculus".
       question: {
         select: {
-          topic: { select: { nameHe: true } },
-          subtopic: { select: { nameHe: true } },
+          topic: { select: { nameEn: true } },
+          subtopic: { select: { nameEn: true } },
         },
       },
     },

@@ -70,7 +70,7 @@ export function toSessionState({ session, role, balance = null }) {
       : null,
 
     brief: session.question?.teacherBrief ?? '',
-    topicLabel: session.question?.subtopic?.nameHe ?? session.question?.topic?.nameHe ?? null,
+    topicLabel: session.question?.subtopic?.nameEn ?? session.question?.topic?.nameEn ?? null,
     level: session.question?.estimatedLevel ?? session.question?.declaredLevel ?? null,
 
     pricePerBlock: session.pricePerBlock ?? 0,

@@ -122,18 +122,13 @@ function TeacherRating({ rating, ratingCount }) {
 /**
  * What the teacher teaches, capped.
  *
- * **The label is `topicName()` — Hebrew, falling back to English.** This card carried
- * `nameEn` from PR 0.5, when the rule was "the UI is English and LTR"; 6a.5 replaced
- * that rule for taxonomy specifically and changed the three screens it was allowed to
- * touch, leaving this one and the public profile behind. The result was visible on
- * `/teachers/:id`, where these chips read "Calculus — Integrals" directly above review
- * chips reading `חדו"א — אינטגרלים` — the same topic, twice, in two languages.
+ * **The label is `topicName()`, which is the one rule every topic on every screen
+ * follows** — English, falling back to Hebrew. Read it there for why; the short version
+ * is that the product's chrome is English and LTR and a screen speaks one language.
  *
- * The rule is 6a.5's and the reason is its: a topic name is *data*, not chrome. The
- * taxonomy names Bagrut material, `offerView.js` resolves `topicLabel` from `nameHe`
- * server-side for offers, sessions and reviews, and a Hebrew-speaking student reading
- * "Calculus — Integrals" over their own question was an English-UI decision outliving
- * the content it was made about. The surrounding chrome stays English.
+ * This card is not the place that decides it. It read `nameEn` directly for a long
+ * time, which was the same answer by accident, and the accident is exactly what let
+ * `/teachers/:id` render these chips in one language and its review chips in another.
  *
  * Four chips, then a count. A teacher carrying twelve topics would otherwise make
  * their card three times the height of their neighbour's and break the grid.

@@ -150,30 +150,37 @@ function SelectionCount({ count }) {
 }
 
 /**
- * **The badge rule: a topic is named in Hebrew, and falls back to English.** One
- * answer, written here once, applied by this picker, by `Classifying.jsx`'s label and
- * by the teacher's offer modal — PR 6a.5's third item, which existed because those
- * three screens disagreed.
+ * **The badge rule: a topic is named in English, and falls back to Hebrew.** One
+ * answer, written here once, applied by every screen that renders a topic.
  *
- * The choice was not free. `offerView.js` builds `IncomingOffer.topicLabel` from
- * `nameHe`, that field is a resolved string on the wire, and 6a.5 may touch neither
- * `server/src/**` nor `shared/**` — so the teacher's badge is Hebrew whatever this
- * file decides, and "English everywhere" was never one of the two defensible answers
- * the brief offered. Hebrew everywhere is.
+ * ## This reverses 6a.5, deliberately and by the product owner's decision
  *
- * It also happens to be the right one. The taxonomy names Bagrut material, the
- * questions filed under it are Hebrew, and a Hebrew-speaking student reading
- * "Calculus — Integrals" over their own question was PR 0.5's English-UI decision
- * outliving the content it was made about. The surrounding chrome stays English; this
- * is data, and data is `dir="auto"` — see `ClassificationCard.jsx`.
+ * 6a.5 made the opposite call — Hebrew first — and its reasoning is worth keeping
+ * rather than deleting, because it is what a future reader will rediscover: the
+ * taxonomy names Bagrut material, the questions filed under it are written in Hebrew,
+ * and a Hebrew-speaking student reading "Calculus — Integrals" over their own exercise
+ * is an English-UI decision applied to content it was not made about.
  *
- * `nameEn` is the fallback and not decoration: `GET /public/topics` is the shape both
- * names ride in, and a taxonomy row seeded without a Hebrew name should render as
+ * That argument lost to a simpler one. The product's chrome is English and LTR, fixed
+ * in `client/index.html` at PR 0.5, and a Hebrew topic name inside an English sentence
+ * is a bidirectional string in an LTR line — which is the thing that looked wrong on
+ * the topic picker, where "Pick the closest subtopic" sits directly above a column of
+ * RTL names. One language per screen, and the screen's language is English.
+ *
+ * 6a.5 also recorded that "English everywhere" was not reachable from where it stood:
+ * `offerView.js` resolved `IncomingOffer.topicLabel` from `nameHe` server-side, and
+ * that PR was not allowed to touch `server/**`. This one is, so the four server
+ * serializers that resolve a label — offers, sessions, reviews and the earnings
+ * ledger — now read `nameEn` too, and the wire carries an English string. No contract
+ * changed: those fields were always a resolved `string | null`.
+ *
+ * `nameHe` is the fallback and not decoration: `GET /public/topics` is the shape both
+ * names ride in, and a taxonomy row seeded without an English name should render as
  * something rather than as nothing.
  *
  * @param {{nameHe?: string|null, nameEn?: string|null}} topic
  * @returns {string}
  */
 export function topicName(topic) {
-  return topic?.nameHe || topic?.nameEn || '';
+  return topic?.nameEn || topic?.nameHe || '';
 }

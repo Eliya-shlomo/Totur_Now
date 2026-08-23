@@ -655,7 +655,7 @@ describe('GET /sessions/:id — SessionState, once the session is ACTIVE', () =>
 
     // Subtopic over topic, estimate over declaration. The same question must not
     // describe itself differently either side of an accept.
-    assert.equal(view.topicLabel, 'כלל השרשרת');
+    assert.equal(view.topicLabel, 'The chain rule');
     assert.equal(view.level, 5);
     assert.equal(view.brief, activeSession().question.teacherBrief);
   });

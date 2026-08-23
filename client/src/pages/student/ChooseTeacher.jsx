@@ -624,10 +624,11 @@ function MatchResults({
  *
  * Three answers, in order of what the student actually chose or was told:
  *
- * - the leaf, as `חדו"א — אינטגרלים · אינטגרל מסוים`, plus its name on its own for the
- *   cards. **`topicName()` and not `nameEn`**: this is the screen the student reaches
- *   straight from the picker in `TopicOverride`, and the two disagreed about the name of
- *   the topic the student had just chosen there
+ * - the leaf, as "Calculus — Integrals · Definite", plus its name on its own for the
+ *   cards. **`topicName()` and never a name field directly**: this is the screen the
+ *   student reaches straight from the picker in `TopicOverride`, so a second opinion
+ *   about a topic's name shows them one label while they choose and another a moment
+ *   later
  * - the parent alone, when a question has a real topic and no leaf under it
  * - nothing, for the sentinel — which the caller renders as a sentence rather than as
  *   a topic name

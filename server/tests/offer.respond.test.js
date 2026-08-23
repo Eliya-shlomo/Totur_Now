@@ -458,7 +458,7 @@ describe('GET /sessions/:id — one route, two shapes', () => {
 
     assert.equal(view.offerId, OFFER_ID);
     assert.equal(view.sessionId, SESSION_ID);
-    assert.equal(view.topicLabel, 'כלל השרשרת');
+    assert.equal(view.topicLabel, 'The chain rule');
     assert.equal(view.level, 5);
     assert.equal(typeof view.expiresAt, 'string');
 

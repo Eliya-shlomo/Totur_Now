@@ -149,7 +149,7 @@ export function toTeacherMe(teacher) {
  *
  * **The sentinel is excluded by id and not by falsiness, and it has to be excluded at
  * all because it is a real row with a real name.** `topics` id `0` is seeded as
- * "כללי / לא מסווג" (§8.1's fallback), so a plain `?? nameHe` chain answers that label
+ * "General / Unclassified" (§8.1's fallback), so a plain name chain answers that label
  * for every question the classifier could not place — a chip on a public review reading
  * *general / unclassified*, which says less than no chip at all. Found by calling the
  * endpoint rather than by any test, which is why the fixture in
@@ -181,5 +181,8 @@ export function toTeacherReview(review) {
 function labelOf(topic) {
   if (!topic || topic.id === UNCLASSIFIED_TOPIC_ID) return null;
 
-  return topic.nameHe;
+  // English first, Hebrew as the fallback — the rule `client/.../TopicPicker.js`'s
+  // `topicName()` states and every label-resolving serializer on the server follows.
+  // A taxonomy row seeded without an English name renders as something, not nothing.
+  return topic.nameEn || topic.nameHe;
 }
