@@ -1,20 +1,24 @@
 import {
   findLeafTopicIds,
   findTeacherById,
+  findTeacherTopicStats,
   updateTeacherProfile,
 } from '#repositories/teacher.repository.js';
 import { assertStatusChangeAllowed } from '#services/teacher.status.rules.js';
 import { AppError } from '#utils/AppError.js';
-import { toTeacherMe } from '#utils/teacherView.js';
+import { toTeacherMe, toTopicStatRecord } from '#utils/teacherView.js';
 
 /**
- * The teacher's own record — what `GET` and `PATCH /teachers/me` actually do.
+ * The teacher's own record — what `GET` and `PATCH /teachers/me` actually do, and
+ * since 8.5 their own per-topic reputation.
  *
  * It knows nothing about `req` or `res` (CONVENTIONS.md → Server layering), and every
- * query it runs belongs to the repository 2.1 froze. Both functions return through
+ * query it runs belongs to the repository 2.1 froze. The record pair returns through
  * `toTeacherMe`, so a successful `PATCH` and a `GET` are the same shape by
  * construction rather than by two people remembering — which is what lets 2.4's
- * stepper re-render from the `PATCH` response instead of re-fetching.
+ * stepper re-render from the `PATCH` response instead of re-fetching. 8.5's stats read
+ * is a third endpoint on the same `/me` mount and a different table, and it returns
+ * through a serializer of its own.
  *
  * There is no ownership parameter anywhere below. The caller passes `req.user.id` and
  * nothing else identifies a row; `authorize('teacher')` in the frozen router is what
@@ -149,4 +153,48 @@ export async function updateTeacherMe(userId, payload = {}) {
   });
 
   return toTeacherMe(teacher);
+}
+
+/** 8.5's one read. See the note on the function below. */
+const statsDeps = { loadStats: findTeacherTopicStats };
+
+/**
+ * `GET /teachers/me/stats` — every `teacher_topic_stats` row this teacher owns.
+ *
+ * **The first surface in the product that shows this table to a human.** Until 8.1 it
+ * had one writer and it was `prisma/seed/teachers.js`, so a screen would have rendered
+ * fifteen fixtures and no evidence that anything worked. After 8.1 it is the teacher's
+ * own reputation per topic, and it is the only place §9.3's parent propagation is
+ * legible without a `psql` prompt — 8.6's pass reads "slightly raises it for other
+ * calculus questions" off this response.
+ *
+ * **One read, and deliberately not two.** `getTeacherMe` above starts with
+ * `findTeacherById` so a `PATCH` and a `GET` answer the same `NOT_FOUND`; there is
+ * nothing to write here and nothing to refuse, so a profile read would buy one extra
+ * statement and one extra failure mode. A teacher with no rows is not an error — it is a
+ * teacher who has not been rated yet, which is most of them on the day they join, and
+ * `{ topics: [] }` is the honest answer that the screen renders as an empty state.
+ *
+ * **There is no id parameter and there will not be one.** `teacherId` is `req.user.id`,
+ * a `where` on the only query, so another teacher's breakdown is never selected rather
+ * than refused. `authorize('teacher')` on the route is what keeps a student's token off
+ * it; a student who reached it would get an empty list, which looks like a working
+ * screen and is worse than a `403`.
+ *
+ * Ordering, the `Decimal` conversion and `isLeaf` all belong to the two layers either
+ * side of this one — the repository orders and converts, `toTopicStatRecord` shapes —
+ * and nothing is re-derived here. This function is the seam, and the seam is the point:
+ * it is where the test hands the read in through the second argument (3.3's idiom), so
+ * every property below is asserted with no database.
+ *
+ * @param {string} teacherId  from `req.user.id`, so already authenticated
+ * @param {typeof statsDeps} [deps]
+ * @returns {Promise<import('@tutor/shared').TeacherStatsResponse>}
+ */
+export async function getMyTopicStats(teacherId, deps = statsDeps) {
+  const { loadStats } = { ...statsDeps, ...deps };
+
+  const rows = await loadStats(teacherId);
+
+  return { topics: rows.map(toTopicStatRecord) };
 }

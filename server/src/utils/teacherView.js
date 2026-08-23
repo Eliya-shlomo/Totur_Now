@@ -3,7 +3,8 @@ import { standingOf } from '#utils/standing.js';
 
 /**
  * The shapes a teacher row is allowed to leave the server in — `TeacherCard` and
- * `TeacherMeResponse` in `shared/api.d.ts`, and since 8.3 `TeacherReview`.
+ * `TeacherMeResponse` in `shared/api.d.ts`, since 8.3 `TeacherReview`, and since 8.5
+ * `TopicStatRecord`.
  *
  * One table, two audiences (docs/epics/E2-teacher-onboarding/README.md). A student
  * reads a stranger's card with no session at all; a teacher reads their own record
@@ -185,4 +186,52 @@ function labelOf(topic) {
   // `topicName()` states and every label-resolving serializer on the server follows.
   // A taxonomy row seeded without an English name renders as something, not nothing.
   return topic.nameEn || topic.nameHe;
+}
+
+/**
+ * One `teacher_topic_stats` row as its own teacher sees it — PR 8.5,
+ * `GET /teachers/me/stats`.
+ *
+ * **Nothing here rounds and nothing here converts.** The four counters arrive as
+ * `number`s because `findTeacherTopicStats` converted them at the repository edge, which
+ * is that file's stated rule for this table; a second `Number()` call would look
+ * defensive and would in fact be a second place free to disagree about what `12.60` is.
+ * A `Math.round` would be worse — `matchView.js` rounds because a student's card cannot
+ * say "solved 12.6 questions", and this endpoint exists precisely so the teacher's own
+ * figures match the ones `matching.scoring.js` ranks them on.
+ *
+ * **`isLeaf` is `parent_id IS NULL`, inverted, and the screen cannot do without it.** A
+ * parent row is not a topic this teacher taught: it is the sum of their leaves at
+ * `PARENT_TOPIC_WEIGHT`, which is why its `sessionsCount` is a fraction. Rendered flat
+ * beside the leaves it was derived from, it reads as a platform that cannot count.
+ *
+ * **`rating` is `null` at `ratingCount` zero, not `0`** — `ratingOf`'s rule, the same one
+ * `toTeacherCard` follows, and the same one `TeacherCard`'s contract states. A teacher
+ * with sessions and no stars has taught and has not been rated, and those are different
+ * facts. `ratingSum` is not on the shape at all: the average is the claim, and the sum is
+ * an implementation detail of how it is stored.
+ *
+ * The topic's name pair is carried whole rather than resolved to one label, unlike
+ * `toTeacherReview` above. That serializer answers a single string because a public
+ * review renders one chip; this row is a list the client already knows how to label —
+ * `topicName()` in `TopicPicker.jsx` is the rule for the whole client — and resolving it
+ * here would put a second copy of that rule on the server. The sentinel needs no
+ * exclusion either: `topicStats.js` refuses to write a row for `topic_id = 0`, so this
+ * table never carries one.
+ *
+ * @param {object} row a row from `findTeacherTopicStats`, Decimals already converted
+ * @returns {import('@tutor/shared').TopicStatRecord}
+ */
+export function toTopicStatRecord(row) {
+  return {
+    topicId: row.topic.id,
+    slug: row.topic.slug,
+    nameHe: row.topic.nameHe,
+    nameEn: row.topic.nameEn,
+    isLeaf: row.topic.parentId !== null,
+    sessionsCount: row.sessionsCount,
+    resolvedCount: row.resolvedCount,
+    rating: ratingOf(row),
+    ratingCount: row.ratingCount,
+  };
 }

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 
-import { getMe, patchMe } from '#controllers/teacher.me.controller.js';
+import { getMe, getMyStats, patchMe } from '#controllers/teacher.me.controller.js';
 import {
   getTeacherById,
   getTeacherReviews,
@@ -10,7 +10,11 @@ import { authenticate } from '#middlewares/authenticate.js';
 import { authorize } from '#middlewares/authorize.js';
 import { validate } from '#middlewares/validate.js';
 import { asyncHandler } from '#utils/asyncHandler.js';
-import { teacherMeSchema, teacherUpdateSchema } from '#validators/teacher.me.schema.js';
+import {
+  teacherMeSchema,
+  teacherStatsSchema,
+  teacherUpdateSchema,
+} from '#validators/teacher.me.schema.js';
 import {
   teacherByIdSchema,
   teacherListSchema,
@@ -18,7 +22,8 @@ import {
 } from '#validators/teacher.public.schema.js';
 
 /**
- * The four teacher endpoints, mounted at `/api/v1/teachers`.
+ * The teacher endpoints, mounted at `/api/v1/teachers` — four at 2.1's freeze, plus
+ * 8.3's public reviews page and 8.5's private per-topic stats.
  *
  * **This file is frozen after PR 2.1.** Every route below is fully wired —
  * middleware, validator, controller — against controllers that currently throw
@@ -75,6 +80,28 @@ teacherRoutes.patch(
   authorize('teacher'),
   validate(teacherUpdateSchema),
   asyncHandler(patchMe),
+);
+
+/**
+ * 8.5. The teacher's own `teacher_topic_stats`, ordered by `sessionsCount` descending.
+ *
+ * **In the `/me` block, above `/:id`, and that is load-bearing for the same reason the
+ * note at the top of this file gives.** The path is two segments, so `/:id` alone could
+ * never shadow it — but `/:id/reviews` at the bottom of this file would, and matches
+ * `id = 'me'`. Declared here, a student calling this gets the `403 FORBIDDEN` the
+ * contract promises; declared below, they would get a public review page for a teacher
+ * that does not exist.
+ *
+ * The first screen in the product that shows `teacher_topic_stats` to a human — §12's
+ * "Per-topic ratings" row, unimplementable until 8.1 gave the table a writer that was
+ * not the seed.
+ */
+teacherRoutes.get(
+  '/me/stats',
+  authenticate,
+  authorize('teacher'),
+  validate(teacherStatsSchema),
+  asyncHandler(getMyStats),
 );
 
 // ── the public read surface — DEV-A ──────────────────────────────────────────
