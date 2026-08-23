@@ -4,6 +4,7 @@ import ChooseTeacher from '@/pages/student/ChooseTeacher';
 import Classifying from '@/pages/student/Classifying';
 import Dashboard from '@/pages/student/Dashboard';
 import History from '@/pages/student/History';
+import NotFound from '@/pages/NotFound';
 import RateSession from '@/pages/student/RateSession';
 import Session from '@/pages/student/Session';
 import Wallet from '@/pages/student/Wallet';
@@ -48,6 +49,12 @@ export const studentRoutes = [
       // corrected by the PR that replaces the placeholder — E1's retro rule, and the
       // third time this file has applied it.
       { path: 'history', element: <History /> },
+
+      // 10.3. Without this, `/app/nonsense` fell through to the guest array's catch-all
+      // and rendered 404 inside `GuestLayout` — a logged-in student shown the public
+      // header and an invitation to log in. One entry per area file; `router/index.jsx`
+      // is frozen and stays that way.
+      { path: '*', element: <NotFound homeHref="/app" homeLabel="Back to your dashboard" /> },
     ],
   },
 ];

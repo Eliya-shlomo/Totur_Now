@@ -1,7 +1,8 @@
 import { AppShell, Burger, Group, Text, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
-import { Outlet, Link } from 'react-router-dom';
+import { Outlet, Link, useLocation } from 'react-router-dom';
 
+import ErrorBoundary from '@/components/ErrorBoundary';
 import SidebarNav from '@/components/nav/SidebarNav';
 import BottomNav from '@/components/nav/BottomNav';
 import UserMenu from '@/components/nav/UserMenu';
@@ -16,9 +17,16 @@ import UserMenu from '@/components/nav/UserMenu';
  *
  * The three role layouts differ only in their nav items and brand label, so they
  * pass those in rather than duplicating this file three times.
+ *
+ * **The second `ErrorBoundary` is here rather than in `App.jsx` — PR 10.3.** The outer
+ * one wraps the router, so a throw in any screen took the header, the sidebar and the
+ * bottom nav down with it. This one wraps the `Outlet` only: a screen that throws is a
+ * screen-sized hole in a working application. `resetKey` is the pathname, so navigating
+ * away clears it — without that the nav would be rendered and every link in it dead.
  */
 export default function AppLayout({ navItems, brandLabel, brandHref }) {
   const theme = useMantineTheme();
+  const { pathname } = useLocation();
   const [opened, { toggle, close }] = useDisclosure(false);
 
   // MVP.md §14.4 boundaries. `sm` is 48em/768px, `md` is 64em/1024px.
@@ -83,7 +91,9 @@ export default function AppLayout({ navItems, brandLabel, brandHref }) {
       )}
 
       <AppShell.Main pb={isMobile ? bottomNavHeight + 16 : undefined}>
-        <Outlet />
+        <ErrorBoundary variant="inline" resetKey={pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </AppShell.Main>
 
       {isMobile && <BottomNav items={navItems} />}
