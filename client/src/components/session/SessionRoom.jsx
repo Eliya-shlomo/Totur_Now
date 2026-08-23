@@ -342,7 +342,13 @@ export default function SessionRoom({ initial = null }) {
               `endsAt`, which is absolute and server-issued, so it keeps telling the truth
               with the socket down; what stops arriving is the warning, the extension and
               the ending. The reconnect re-joins the room and re-reads the session, so
-              this says "you may be a moment behind" rather than "this is broken". */}
+              this says "you may be a moment behind" rather than "this is broken".
+
+              **10.4's `ConnectionBanner` also appears when this does**, at the top of the
+              shell, and the pair is deliberate: the banner states that the app cannot
+              hear the server, and this states what that means for the meter next to it.
+              E10's contract freeze §2 carries the argument. Deleting either one without
+              reading the other's reason leaves the wrong half. */}
           {!connected ? (
             <Group gap={4} c="dimmed">
               <IconPlugConnectedX size={14} />

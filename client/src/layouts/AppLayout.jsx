@@ -2,6 +2,7 @@ import { AppShell, Burger, Group, Text, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 
+import ConnectionBanner from '@/components/system/ConnectionBanner';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SidebarNav from '@/components/nav/SidebarNav';
 import BottomNav from '@/components/nav/BottomNav';
@@ -23,6 +24,13 @@ import UserMenu from '@/components/nav/UserMenu';
  * bottom nav down with it. This one wraps the `Outlet` only: a screen that throws is a
  * screen-sized hole in a working application. `resetKey` is the pathname, so navigating
  * away clears it — without that the nav would be rendered and every link in it dead.
+ *
+ * **`ConnectionBanner` is mounted here and only here — PR 10.4.** It is the one place in
+ * the product that is on screen for every authenticated route, which is the whole point:
+ * before it, a teacher whose socket died on `/teach` had a green availability toggle and
+ * no offers. It sits above the boundary rather than inside it so a screen that throws
+ * still says whether the app can hear the server. The guest and auth shells do not mount
+ * it — there is no socket before authentication.
  */
 export default function AppLayout({ navItems, brandLabel, brandHref }) {
   const theme = useMantineTheme();
@@ -91,6 +99,8 @@ export default function AppLayout({ navItems, brandLabel, brandHref }) {
       )}
 
       <AppShell.Main pb={isMobile ? bottomNavHeight + 16 : undefined}>
+        <ConnectionBanner />
+
         <ErrorBoundary variant="inline" resetKey={pathname}>
           <Outlet />
         </ErrorBoundary>
