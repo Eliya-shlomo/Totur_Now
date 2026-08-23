@@ -14,6 +14,13 @@ is the written-down version.
 
 Assign these once and never swap them mid-epic. Every PR brief names an owner by ID.
 
+**E5 onward is one developer, and the table above is the arrangement the briefs were
+written under rather than the one they were built under.** E5, E6, E7 and E8 each shipped
+with DEV-A alone; every "DEV-B" and "DEV-C" row below still says who *would* own a file if
+a second developer appeared, which is the only reason the freezes and the splits are worth
+keeping. Where a file's own header records a transfer between them — `matching.scoring.js`
+does — this paragraph is what supersedes it.
+
 **DEV-C is scoped, not vertical.** A and B own feature slices across the whole
 product; C owns one technical surface — the video provider, room lifecycle, and the
 endpoints that hand a room to a session. That surface is narrow and deep, so it does
@@ -68,6 +75,9 @@ infrastructure files. Sections 2–4 exist to pay that cost.
 | `client/src/api/client.js` (axios) | DEV-A | Interceptors are one file, one owner. |
 | `client/src/stores/` | one store, one owner | A store file is owned by whoever created it. |
 | `shared/api.d.ts` | shared | Append-only, one clearly-marked section per epic. |
+| `server/src/utils/topicStats.js` | DEV-A | Created in PR 8.1. **§7's parent propagation, as one pure function, and the only place in `server/` that knows the 0.3.** `matching.scoring.js` reads the rows back and deliberately does not import `PARENT_TOPIC_WEIGHT` — by then the weight is already in the numbers, and applying it twice would be invisible. The seed has the only other copy, because `prisma/seed/*` cannot reach `#config`; that is two, both written down, and E8's retro carries it as an open item. |
+| `server/src/repositories/review.repository.js` | DEV-A | Created in E6 for 6.6's write. **PR 8.1 added the `teacher_topic_stats` upsert to the same transaction, and 8.3 added the paged public read.** One rating is one transaction: the review row, the two `teacher_profiles` counters and the two topic rows commit together or not at all. A second writer to that table is the thing this file exists to prevent. |
+| `server/src/services/matching.scoring.js` | **DEV-A** (was DEV-B) | Its own header records a 4.1 → 4.3 transfer to DEV-B. **The single-developer note in §0 supersedes it** — E5 onward is one developer, and PR 8.2 (the `globalRating` smoothing E4's retro filed) was DEV-A's. The rule that survives the transfer is the important one: no weight is a literal in this file, and `PARENT_TOPIC_WEIGHT` is never imported into it. |
 | `package.json` (either) | shared | See §4. |
 | `.env.example` | shared | Append-only, grouped by service. |
 

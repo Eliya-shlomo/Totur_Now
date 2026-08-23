@@ -43,7 +43,7 @@ touched, which files must not be, and what "done" means. Per `MVP.md` §17.3, th
 | E6a — Classification Repair & the Teacher Brief | single developer: B | 6a.1–6a.5 merged, 6a.6 open | [`E6a-classification-repair/`](epics/E6a-classification-repair/) |
 | E6b — Live-Path Repair | by defect: A deployment, B offer delivery | 6b.1–6b.3 merged, 6b.4 open — the deployed path is still broken and it is a dashboard change, see [`DEPLOYMENT.md`](DEPLOYMENT.md) | [`E6b-live-path-repair/`](epics/E6b-live-path-repair/) |
 | E7 — Wallet & Billing | single developer: A | closed — 20-operation pass ran clean, 7.9 fixed the 2 defects it found, 3 items open | [`E7-wallet-billing/`](epics/E7-wallet-billing/) |
-| E8 — Ratings & Reputation | single developer: A | docs written, 8.1–8.6 open — half of §18's E8 shipped in 6.6; the epic is the `teacher_topic_stats` write nobody wrote | [`E8-ratings-reputation/`](epics/E8-ratings-reputation/) |
+| E8 — Ratings & Reputation | single developer: A | closed **provisionally** — 8.1–8.6 merged, the 13-step ranking pass ran on one database, **§18's criterion half-fails** (score +0.0011, position unchanged) and 4 findings plus 8 items are open, none fixed in the close | [`E8-ratings-reputation/`](epics/E8-ratings-reputation/) |
 | E9–E11 | not written yet | — | — |
 
 DEV-A is eliya, DEV-B is rotem — see [`OWNERSHIP.md`](OWNERSHIP.md) §0.
