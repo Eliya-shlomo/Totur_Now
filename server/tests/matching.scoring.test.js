@@ -153,35 +153,54 @@ describe('rankCandidates — §18’s acceptance criterion', () => {
     }
   });
 
-  it('records where the FULL score flips, which is not where smoothing alone flips', () => {
-    // **Read this before trusting the three tests above.** 4.3 measured the pair
-    // inverting at a prior of ≈4.5077 and the seeded platform sitting at 4.4835, and
-    // recorded 0.024 stars of headroom. That measurement is about `bayesian` in
-    // isolation and it does not carry to §9.2's six components: `global_rating` is
-    // unsmoothed and hands Gil his perfect single rating outright, and
-    // `new_teacher_boost` is his for free. Measured against the seeded database, the
-    // full score flips at a prior of ≈4.1277 — below where the platform actually sits,
-    // so **Gil outranks Dana on the seeded data by ≈0.018**, and §18's criterion does
-    // not hold end to end today.
+  it('holds at the platform average this product actually measures — 8.2', () => {
+    // **§9.3's sentence at the prior the platform really sits at, which is the assertion
+    // that never existed.** The three tests above prove it at the neutral prior and
+    // across a sweep; neither is where the product runs. `getPlatformAverages()` on the
+    // seeded database answers these numbers, re-measured on 2026-08-23.
     //
-    // This is a recorded measurement, not an endorsement. The scorer matches §9.2
-    // component for component; what it shows is that §9.2's composition, not its
-    // smoothing, is what the criterion depends on. The decision belongs to 4.8.
+    // Before 8.2 this pair came out the other way, and E4's retro filed it as that
+    // epic's acceptance criterion failing end to end. What changed is one expression:
+    // `globalRating` handed Gil's single perfect rating a full 1.0 at weight 0.20, and
+    // it is smoothed now like the three components beside it.
+    const measured = { rating: 4.483516483516484, resolveRate: 0.829443, acceptRate: 0.72751 };
+
+    assert.deepEqual(idsOf([GIL, DANA], measured), ['dana', 'gil']);
+  });
+
+  it('records where the FULL score flips, which is not where smoothing alone flips', () => {
+    // **Read this before trusting the tests above.** 4.3 measured the pair inverting at
+    // a prior of ≈4.5077 and the seeded platform sitting at 4.4835, and recorded 0.024
+    // stars of headroom. That measurement is about `bayesian` in isolation and it does
+    // not carry to §9.2's six components, which is what this case exists to record.
+    //
+    // **The margin below is 8.2's, and the old one is named beside it because the
+    // difference is the measurement.** At the exact prior 4.3 recorded, Gil still edges
+    // Dana — by **≈0.00099**, where before 8.2 it was ≈0.018. Eighteen thousandths
+    // became one, and at the platform average measured today (the test above) the pair
+    // comes out the right way round entirely. So this is a knife-edge rather than a
+    // defect now, and what sits on the edge is `new_teacher_boost`: 0.05 handed to a
+    // teacher with two sessions.
+    //
+    // A recorded measurement, not an endorsement. The scorer matches §9.2 component for
+    // component, and what it shows is that after 8.2 the criterion rests on §9.2's
+    // *composition* alone — the smoothing half is done.
     const seeded = { rating: 4.483516, resolveRate: 0.844607, acceptRate: 0.723545 };
 
     assert.deepEqual(idsOf([GIL, DANA], seeded), ['gil', 'dana']);
 
-    // The cold-start boost is the whole margin. Take it away — leave everything else,
-    // including the unsmoothed perfect rating — and the criterion holds again.
+    // The cold-start boost is the whole margin, and that was true before 8.2 as well.
+    // Take it away — leave everything else — and the criterion holds at this prior too.
     const experienced = candidate('gil', { ...GIL, sessionsCount: NEW_TEACHER_SESSIONS });
 
     assert.deepEqual(idsOf([experienced, DANA], seeded), ['dana', 'gil']);
   });
 
-  it('gives Gil the cold-start boost and a perfect global rating, both by the book', () => {
+  it('gives Gil the cold-start boost and a perfect raw average, both by the book', () => {
     // Pinned so the next person does not "fix" the fixture by taking them away. Both
-    // components are working exactly as §9.2 says — and per the test above they are
-    // between them the reason the criterion fails at the seeded prior.
+    // are working exactly as §9.2 says. Since 8.2 the raw average is no longer what the
+    // scorer uses — it is smoothed toward the prior like everything else — so what is
+    // left of the pair is the boost, which the test above measures as the whole margin.
     const components = { newTeacherBoost: GIL.sessionsCount < NEW_TEACHER_SESSIONS };
 
     assert.ok(components.newTeacherBoost);
@@ -244,18 +263,23 @@ describe('rankCandidates — the topic fallback, subtopic → parent → prior',
     );
   });
 
-  it('answers the prior exactly for a teacher with no history in the topic at all', () => {
-    // `bayesian({sum: 0, count: 0}, prior, c)` is `prior`, so `topic_fit` is the prior
-    // over `MAX_STARS` — neither promoted nor punished. Isolated by zeroing everything
-    // else and taking a platform whose two rate priors are zero.
+  it('answers the prior exactly for a teacher with no history — on both rating components', () => {
+    // `bayesian({sum: 0, count: 0}, prior, c)` is `prior`, so a rating component with no
+    // ratings behind it is the prior over `MAX_STARS` — neither promoted nor punished.
+    //
+    // **Two components, since 8.2.** `globalRating` used to answer `0` here and this
+    // assertion used to name `topicFit` alone. Both now reach the prior by the same
+    // route, which is §9.3's "smoothed identically" and is the whole of that PR.
+    const ratingComponents = MATCH_WEIGHTS.topicFit + MATCH_WEIGHTS.globalRating;
+
     for (const rating of RATING_PRIORS) {
       const averages = { rating, resolveRate: 0, acceptRate: 0 };
       const score = scoreOf(candidate('x', { sessionsCount: NEW_TEACHER_SESSIONS }), averages);
 
       identical(
         score,
-        MATCH_WEIGHTS.topicFit * (rating / MAX_STARS),
-        `prior ${rating} did not reach topic_fit as the prior`,
+        ratingComponents * (rating / MAX_STARS),
+        `prior ${rating} did not reach both rating components as the prior`,
       );
     }
   });
@@ -300,10 +324,39 @@ describe('rankCandidates — the weights are read, not typed', () => {
       MATCH_WEIGHTS.newTeacherBoost,
       'the cold-start boost is not worth its weight',
     );
+    // **`globalRating` cannot be switched off any more, and 8.2 is why.** Zeroing a
+    // candidate's ratings used to take the component to zero; it now takes it to the
+    // prior, and a single perfect rating no longer scores 1 — which is the entire point
+    // of smoothing and the reason `PERFECT` cannot isolate this one.
+    //
+    // So the component is swept instead: with no ratings anywhere, the prior *is* the
+    // component, and moving the platform from a perfect prior to a floor prior moves it
+    // across its whole range exactly. `topicFit` rides the same sweep for the same
+    // reason and is subtracted by name. The property pinned is the one this test has
+    // always pinned — the component is worth its weight and no more — and a `0.2`
+    // retyped as `0.02` in the constants still fails here.
+    //
+    // It also refuses the old branch: restore `ratingCount > 0 ? … : 0` and an unrated
+    // teacher stops moving with the prior at all, so the difference collapses to
+    // `topicFit` alone and this assertion goes red.
+    const statless = candidate('x', { sessionsCount: NEW_TEACHER_SESSIONS });
+    const ceilingPrior = { rating: MAX_STARS, resolveRate: 0, acceptRate: 0 };
+    const floorPrior = { rating: 0, resolveRate: 0, acceptRate: 0 };
+
     identical(
-      baseline - scoreOf(unrated, PERFECT_PLATFORM),
+      scoreOf(statless, ceilingPrior) - scoreOf(statless, floorPrior) - MATCH_WEIGHTS.topicFit,
       MATCH_WEIGHTS.globalRating,
       'the global rating is not worth its weight',
+    );
+
+    // And the consequence 8.2 chose deliberately: an unrated teacher is no longer
+    // punished by the full weight. On a platform whose prior is perfect they score what
+    // a perfect record scores, because that is what "neither promoted nor punished"
+    // means. §9.2's cold start is `newTeacherBoost`, not a zero here.
+    identical(
+      scoreOf(unrated, PERFECT_PLATFORM),
+      baseline,
+      'an unrated teacher scored below the prior on a platform whose prior is perfect',
     );
   });
 
@@ -319,7 +372,9 @@ describe('rankCandidates — the weights are read, not typed', () => {
       topicFit:
         smooth(one.subtopicStats.ratingSum, one.subtopicStats.ratingCount, averages.rating) /
         MAX_STARS,
-      globalRating: one.ratingSum / one.ratingCount / MAX_STARS,
+      // 8.2 — the same `smooth` helper the three below it use, which is what §9.3's
+      // "smoothed identically" means and what this component was missing.
+      globalRating: smooth(one.ratingSum, one.ratingCount, averages.rating) / MAX_STARS,
       resolveRate: smooth(one.resolvedCount, one.sessionsCount, averages.resolveRate),
       acceptanceRate: smooth(one.offersAccepted, one.offersReceived, averages.acceptRate),
       history: one.hasPositiveHistory ? 1 : 0,
@@ -412,16 +467,22 @@ describe('rankCandidates — normalization, the [0, 1] guard', () => {
 
     // `topic_fit` at the ceiling: prior and record both at `MAX_STARS`, so the smoothed
     // value is `MAX_STARS` and the normalized component is 1.
+    //
+    // **`globalRating` rides along at 1 too, since 8.2**, because this platform's rating
+    // prior is `MAX_STARS` and a candidate with no ratings now smooths to it. Named in
+    // the expected value rather than engineered away: a fixture contorted to keep one
+    // component at zero would be testing a candidate the product never produces.
     identical(
       scoreOf(topical, floorPlatform),
-      MATCH_WEIGHTS.topicFit,
+      MATCH_WEIGHTS.topicFit + MATCH_WEIGHTS.globalRating,
       'topic_fit is not normalized by MAX_STARS',
     );
 
     // A perfect resolve rate against a zero prior: `(n + 0) / (n + c)`, strictly under 1
     // and strictly over 0 — a rate that had been divided by `MAX_STARS` would be a fifth
     // of this, and one multiplied by it five times over.
-    const resolverScore = scoreOf(resolver, floorPlatform) - MATCH_WEIGHTS.topicFit;
+    const resolverScore =
+      scoreOf(resolver, floorPlatform) - MATCH_WEIGHTS.topicFit - MATCH_WEIGHTS.globalRating;
     const smoothedRate = NEW_TEACHER_SESSIONS / (NEW_TEACHER_SESSIONS + BAYES_C);
 
     identical(resolverScore, MATCH_WEIGHTS.resolveRate * smoothedRate, 'resolve_rate was rescaled');

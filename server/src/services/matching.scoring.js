@@ -18,6 +18,13 @@
  * handover `classification.service.js` records for its 3.1 → 3.3 move. That move has
  * happened: from here this file is DEV-B's and DEV-A does not open it again.
  *
+ * **8.2 opened it once, for one expression**: `globalRating` is smoothed through
+ * `bayesian` like the three components beside it, which is E4's own retro finding and
+ * §9.3's sentence applied to the component it was never applied to. No weight moved and
+ * no other line changed. Recorded here rather than left to a diff, the way 4.3's line
+ * above reads — and the single-developer note applies: the DEV-A/DEV-B split is
+ * historical since 2026-08-23.
+ *
  * `bayesian` shipped finished in 4.1 and `rankCandidates` shipped stubbed, and they
  * are different kinds of unwritten. §9.3 gives the smoothing formula in one line and
  * there was nothing left to decide, so a stub would only have been a second thing to
@@ -45,8 +52,13 @@
  * correct behaviour for that week. **Do not stub the scorer a second time inside
  * 4.5.**
  *
- * **Nothing in the running product moves the numbers this function reads.**
- * `teacher_topic_stats` has one writer — the seed — until E8's review service exists,
+ * **Nothing in the running product moves the numbers this function reads — true until
+ * 8.1, and false now.** A rated session writes `teacher_topic_stats` through
+ * `review.repository.js`, so an order re-read after a demo session legitimately differs
+ * from the one before it. The paragraph is kept rather than deleted because the reason
+ * it was written still holds for everything else it names.
+ *
+ * `teacher_topic_stats` had one writer — the seed — until E8's review service existed,
  * `reviews` is empty so `hasPositiveHistory` is false for every real pair, and the two
  * offer counters are E5's. Everything here is correct and verifiable today, and none
  * of it will *change* until those epics land: a session finished this afternoon moves
@@ -151,10 +163,20 @@ function topicRatingPair({ subtopicStats, topicStats }) {
  *   `{sum: resolvedCount, count: sessionsCount}`. §9.3 says the two rates are "smoothed
  *   identically", and that is what identically means.
  *
- * `globalRating` is the one component §9.2 leaves unsmoothed — it is already an average
- * over the teacher's whole history, so §9.3's small-sample problem is much weaker there
- * than inside a single subtopic. Unrated scores zero rather than the prior, which is
- * §9.2's own wording, and such a teacher recovers far more on `topicFit`.
+ * **`globalRating` is smoothed too, since 8.2, and it was the last component that was
+ * not.** It reads as an average over a whole career, which is the argument this
+ * paragraph used to make for leaving it raw — but the denominator is still the
+ * teacher's own, and a teacher with one rating has a career of one. Unsmoothed, that
+ * single perfect rating scored a full 1.0 at weight 0.20 while forty ratings at 4.60
+ * scored 0.92: twenty ratings of evidence worth 0.016 of score, one rating worth 0.20.
+ * E4's retro measured exactly that and filed it; §9.3's own sentence is what it breaks.
+ *
+ * The other half of the change is the empty case. The old `: 0` branch punished an
+ * unrated teacher by the component's full weight; `bayesian` with `count: 0` answers
+ * the prior exactly — neither promoted nor punished. §9.2 already has a cold-start
+ * component, `newTeacherBoost` at 0.05, so scoring the rating at zero *and* paying a
+ * boost was the platform punishing and compensating the same fact with two different
+ * numbers. Cold start is the boost; the rating component is neutral.
  *
  * Every field is defaulted, so a row arriving without a column scores instead of
  * answering `NaN` — a `NaN` score sorts unpredictably and silently, which is the worst
@@ -177,7 +199,8 @@ function componentsOf(candidate, averages) {
 
   return {
     topicFit: bayesian(topicRatingPair(candidate), averages.rating, BAYES_C) / MAX_STARS,
-    globalRating: ratingCount > 0 ? ratingSum / ratingCount / MAX_STARS : 0,
+    globalRating:
+      bayesian({ sum: ratingSum, count: ratingCount }, averages.rating, BAYES_C) / MAX_STARS,
     resolveRate: bayesian(
       { sum: resolvedCount, count: sessionsCount },
       averages.resolveRate,

@@ -137,6 +137,15 @@ gap, and the fix is E1's: name the file, or announce it. Announcing worked.
 §18's acceptance criterion — "a teacher with one 5-star rating ranks below one with 4.6
 across 40" — **fails end to end against seeded data.**
 
+> **Fixed in E8's PR 8.2, 2026-08-23.** `globalRating` is smoothed through `bayesian` like
+> the three components beside it, which is the one-expression fix this section asks for.
+> Re-run the same way — Gil V. and Shira G. flipped `ONLINE`, integrals at level 5 — the
+> endpoint now answers Shira G., **Dana K., Gil V.**, and the row in the manual table below
+> passes. Everything else recorded here stands, including the finding that 4.6's unit tests
+> pass against fixtures that are right.
+
+
+
 Recorded 2026-08-17 during 4.7's development, before this pass: with Gil V. and Shira G.
 flipped `ONLINE`, `GET /questions/:id/matches` returns **Gil first**.
 
@@ -235,7 +244,7 @@ ranked list itself, five names in returned order, twice, from two runs.
 | Empty-pool copy varies with whether raising the ceiling could help | ⏳ |
 | `INSUFFICIENT_CREDIT` → `/app/wallet`, a `Placeholder` (PR 7.7) | ✅ expected — E7 owns the destination |
 | **The ranking — §18** | |
-| Gil + Shira `ONLINE`, integrals at level 5 → **Dana above Gil** | ❌ **fails — Gil first.** See "The defect this pass was built to find" |
+| Gil + Shira `ONLINE`, integrals at level 5 → **Dana above Gil** | ✅ **passes since E8's 8.2** (2026-08-23). Failed here — Gil first; see "The defect this pass was built to find" |
 | The integrals specialist ranks above the generalist | ⏳ |
 | Revert to `OFFLINE` → list returns to three | ⏳ |
 | `reviews` row → `studiedWith` true and the badge renders; delete → goes | ⏳ |
