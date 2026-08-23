@@ -349,12 +349,15 @@ it, because these rows include balances.
 
 ## Open items
 
-1. **F1 — the settlement reads `users.created_at` where §5.3 means
-   `teacher_profiles.created_at`.** Filed with F2 as one PR. `session.repository.js:699`.
-2. **F2 — `IncomingOffer.expectedEarning` is the gross for everybody.**
-   `session.view.service.js:168`, a hardcoded `new Date()`, open since E5 and named as that
-   epic's ninth gap. One argument at one call site, and E7 is the epic that made the
-   difference real money.
+1. ~~**F1 — the settlement reads `users.created_at` where §5.3 means
+   `teacher_profiles.created_at`.**~~ **Closed by 7.9.** `findSessionForMeter` joins
+   `teacher_profiles` now.
+2. ~~**F2 — `IncomingOffer.expectedEarning` is the gross for everybody.**~~ **Closed by
+   7.9**, through the read 5.6 already had. Open since E5, where it was that epic's ninth
+   gap; it became worth fixing when E7 made the difference real money. Both are held by
+   `server/tests/commission.column.test.js`, which is the first fixture in the repo whose
+   `users.created_at` and `teacher_profiles.created_at` are deliberately months apart —
+   the reason neither defect was visible to a green suite.
 3. **The budget cap has no setter.** §5.1 says the student sets it; `DEFAULT_BUDGET_CAP` is
    40 and nothing writes it. At ₪14 a block or more the cap forbids every extension.
 4. **The deployed application has not run this pass and must not yet.** 6b.2's rewrite is
