@@ -27,10 +27,21 @@ button is a dead end nobody can act on; 'you need ₪12 more' is a sentence with
 step in it". This PR makes that sentence into a button.
 
 **When `canAfford` is false, the modal offers a top-up in place.** The packages come from
-`GET /public/pricing`, fetched when the modal first needs them and not before — a session
-screen that fetches pricing on mount is a fetch on every session for a state most
-sessions never reach. Press one, `POST /wallet/topup` through 7.5's `wallet.api.js`, and
+`GET /public/pricing`. Press one, `POST /wallet/topup` through 7.5's `wallet.api.js`, and
 the modal stays open the whole time.
+
+> **Correction, made while implementing.** This brief originally had `InlineTopUp` fetch
+> the pricing model itself, "when the modal first needs them and not before", on the
+> argument that a session screen should not pay a request for a state most sessions never
+> reach. That argument was written without reading `SessionRoom.jsx`, which has fetched
+> `/public/pricing` on mount since 6.7 — the progress bar needs `block.minutes` for its
+> denominator, on every session, out-of-credit or not. So the request the brief was trying
+> to avoid is already made and cannot be avoided by this PR. A second one from inside the
+> modal would re-fetch a model already sitting in state, and would do it at the worst
+> moment available: sixty seconds before the session closes, on a connection that has a
+> video call on it. `topupPackages` is passed down from `SessionRoom` instead, which is
+> exactly the "only if the modal needs a prop it cannot fetch itself" the allowlist below
+> already anticipated.
 
 **It must not navigate.** A link to `/app/wallet` from a running session is a student who
 leaves a paid, timed call to go and buy time for it, and comes back — if the router even
@@ -75,17 +86,17 @@ docs/epics/E6a-*/**                           another epic's chain
 
 ## Acceptance criteria
 
-- [ ] With `canAfford: false`, the modal shows the shortfall sentence **and** top-up packages
-- [ ] With `canAfford: true`, the modal is byte-for-byte the experience 6.7 shipped — no packages, no extra fetch
-- [ ] `GET /public/pricing` is requested only when the out-of-credit branch renders, never on session mount
-- [ ] Pressing a package tops up without leaving the page. The session timer keeps running and the modal stays open
-- [ ] After the top-up, the extend button is enabled — unless `withinCap` is false, in which case it stays disabled with the cap's own reason
-- [ ] Pressing extend after the top-up buys the block, and the timer extends
-- [ ] A top-up that is still not enough produces the existing `INSUFFICIENT_CREDIT` message, not a crash and not a silent no-op
-- [ ] Dismissing the modal still ends the session by silence, exactly as §5.1 says — this PR adds no obligation to answer
-- [ ] Full-screen sheet below `sm`, matching the modal's existing `useMediaQuery` call (§14.4)
-- [ ] `grep -rn "navigate\|Link" client/src/components/wallet/InlineTopUp.jsx` returns nothing
-- [ ] `npm run lint` clean
+- [x] With `canAfford: false`, the modal shows the shortfall sentence **and** top-up packages
+- [x] With `canAfford: true`, the modal is byte-for-byte the experience 6.7 shipped — no packages, no extra fetch
+- [x] The out-of-credit branch adds **no** request of its own — `topupPackages` comes from the `/public/pricing` read `SessionRoom` already makes on mount (see the correction above). The network tab shows one pricing request per session, warning or no warning
+- [x] Pressing a package tops up without leaving the page. The session timer keeps running and the modal stays open
+- [x] After the top-up, the extend button is enabled — unless `withinCap` is false, in which case it stays disabled with the cap's own reason
+- [x] Pressing extend after the top-up buys the block, and the timer extends
+- [x] A top-up that is still not enough produces the existing `INSUFFICIENT_CREDIT` message, not a crash and not a silent no-op
+- [x] Dismissing the modal still ends the session by silence, exactly as §5.1 says — this PR adds no obligation to answer
+- [x] Full-screen sheet below `sm`, matching the modal's existing `useMediaQuery` call (§14.4)
+- [x] `grep -nE "react-router|useNavigate\(|<Link|href=" client/src/components/wallet/InlineTopUp.jsx client/src/components/session/ExtendModal.jsx` returns nothing. (The bare `navigate\|Link` this brief first specified matches the file's own header comment explaining that neither is imported — a tripwire that fires on the sentence documenting it is a tripwire nobody keeps.)
+- [x] `npm run lint` clean
 
 ## Manual test
 
@@ -115,6 +126,39 @@ Two browsers. One student with a balance smaller than one extension, one teacher
   nothing new — a top-up control in front of someone who cannot spend is a bug.
 
 ## Notes
+
+**A defect this PR introduced and then fixed, worth keeping.** The first working version
+enabled the button after a top-up and left the line above it reading "Your balance after
+this would be ₪-7" — the server's projection from *before* the money arrived. An enabled
+button under a negative projection is a screen arguing with itself, sixty seconds before a
+session closes. It now shows what `POST /wallet/topup` answered with — "Credit added —
+your balance is now ₪55" — which is the server's own figure echoed, and deliberately **not**
+the new projection: `balance - extensionPrice` here would be this modal computing the
+exact number its header forbids it to compute. The projection returns on the next
+`session:block_warning`, and the extend response settles it for real.
+
+**How the branch was verified, and what it cost to get there.** A block warning needs a
+live `ACTIVE` session inside `WARNING_SECONDS`, which the dev database has none of, and
+producing one through the product is the full E6 walk. So the walk ran on a throwaway
+`tutor_now_probe` database: a session created directly, `ends_at` pushed to 55 seconds out,
+the student's balance set below one extension, and the dev server pointed at it through a
+temporary `.claude/launch.json` entry. Dropped afterwards — `.env` byte-identical by
+checksum, `launch.json` restored, the dev database still holding zero sessions.
+
+What that showed, in order: the modal opening with "you need ₪7 more" against a ₪12
+extension and a ₪5 balance; ₪50 pressed with the modal staying open and the page never
+navigating; the button enabling and the line changing to "your balance is now ₪55"; **Add
+another block** buying it, the toast, the timer moving to `05:36` and `block 3`, and
+`Charged` going ₪24 → ₪36. Then the same run with the cap already reached: after the
+top-up the alert became "This would go past the spending limit set for this session" and
+the button stayed disabled — credit bought, and no way past the cap. Then `canAfford: true`,
+which rendered the price line, the projection and two buttons and nothing else. Then 375px,
+where the sheet is full-screen, the packages wrap to two rows and
+`scrollWidth === clientWidth === 375`.
+
+**Dismissal was not re-tested and did not need to be.** §5.1's silence-ends-the-session
+path is 6.5's auto-end sweep and this PR adds no code to it — "Let it end" is 6.7's button,
+untouched, and the out-of-credit branch adds no obligation to answer.
 
 **Why this is not part of 7.5.** It is a different screen, a different sixty seconds, and
 a different failure mode: the wallet screen is a place a student goes, and this is a place

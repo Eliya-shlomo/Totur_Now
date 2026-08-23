@@ -421,6 +421,18 @@ export default function SessionRoom({ initial = null }) {
         <ExtendModal
           warning={warning}
           busy={busy === 'extend'}
+          /*
+            7.7's out-of-credit branch, from the pricing this screen already holds.
+
+            The brief had `InlineTopUp` fetch `/public/pricing` itself, on the argument
+            that a session screen should not pay for a state most sessions never reach.
+            That argument was written without checking: 6.7 already fetches it on mount,
+            for the progress bar's denominator, on every session either way. Fetching it
+            again inside the modal would be a second request for a model already in state
+            — and it would be made at the worst possible moment, sixty seconds before the
+            session closes. So it is passed down.
+          */
+          topupPackages={pricing?.topupPackages}
           onExtend={onExtend}
           onDismiss={dismissWarning}
         />
