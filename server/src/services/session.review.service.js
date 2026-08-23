@@ -1,9 +1,15 @@
 import { prisma } from '#config/db.js';
 import { ERROR_CODES } from '#config/errors/codes.js';
-import { applyReviewAggregates, createReview } from '#repositories/review.repository.js';
+import {
+  applyReviewAggregates,
+  applyTopicStats,
+  createReview,
+  findReviewTopicIds,
+} from '#repositories/review.repository.js';
 import { findSessionForMeter, setSessionRated } from '#repositories/session.repository.js';
 import { assertTransition } from '#services/session.state.js';
 import { AppError } from '#utils/AppError.js';
+import { topicStatDeltas } from '#utils/topicStats.js';
 
 /**
  * The rating, and the only way a session in this product reaches a terminal state. PR 6.6,
@@ -26,13 +32,21 @@ import { AppError } from '#utils/AppError.js';
  *     3. assertTransition(status, 'RATED')      ENDED is the only legal from
  *     4. insert reviews                         P2002 => SESSION_NOT_ACTIVE, 409
  *     5. teacher_profiles: the three counters
- *     6. session → RATED                        count 0 => SESSION_NOT_ACTIVE
+ *     6. teacher_topic_stats: leaf 1.0, parent 0.3   8.1, zero rows when unclassified
+ *     7. session → RATED                        count 0 => SESSION_NOT_ACTIVE
  *   COMMIT
  * ```
  *
  * A review row that exists while `resolved_count` does not is a KPI that under-reports for
  * ever, and unlike the ledger there is no reconciliation query that would ever find it.
  * One transaction, or the numbers are decorative.
+ *
+ * **Step 6 is 8.1's and it joined this transaction rather than opening its own.** §18 asks
+ * for a `rating.service` and the answer is these three lines: the topic ids off the
+ * session's question, §7's propagation as a pure function, and an upsert per row. A
+ * separate service would be a second transaction, and the failure it buys — the topic
+ * table silently behind the profile columns — is the same one this whole flow exists to
+ * refuse, one level down.
  *
  * **`NO_SHOW` cannot be rated and the table is what says so.** §10 draws no arrow out of
  * it, so step 3 refuses it without this file naming the status at all.
@@ -54,6 +68,8 @@ const defaultDeps = {
   lockSession: findSessionForMeter,
   saveReview: createReview,
   moveAggregates: applyReviewAggregates,
+  loadTopicIds: findReviewTopicIds,
+  moveTopicStats: applyTopicStats,
   markRated: setSessionRated,
 };
 
@@ -76,7 +92,15 @@ export async function submitSessionReview(
   { sessionId, studentId, isResolved, stars, comment },
   deps = defaultDeps,
 ) {
-  const { runTransaction, lockSession, saveReview, moveAggregates, markRated } = {
+  const {
+    runTransaction,
+    lockSession,
+    saveReview,
+    moveAggregates,
+    loadTopicIds,
+    moveTopicStats,
+    markRated,
+  } = {
     ...defaultDeps,
     ...deps,
   };
@@ -99,13 +123,29 @@ export async function submitSessionReview(
       tx,
     );
 
-    await moveAggregates(
+    // The four numbers, computed once. Both writers below receive exactly these, so the
+    // topic-level and the profile-level counters cannot be computed from different rules
+    // — and `ratingCount` in particular is decided here and recomputed nowhere.
+    const counters = {
+      resolvedCount: isResolved ? 1 : 0,
+      ratingSum: stars ?? 0,
+      // **`0` when no stars were given.** The line this whole file is careful about.
+      ratingCount: stars == null ? 0 : 1,
+    };
+
+    await moveAggregates({ teacherId: locked.teacherId, ...counters }, tx);
+
+    // 8.1 — §7's propagation. The read is a second one and not a wider lock; the
+    // arithmetic is `topicStats.js`'s and the weight lives nowhere else; the answer is
+    // two rows, one row, or none at all for a question on the sentinel topic.
+    const { topicId, subtopicId } = await loadTopicIds(sessionId, tx);
+
+    await moveTopicStats(
       {
         teacherId: locked.teacherId,
-        resolvedCount: isResolved ? 1 : 0,
-        ratingSum: stars ?? 0,
-        // **`0` when no stars were given.** The line this whole file is careful about.
-        ratingCount: stars == null ? 0 : 1,
+        // `sessionsCount: 1` — a session is one session however long it ran. Money is
+        // what scales with blocks; reputation is not.
+        rows: topicStatDeltas({ topicId, subtopicId, sessionsCount: 1, ...counters }),
       },
       tx,
     );
