@@ -113,7 +113,10 @@ export default function Dashboard() {
         </Stack>
       </Card>
 
-      {loading && <LoadingState label="Loading your balance…" />}
+      {/* 205 is BalanceCard's 173px at 375px plus the link row under it. The block is
+          the last thing on this screen, so nothing moves when it lands — the number is
+          here so the reserve is a decision rather than a default that happened to fit. */}
+      {loading && <LoadingState label="Loading your balance…" minHeight={205} />}
 
       {!loading && walletError && (
         <ErrorState error={walletError} title="Could not load your balance" onRetry={load} />
