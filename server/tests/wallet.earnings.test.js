@@ -66,8 +66,8 @@ const earningRow = (over = {}) => ({
     platformFee: 6,
     teacherEarning: 99,
     question: {
-      topic: { nameHe: 'חשבון אינפיניטסימלי' },
-      subtopic: { nameHe: 'אינטגרציה בחלקים' },
+      topic: { nameEn: 'Calculus', nameHe: 'חשבון אינפיניטסימלי' },
+      subtopic: { nameEn: 'Integration by parts', nameHe: 'אינטגרציה בחלקים' },
     },
     ...over.session,
   },
@@ -251,12 +251,12 @@ describe('one earning row, as the teacher reads it', () => {
   });
 
   it('labels the row with the subtopic, then the topic, then nothing', () => {
-    assert.equal(toEarningRecord(earningRow()).topicName, 'אינטגרציה בחלקים');
+    assert.equal(toEarningRecord(earningRow()).topicName, 'Integration by parts');
 
     assert.equal(
-      toEarningRecord(earningRow({ session: { question: { topic: { nameHe: 'גיאומטריה' } } } }))
+      toEarningRecord(earningRow({ session: { question: { topic: { nameEn: 'Geometry' } } } }))
         .topicName,
-      'גיאומטריה',
+      'Geometry',
     );
 
     // A question that was never classified has neither, and the screen dates the row

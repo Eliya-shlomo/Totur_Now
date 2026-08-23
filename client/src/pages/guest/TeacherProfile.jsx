@@ -214,12 +214,10 @@ export default function TeacherProfile() {
         ) : (
           <Group gap="xs">
             {/*
-              `topicName()` — Hebrew, falling back to English — and not `nameEn`, which
-              is what this list rendered until the reviews section landed beside it.
-              6a.5 made a topic name data rather than chrome and changed the three
-              screens it was allowed to touch; this one and `TeacherCard` kept PR 0.5's
-              English rule, so the same topic appeared twice on this page in two
-              languages, once as a chip here and once on a review below.
+              `topicName()` and never a name field directly. This page is where the two
+              rules met — these chips beside the review chips below, the same topic in
+              two languages — and one helper is what keeps them from drifting apart
+              again whichever language the rule picks.
             */}
             {teacher.topics.map((topic) => (
               <Badge key={topic.id} variant="default" size="md" radius="sm">

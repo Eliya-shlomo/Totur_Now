@@ -64,8 +64,8 @@ const reviewRow = (over = {}) => ({
   studentId: STUDENT_ID,
   session: {
     question: {
-      topic: { id: 41, nameHe: 'חדו"א — אינטגרלים' },
-      subtopic: { id: 45, nameHe: 'אינטגרציה בחלקים' },
+      topic: { id: 41, nameEn: 'Calculus — Integrals', nameHe: 'חדו"א — אינטגרלים' },
+      subtopic: { id: 45, nameEn: 'Integration by parts', nameHe: 'אינטגרציה בחלקים' },
     },
   },
   ...over,
@@ -162,15 +162,20 @@ describe('the review a student wrote without stars', () => {
 
 describe('the topic label', () => {
   it('prefers the subtopic — the more specific true thing', () => {
-    assert.equal(toTeacherReview(reviewRow()).topicName, 'אינטגרציה בחלקים');
+    assert.equal(toTeacherReview(reviewRow()).topicName, 'Integration by parts');
   });
 
   it('falls back to the parent topic when the question has no subtopic', () => {
     const row = reviewRow({
-      session: { question: { topic: { id: 41, nameHe: 'חדו"א — אינטגרלים' }, subtopic: null } },
+      session: {
+        question: {
+          topic: { id: 41, nameEn: 'Calculus — Integrals', nameHe: 'חדו"א — אינטגרלים' },
+          subtopic: null,
+        },
+      },
     });
 
-    assert.equal(toTeacherReview(row).topicName, 'חדו"א — אינטגרלים');
+    assert.equal(toTeacherReview(row).topicName, 'Calculus — Integrals');
   });
 
   it('answers null for the sentinel topic, which is a real row with a real name', async () => {
@@ -182,7 +187,11 @@ describe('the topic label', () => {
     const row = reviewRow({
       session: {
         question: {
-          topic: { id: UNCLASSIFIED_TOPIC_ID, nameHe: 'כללי / לא מסווג' },
+          topic: {
+            id: UNCLASSIFIED_TOPIC_ID,
+            nameEn: 'General / Unclassified',
+            nameHe: 'כללי / לא מסווג',
+          },
           subtopic: null,
         },
       },

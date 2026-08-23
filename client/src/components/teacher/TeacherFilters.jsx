@@ -106,10 +106,9 @@ function toTopicGroups(topics) {
   return topics
     .filter((parent) => parent.children?.length > 0)
     .map((parent) => ({
-      // `topicName()` — Hebrew, falling back to English — so this filter names a topic
-      // the way every other taxonomy surface does. It read `nameEn` until now, which
-      // meant a student narrowing the list by "Integrals" here and then opening a
-      // profile saw two different names for the row they had just filtered on.
+      // `topicName()`, so this filter names a topic the way every other taxonomy
+      // surface does. Reading a name field directly here is how a student narrows the
+      // list by one label and then meets a different one on the profile they open.
       group: topicName(parent),
       items: parent.children.map((child) => ({
         value: String(child.id),

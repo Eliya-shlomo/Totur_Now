@@ -117,7 +117,7 @@ export function toIncomingOffer({ offer, sessionId, question, pricePerBlock, fee
     sessionId,
     brief: question?.teacherBrief ?? '',
     howToStart: question?.howToStart ?? null,
-    topicLabel: question?.subtopic?.nameHe ?? question?.topic?.nameHe ?? null,
+    topicLabel: question?.subtopic?.nameEn ?? question?.topic?.nameEn ?? null,
     level: question?.estimatedLevel ?? question?.declaredLevel ?? null,
     expectedEarning: pricePerBlock * OPENING_BLOCKS * (1 - feeRate),
     expiresAt: offer.expiresAt.toISOString(),

@@ -322,7 +322,7 @@ describe('sendOffer — the happy path', () => {
 
     assert.equal(payload.offerId, OFFER_ID);
     assert.ok(payload.brief.length > 0);
-    assert.equal(payload.topicLabel, 'כלל השרשרת');
+    assert.equal(payload.topicLabel, 'The chain rule');
     assert.equal(payload.level, 5);
   });
 });
@@ -661,8 +661,8 @@ describe('toIncomingOffer — the teacher’s shape', () => {
     howToStart: 'Name the outer function before differentiating anything.',
     estimatedLevel: 5,
     declaredLevel: 4,
-    topic: { nameHe: 'חשבון דיפרנציאלי' },
-    subtopic: { nameHe: 'כלל השרשרת' },
+    topic: { nameEn: 'Calculus', nameHe: 'חשבון דיפרנציאלי' },
+    subtopic: { nameEn: 'The chain rule', nameHe: 'כלל השרשרת' },
     ...overrides,
   });
 
@@ -702,11 +702,11 @@ describe('toIncomingOffer — the teacher’s shape', () => {
   it('prefers the subtopic label over the parent topic', () => {
     // The more specific true thing: a teacher deciding whether to take a question is
     // better served by "the chain rule" than by "calculus".
-    assert.equal(build().topicLabel, 'כלל השרשרת');
+    assert.equal(build().topicLabel, 'The chain rule');
   });
 
   it('falls back to the parent topic, then to null', () => {
-    assert.equal(build({ question: question({ subtopic: null }) }).topicLabel, 'חשבון דיפרנציאלי');
+    assert.equal(build({ question: question({ subtopic: null }) }).topicLabel, 'Calculus');
 
     // `null`, never `''`. The contract types it `string | null`, and an empty string is
     // a label that renders as an empty chip — the sentinel topic is a legal question.

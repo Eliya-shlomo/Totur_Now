@@ -263,8 +263,8 @@ export async function findTeacherReviewPage({ teacherId, skip = 0, take = DEFAUL
                 // The ids come with the names because the sentinel topic is a real row
                 // with a real label — "כללי / לא מסווג" — and the serializer has to be
                 // able to tell it apart from a topic worth putting on a chip.
-                topic: { select: { id: true, nameHe: true } },
-                subtopic: { select: { id: true, nameHe: true } },
+                topic: { select: { id: true, nameEn: true, nameHe: true } },
+                subtopic: { select: { id: true, nameEn: true, nameHe: true } },
               },
             },
           },
