@@ -1,4 +1,5 @@
 import { getSessionView } from '#services/session.view.service.js';
+import { getStudentSessionHistory } from '#services/session.history.service.js';
 import { reportSessionNoShow, terminateSession } from '#services/session.end.service.js';
 import { extendSessionBlock } from '#services/session.meter.service.js';
 import { submitSessionReview } from '#services/session.review.service.js';
@@ -287,4 +288,40 @@ export async function submitReview(req, res) {
   });
 
   res.json({ success: true, data: rated });
+}
+
+// ── E8 ───────────────────────────────────────────────────────────────────────
+
+/**
+ * `GET /sessions/mine` — the student's own finished sessions. **8.4.**
+ *
+ * `authorize('student')`, and this is the first route on this router where the role gate
+ * is not about what a caller may do to a session but about which list they are asking
+ * for. A teacher's finished sessions are `GET /wallet/earnings` (7.6), with the money
+ * that side needs on them; a teacher's token here would select their own `student_id`
+ * rows, of which there are none, and an empty list is a worse answer than a `403`
+ * because it looks like a working screen.
+ *
+ * **No id in the path, deliberately.** The student is the token, so there is nothing here
+ * to tamper with: `sessionHistorySchema` has an empty `params` and the only two things
+ * this handler reads off the wire are `page` and `pageSize`, both already coerced,
+ * defaulted and capped by the validator. That is why the route is `/mine` and not
+ * `/students/:id/sessions`.
+ *
+ * **`/mine` is declared above `GET /:id` in the router and it has to be.** Express walks
+ * the stack in order and `/:id` matches one segment, so a `/mine` below it would be
+ * validated by `sessionByIdSchema`'s uuid check and answer `400 VALIDATION_ERROR` — a
+ * failure that reads like a client bug for the rest of its life. `teacher.routes.js`
+ * already carries the same note for `/me` before `/:id`.
+ *
+ * One service call and the envelope, like every other handler in this file.
+ */
+export async function getMySessions(req, res) {
+  const history = await getStudentSessionHistory({
+    studentId: req.user.id,
+    page: req.query.page,
+    pageSize: req.query.pageSize,
+  });
+
+  res.json({ success: true, data: history });
 }
