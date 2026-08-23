@@ -1,3 +1,6 @@
+import { DEFAULT_PAGE_SIZE } from '#config/constants/index.js';
+import { prisma } from '#config/db.js';
+
 /**
  * The rating — one insert and the two sets of columns it moves. PR 6.6 and PR 8.1,
  * MVP.md §6.2, §7, §9.3 and §11.2.
@@ -18,14 +21,20 @@
  * `reviews` row committed without its topic stats. This file's remit was already stated as
  * "the columns a review moves", and these are the other ones.
  *
- * **Every function here takes a `tx` and none opens one.** The insert, the profile
+ * **Every writer here takes a `tx` and none opens one.** The insert, the profile
  * counters and the topic rows are one transaction with the session's own `RATED` write —
  * a review that exists while `resolved_count` does not is a KPI that under-reports for
  * ever, and there is no reconciliation query that would find it.
  *
+ * **8.3 added the one read, and it is the exception on purpose.** `findTeacherReviewPage`
+ * takes no `tx` and holds its own client: a public GET is one snapshot with no write to
+ * be consistent with. It is also the only function in this file whose output leaves the
+ * server, which is why the paragraph about `student_id` sits on it rather than here.
+ *
  * **Everything that *reads* these columns is E8's.** The badge, the history screen, the
- * public profile. This file is the writer and E4's ranking is the reader, and between
- * them there is nothing in E6.
+ * public profile. 6.6 wrote that line when this file had no reader at all; 8.3 added the
+ * profile's, and 8.4's history screen reads `reviews` through the sessions repository
+ * because its row is a session that happens to carry one.
  */
 
 /**
@@ -200,4 +209,76 @@ export async function applyTopicStats({ teacherId, rows }, tx) {
   }
 
   return rows.length;
+}
+
+/**
+ * One page of a teacher's reviews, newest first, plus how many there are — PR 8.3.
+ *
+ * **The first read this file has ever had, and it is the public one.** Everything above
+ * writes inside somebody else's transaction; this takes no `tx` and opens nothing,
+ * because a public GET is one snapshot and has no write to be consistent with. It is the
+ * one function here that reaches `prisma` directly.
+ *
+ * **`studentId` is not selected.** Not selected and then dropped by the serializer —
+ * never read at all. The endpoint is unauthenticated, and a public URL that maps a person
+ * to the maths they could not do is a privacy leak with a very ordinary shape: two
+ * teachers' review lists intersected identify a student's whole term. The column exists
+ * on the row and stops here.
+ *
+ * **The topic is a join and there is no `reviews.topic_id`.** `session → question →
+ * subtopic`, falling back to the parent topic and then to null on the sentinel path. The
+ * subtopic wins because it is the more specific true thing, which is the same order
+ * `offerView.js`, `sessionView.js` and 7.6's earnings read all label a session in.
+ *
+ * `total` is the whole set rather than the page: it is the number beside the stars in the
+ * heading, and a heading that changes as you page is a heading nobody trusts. Same call
+ * `TeacherListResponse` made in 2.3 and `WalletTransactionsResponse` in 7.2.
+ *
+ * One `$transaction`, the read-only array form — the page and the count against one
+ * snapshot, so a review written between them cannot make the heading disagree with the
+ * list.
+ *
+ * @param {object} params
+ * @param {string} params.teacherId a user id, already shape-checked as a uuid
+ * @param {number} [params.skip]
+ * @param {number} [params.take]
+ * @returns {Promise<{reviews: object[], total: number}>}
+ */
+export async function findTeacherReviewPage({ teacherId, skip = 0, take = DEFAULT_PAGE_SIZE }) {
+  const where = { teacherId };
+
+  const [reviews, total] = await prisma.$transaction([
+    prisma.review.findMany({
+      where,
+      select: {
+        id: true,
+        stars: true,
+        isResolved: true,
+        comment: true,
+        createdAt: true,
+        session: {
+          select: {
+            question: {
+              select: {
+                // The ids come with the names because the sentinel topic is a real row
+                // with a real label — "כללי / לא מסווג" — and the serializer has to be
+                // able to tell it apart from a topic worth putting on a chip.
+                topic: { select: { id: true, nameHe: true } },
+                subtopic: { select: { id: true, nameHe: true } },
+              },
+            },
+          },
+        },
+      },
+      // `id` as the second key for the reason every paged read in this repo carries one:
+      // two rows written in the same transaction share `created_at` to the microsecond,
+      // and a non-total order lets page 2 repeat a row from page 1.
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip,
+      take,
+    }),
+    prisma.review.count({ where }),
+  ]);
+
+  return { reviews, total };
 }
