@@ -146,7 +146,7 @@ widened E10 brief.
 | 10.1 | [The guest surface, judged rather than built — and the online-only ruling](PR-10.1-guest-surface.md) | DEV-A | S | — | ☑ |
 | 10.2 | [The four-state contract, and the async views that are missing one](PR-10.2-state-contract.md) | DEV-A | M | — | ☑ |
 | 10.3 | [A screen-sized hole instead of a blank shell — the second boundary, and the 404 in the wrong shell](PR-10.3-error-ux.md) | DEV-A | M | — | ☑ |
-| 10.4 | [The teacher who cannot hear the server — a global connection banner](PR-10.4-connection-banner.md) | DEV-A | S | 10.3 (shares `AppLayout.jsx`) | ☐ |
+| 10.4 | [The teacher who cannot hear the server — a global connection banner](PR-10.4-connection-banner.md) | DEV-A | S | 10.3 (shares `AppLayout.jsx`) | ☑ |
 | 10.5 | [The mobile pass — twenty-four routes, four states, one phone](PR-10.5-mobile-pass.md) | DEV-A | L | 10.1, 10.2, 10.3, 10.4 | ☐ |
 | 10.6 | [E10 close: the screen inventory, and the retro](PR-10.6-e10-close.md) | DEV-A | S | 10.1–10.5 | ☐ |
 
