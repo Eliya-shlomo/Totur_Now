@@ -2,6 +2,7 @@ import TeacherLayout from '@/layouts/TeacherLayout';
 import SessionRoom from '@/components/session/SessionRoom';
 import Dashboard from '@/pages/teacher/Dashboard';
 import Earnings from '@/pages/teacher/Earnings';
+import NotFound from '@/pages/NotFound';
 import Onboarding from '@/pages/teacher/Onboarding';
 import Profile from '@/pages/teacher/Profile';
 import ProtectedRoute from '@/router/ProtectedRoute';
@@ -36,6 +37,10 @@ export const teacherRoutes = [
       // The `pr=` is corrected by the PR that replaces the placeholder — E1's retro rule.
       { path: 'earnings', element: <Earnings /> },
       { path: 'profile', element: <Profile /> },
+
+      // 10.3, and the same reason as the student array's: a teacher who mistypes a URL
+      // keeps the shell with their availability toggle in it.
+      { path: '*', element: <NotFound homeHref="/teach" homeLabel="Back to your dashboard" /> },
     ],
   },
 ];

@@ -112,6 +112,16 @@ export default function RateSession() {
             </Group>
           </Stack>
 
+          {/*
+            `maxLength` is the same 1000 `session.schema.js`'s `reviewSchema` enforces,
+            and the two are the only copies of that number — 10.3's audit went looking
+            for a form that drops `VALIDATION_ERROR.details` and found that none does,
+            because this field cannot reach the server too long. If the server's ever
+            moves, this screen starts posting comments it rejects into a toast with no
+            field under it. 8.1's treatment of `PARENT_TOPIC_WEIGHT` and the seed's copy
+            was a comment on *each* side; the server's half is not written here because
+            E10 opens no server file, and it is filed as an open item in E10's retro.
+          */}
           <Textarea
             label="Anything to add?"
             description="Optional, and only we read it."

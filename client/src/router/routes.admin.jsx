@@ -1,4 +1,5 @@
 import AdminLayout from '@/layouts/AdminLayout';
+import NotFound from '@/pages/NotFound';
 import Placeholder from '@/components/Placeholder';
 import ProtectedRoute from '@/router/ProtectedRoute';
 
@@ -21,6 +22,11 @@ export const adminRoutes = [
       { index: true, element: <Placeholder title="Document queue" pr="9.2" /> },
       { path: 'documents', element: <Placeholder title="Document queue" pr="9.2" /> },
       { path: 'sessions', element: <Placeholder title="All sessions" pr="9.3" /> },
+
+      // 10.3. Every route in this array is a placeholder until E9, which makes a
+      // mistyped one indistinguishable from a real one — all the more reason for the
+      // 404 to arrive inside the admin shell rather than on the public site.
+      { path: '*', element: <NotFound homeHref="/admin" homeLabel="Back to the admin home" /> },
     ],
   },
 ];
