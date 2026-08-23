@@ -279,9 +279,16 @@ the person who wrote them.
 | 8.3 | [Reviews on the public profile — `GET /teachers/:id/reviews` and the section that renders it](PR-8.3-public-reviews.md) | DEV-A | L | — | ☑ |
 | 8.4 | [The session history, and the way back to an unfinished rating](PR-8.4-session-history.md) | DEV-A | L | — | ☑ |
 | 8.5 | [The teacher's own per-topic reputation — `GET /teachers/me/stats`](PR-8.5-teacher-topic-stats.md) | DEV-A | M | 8.1 | ☑ |
-| 8.6 | [E8 close: §18's ranking pass, and the retro](PR-8.6-e8-close.md) | DEV-A | S | 8.1, 8.2, 8.3, 8.4, 8.5 | ☐ |
+| 8.6 | [E8 close: §18's ranking pass, and the retro](PR-8.6-e8-close.md) | DEV-A | S | 8.1, 8.2, 8.3, 8.4, 8.5 | ☑ |
 
 Status: ☐ not started · ◐ partial · ☑ done. Size: S (<2h) · M (2–4h) · L (half day+).
+
+**Closed 2026-08-23.** All six merged; the pass and its four findings are in
+[`RETRO.md`](RETRO.md). §18's criterion is answered with numbers and one half of it fails:
+the five-star rating raised the teacher's score by 0.0011 and did not move her position,
+and the sibling-topic lift is real at half the leaf's — but only where the teacher has no
+history of their own in that subtopic. Nothing found by the pass was fixed in 8.6; a close
+PR that edits code is a defect wearing a close PR's branch name.
 No PR in this epic is `MVP.md` §17.5 human-written — the section above says why, and 8.6's
 review checklist re-checks it rather than trusting this paragraph.
 
