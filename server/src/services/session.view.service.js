@@ -1,5 +1,9 @@
 import { OFFER_STATUS } from '#config/constants/index.js';
-import { findSessionForView, findWalletBalance } from '#repositories/session.repository.js';
+import {
+  findSessionForView,
+  findTeacherForNotification,
+  findWalletBalance,
+} from '#repositories/session.repository.js';
 import { findTeacherById } from '#repositories/teacher.repository.js';
 import { AppError } from '#utils/AppError.js';
 import { platformFeeRate } from '#utils/commission.js';
@@ -70,6 +74,7 @@ const defaultDeps = {
   loadSession: findSessionForView,
   loadTeacher: findTeacherById,
   loadBalance: findWalletBalance,
+  loadTeacherContact: findTeacherForNotification,
 };
 
 /**
@@ -82,7 +87,10 @@ const defaultDeps = {
  * @returns {Promise<import('@tutor/shared').SessionState|import('@tutor/shared').IncomingOffer|object>}
  */
 export async function getSessionView({ sessionId, userId }, deps = defaultDeps) {
-  const { loadSession, loadTeacher, loadBalance } = { ...defaultDeps, ...deps };
+  const { loadSession, loadTeacher, loadBalance, loadTeacherContact } = {
+    ...defaultDeps,
+    ...deps,
+  };
 
   const session = await loadSession(sessionId);
 
@@ -106,7 +114,7 @@ export async function getSessionView({ sessionId, userId }, deps = defaultDeps) 
   const offer = session.offers?.[0] ?? null;
 
   if (session.teacherId === userId) {
-    return teacherView({ session, offer, sessionId });
+    return teacherView({ session, offer, sessionId, loadTeacherContact });
   }
 
   return studentView({ session, offer, sessionId, loadTeacher });
@@ -147,25 +155,37 @@ async function sessionStateView({ session, userId, loadBalance }) {
  * shape the contract has no type for — a teacher with no offer is not a participant in
  * anything, and the leak rule applies to them like anyone else.
  *
- * **`expectedEarning` is the gross, for everybody, and that is a known gap.**
- * `platformFeeRate` needs `teacher_profiles.created_at` and no read reachable from E5
- * returns it — the epic README's ninth gap, found while implementing 5.3 and stated
- * there to block 5.6 and 5.7 rather than 5.4. The call is routed through
- * `platformFeeRate` anyway, with the same `new Date()` fallback 5.3 uses, so that the
- * fix is one argument at one call site rather than an arithmetic expression somebody
- * has to find.
+ * **`expectedEarning` is the net, and 7.9 is what made it one.** 5.4 shipped with a
+ * hardcoded `new Date()` here — E5's ninth gap, stated in that epic's README because no
+ * read reachable from E5 returned `teacher_profiles.created_at` — and the effect was
+ * that §5.3's new-teacher branch answered `0` for everybody and this modal quoted the
+ * gross. 5.6 closed the email's half through `findTeacherForNotification` and left this
+ * one open; it stopped being harmless when E7 made the ledger row real money, because a
+ * teacher was then shown one number at accept time and paid another.
+ *
+ * The read is the same one the email uses, deliberately: a second query for the same
+ * column is how a third answer to §5.3 gets written. It costs one `findUnique` on a
+ * route the teacher reaches once per offer, and it is only made on the teacher's branch
+ * — the student's payload has no `expectedEarning` to compute.
+ *
+ * `null` from that read keeps 5.6's fallback and keeps its reason: `new Date()` and the
+ * epoch are both fictions, this one is a date the row could have, and it fails toward
+ * quoting the teacher **more** rather than promising them less. The settlement charges
+ * from the row either way.
  */
-function teacherView({ session, offer, sessionId }) {
+async function teacherView({ session, offer, sessionId, loadTeacherContact }) {
   if (!offer) {
     throw AppError.notFound('Session');
   }
+
+  const contact = await loadTeacherContact(session.teacherId);
 
   return toIncomingOffer({
     offer,
     sessionId,
     question: session.question,
     pricePerBlock: session.pricePerBlock ?? 0,
-    feeRate: platformFeeRate({ teacherCreatedAt: new Date() }),
+    feeRate: platformFeeRate({ teacherCreatedAt: contact?.createdAt ?? new Date() }),
   });
 }
 

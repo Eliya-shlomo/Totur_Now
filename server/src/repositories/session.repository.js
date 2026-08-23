@@ -651,12 +651,23 @@ export async function setSessionVideoRoom({ sessionId, roomName, roomUrl }) {
  * Every caller's step 1 is this function, and every caller's step 2 is
  * `assertTransition(session.status, …)` against what it returned.
  *
- * **`FOR UPDATE OF s` and not a bare `FOR UPDATE`.** The teacher's `users` row is
- * joined for `platformFeeRate`'s `teacherCreatedAt` — §5.3's rate is computed from when
- * the teacher joined, and 6.6 needs it in the same transaction — and a bare `FOR
- * UPDATE` would lock that row too. Locking a user row for the duration of a billing
- * transaction means two of that teacher's sessions ending at once serialise on a column
- * that never changes.
+ * **`FOR UPDATE OF s` and not a bare `FOR UPDATE`.** The teacher's `teacher_profiles`
+ * row is joined for `platformFeeRate`'s `teacherCreatedAt`, and a bare `FOR UPDATE`
+ * would lock that row too. Locking a profile for the duration of a billing transaction
+ * means two of that teacher's sessions ending at once serialise on a column that never
+ * changes — and worse, it would contend with `lockTeacherForOffer`, which writes
+ * `status` on the same row every time somebody sends this teacher an offer.
+ *
+ * **The join is `teacher_profiles` and not `users`, and 7.9 corrected it.** §5.3's free
+ * month is measured from the day somebody *became a teacher*, which is
+ * `teacher_profiles.created_at` — `commission.js` says so in `teacherCreatedAt`'s own
+ * doc comment, and `findTeacherForNotification` has passed that column since 5.6. This
+ * function passed `users.created_at`, the account's registration date, so a student who
+ * onboarded as a teacher more than thirty days later was charged 15% from their first
+ * lesson and never received the exemption. Every test injects the date directly, and
+ * the seed writes both rows in one transaction, so nothing but a fixture with the two
+ * timestamps deliberately apart can see the difference — `commission.column.test.js` is
+ * that fixture.
  *
  * The join rides along on the same statement rather than in a second read. E2's N+1
  * lesson, and this one is on the hot path of every charge the epic makes.
@@ -698,7 +709,7 @@ export async function findSessionForMeter(sessionId, tx) {
            s.end_reason      AS "endReason",
            t.created_at      AS "teacherCreatedAt"
       FROM sessions s
-      LEFT JOIN users t ON t.id = s.teacher_id
+      LEFT JOIN teacher_profiles t ON t.user_id = s.teacher_id
      WHERE s.id = ${sessionId}::uuid
        FOR UPDATE OF s
   `;

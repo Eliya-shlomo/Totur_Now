@@ -148,7 +148,7 @@ point — they are §17.5's human-written money.
 | 7.6 | [Teacher earnings: the read, and the screen that reads it](PR-7.6-teacher-earnings.md) | DEV-A | L | 7.2 | ☑ |
 | 7.7 | [Out of credit, mid-session: top up from the 60-second warning](PR-7.7-out-of-credit.md) | DEV-A | S | 7.5 | ☑ |
 | 7.8 | [E7 close: the twenty-operation reconciliation pass, and the retro](PR-7.8-e7-close.md) | DEV-A | S | 7.4, 7.6, 7.7 | ☑ |
-| 7.9 | [§5.3 has three implementations and two of them are wrong](PR-7.9-commission-column.md) | DEV-A | S | — | ☐ |
+| 7.9 | [§5.3 has three implementations and two of them are wrong](PR-7.9-commission-column.md) | DEV-A | S | — | ☑ |
 
 Status: ☐ not started · ◐ partial · ☑ done. Size: S (<2h) · M (2–4h) · L (half day+).
 Bold + **human** marks a PR written without an agent, per `MVP.md` §17.5.
@@ -156,7 +156,11 @@ Bold + **human** marks a PR written without an agent, per `MVP.md` §17.5.
 **7.9 was not in the plan.** It is the defect 7.8's pass found — §5.3's commission is
 computed from three different dates at three call sites — and it is a row here rather
 than a line in the retro because 7.8's own review checklist forbids a close PR that also
-contains a money fix. The epic is closed with it open; see [`RETRO.md`](RETRO.md), F1 and F2.
+contains a money fix. See [`RETRO.md`](RETRO.md), F1 and F2. It landed after the close:
+the settlement reads `teacher_profiles.created_at` now and the accept modal quotes the
+net, so the three call sites answer one number, and `commission.column.test.js` holds
+them there with the fixture nobody would build by accident — a teacher whose account and
+whose profile were created months apart.
 
 ## The pass, in one paste
 
