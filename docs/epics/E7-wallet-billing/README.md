@@ -147,10 +147,42 @@ point — they are §17.5's human-written money.
 | 7.5 | [The wallet screen — minutes, packages, ledger](PR-7.5-wallet-screen.md) | DEV-A | L | 7.3 | ☑ |
 | 7.6 | [Teacher earnings: the read, and the screen that reads it](PR-7.6-teacher-earnings.md) | DEV-A | L | 7.2 | ☑ |
 | 7.7 | [Out of credit, mid-session: top up from the 60-second warning](PR-7.7-out-of-credit.md) | DEV-A | S | 7.5 | ☑ |
-| 7.8 | [E7 close: the twenty-operation reconciliation pass, and the retro](PR-7.8-e7-close.md) | DEV-A | S | 7.4, 7.6, 7.7 | ☐ |
+| 7.8 | [E7 close: the twenty-operation reconciliation pass, and the retro](PR-7.8-e7-close.md) | DEV-A | S | 7.4, 7.6, 7.7 | ☑ |
+| 7.9 | [§5.3 has three implementations and two of them are wrong](PR-7.9-commission-column.md) | DEV-A | S | — | ☐ |
 
 Status: ☐ not started · ◐ partial · ☑ done. Size: S (<2h) · M (2–4h) · L (half day+).
 Bold + **human** marks a PR written without an agent, per `MVP.md` §17.5.
+
+**7.9 was not in the plan.** It is the defect 7.8's pass found — §5.3's commission is
+computed from three different dates at three call sites — and it is a row here rather
+than a line in the retro because 7.8's own review checklist forbids a close PR that also
+contains a money fix. The epic is closed with it open; see [`RETRO.md`](RETRO.md), F1 and F2.
+
+## The pass, in one paste
+
+§18's acceptance criterion for E7 — "after 20 mixed operations, `wallets.balance` equals
+the sum of `wallet_transactions.amount` for every user. No exceptions." Twenty operations
+ran on 2026-08-23 against `localhost:5433/tutor_now`, `check` ran after every one of them
+that moved money, and all twenty-three came back empty. The full account, the two defects
+and the mutation ledger are in [`RETRO.md`](RETRO.md).
+
+```
+$ npm run reconcile
+
+database: localhost:5433/tutor_now
+
+✔ 1. wallets whose balance disagrees with their ledger — none
+✔ 2. sessions whose total_charged disagrees with their blocks — none
+✔ 3. sessions whose split does not add up — none
+✔ 4. sessions whose ledger rows disagree with their columns — none
+✔ 5. teachers left IN_SESSION with no session running — none
+
+RECONCILED — five invariants, zero rows.
+
+$ node scripts/reconcile.mjs diff --baseline .baseline.json
+
+AT BASELINE — every counted table and the credit total are where they were.
+```
 
 ## Parallelism map
 

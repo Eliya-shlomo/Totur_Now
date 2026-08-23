@@ -40,9 +40,10 @@ touched, which files must not be, and what "done" means. Per `MVP.md` §17.3, th
 | E4 — Matching | by seam: A the pool, B the score | done | [`E4-matching/`](epics/E4-matching/) |
 | E5 — Offers & Realtime | single developer: B | done | [`E5-offers-realtime/`](epics/E5-offers-realtime/) |
 | E6 — Session Lifecycle | single developer: B | 6.9 open | [`E6-session-lifecycle/`](epics/E6-session-lifecycle/) |
-| E6a — Classification Repair & the Teacher Brief | single developer: B | not started | [`E6a-classification-repair/`](epics/E6a-classification-repair/) |
-| E6b — Live-Path Repair | by defect: A deployment, B offer delivery | not started — runs beside E6a | [`E6b-live-path-repair/`](epics/E6b-live-path-repair/) |
-| E7–E11 | not written yet | — | — |
+| E6a — Classification Repair & the Teacher Brief | single developer: B | 6a.1–6a.5 merged, 6a.6 open | [`E6a-classification-repair/`](epics/E6a-classification-repair/) |
+| E6b — Live-Path Repair | by defect: A deployment, B offer delivery | 6b.1–6b.3 merged, 6b.4 open — the deployed path is still broken and it is a dashboard change, see [`DEPLOYMENT.md`](DEPLOYMENT.md) | [`E6b-live-path-repair/`](epics/E6b-live-path-repair/) |
+| E7 — Wallet & Billing | single developer: A | closed provisionally — 20-operation pass ran clean, 2 defects filed as 7.9, 4 items open | [`E7-wallet-billing/`](epics/E7-wallet-billing/) |
+| E8–E11 | not written yet | — | — |
 
 DEV-A is eliya, DEV-B is rotem — see [`OWNERSHIP.md`](OWNERSHIP.md) §0.
 

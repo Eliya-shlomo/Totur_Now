@@ -62,6 +62,15 @@ against Neon, those five rows are known and are not findings.
 Locally, two browsers, against a seeded database. **Not on the deployed application** —
 see the note below. Baseline first:
 
+> **Correction, made while running it.** The pass was driven through HTTP against the
+> running local server rather than through two browsers, and the four things that are
+> genuinely about a *screen* were done in the browser: operation 13's inline top-up,
+> operation 20's double-press guard, and the three screen-versus-SQL reads. The invariant
+> is a property of the server and the database; every operation is a real request through
+> the real router with real authentication; and twenty hand-driven browser sessions in one
+> sitting is a pass that gets abandoned at operation twelve. A shell cannot exercise a
+> client-side busy state, which is why 20 stayed in the browser. Recorded in `RETRO.md`.
+
 ```bash
 node scripts/reconcile.mjs baseline --save .baseline.json
 ```
@@ -74,12 +83,12 @@ Twenty operations, mixed, and every category in this epic represented at least o
 | 4 | A top-up with an invalid `packageId` | 7.3's allowlist. Must write nothing |
 | 5–7 | A full session: accept, extend twice, end past the window | 6.5, 6.6, the normal split |
 | 8 | A session ended inside `NO_SHOW_WINDOW_SEC` by the student | 7.4 case 2, full refund |
-| 9 | A session run with `DAILY_API_KEY` unset, then ended | 7.4 case 1, `end_reason = 'error'` |
+| 9 | A session whose video room was never minted, then ended | 7.4 case 1, `end_reason = 'error'`. **Not `DAILY_API_KEY` unset**, which this row first said: `settleSession` branches on `!locked.hasVideo`, which is `video_room_url IS NULL`, so simply never calling `GET /sessions/:id/video` reaches it — and unsetting the key would have taken the other sixteen operations down with it, because every session that must *not* be refunded needs a room |
 | 10 | A teacher no-show reported inside the window | 6.6, still correct |
 | 11–12 | A session hitting the budget cap, and one hitting `INSUFFICIENT_CREDIT` | The two 402s. Both must write nothing |
 | 13 | An extension bought from inside the extend modal after an inline top-up | 7.7 |
 | 14–15 | A low-demand-hour session and a new-teacher session | §5.3's two zero-fee cases |
-| 16–18 | Three more ordinary sessions across two teachers | Volume, and `totals` on 7.6 |
+| 16–18 | Three more ordinary sessions across two teachers | Volume, and `totals` on 7.6. Run across **three** — dana.k, yossi.m, maya.l — because `DEFAULT_BUDGET_CAP` decides how many extensions a price allows and spreading the prices is what made that visible |
 | 19 | A double-pressed extend | 6.5's `ends_at` guard. One block, not two |
 | 20 | A double-pressed top-up | 7.5's busy state. One row, not two |
 
@@ -135,7 +144,27 @@ docs/epics/E7-wallet-billing/README.md         tick every box; paste the reconci
 docs/README.md                                 the epic index gains E7
 docs/OWNERSHIP.md                              the wallet.service.js row; wallet.view.service.js beside it
 scripts/reconcile.mjs                          ONLY if a new invariant is argued for in the PR
+client/src/pages/teacher/Dashboard.jsx         the badge, and only the badge — see the correction below
+docs/epics/E7-wallet-billing/PR-7.9-*.md       NEW, if the pass finds a defect
+.gitignore                                     ONE line: .baseline.json
 ```
+
+> **Three corrections to these two lists, made while running it.**
+>
+> **`Dashboard.jsx` was on the denylist and on the acceptance criteria at the same time.**
+> "`client/src/**` — if the pass finds a defect, it is its own PR" is a rule about defects
+> the pass *discovers*; the badge is a criterion this brief wrote down in advance and named
+> the file for. The denylist clause stays as written and the one file it was never meant to
+> cover is now allowlisted.
+>
+> **`scripts/reconcile.mjs` gained a line that is not an invariant.** §1a tells the operator
+> to "confirm the host it connected to" against a tool that printed no host — which is how
+> 7.3 and 7.4 each reconciled a database their writes never reached. The banner is the
+> smallest thing that makes §1a executable, and a rule that only admits new invariants would
+> have left §1a unrunnable for a third PR running.
+>
+> **`.gitignore`.** The review checklist below says `.baseline.json` is not committed. One
+> ignored line makes that structural instead of something an operator has to remember.
 
 ## Files you must NOT touch
 
@@ -150,19 +179,19 @@ docs/epics/E6b-*/**                  6b.4 is open and is DEV-A's other close. No
 
 ## Acceptance criteria
 
-- [ ] `npm run reconcile` exists and exits `0` on a clean database
-- [ ] Twenty operations run, all categories in the table above covered
-- [ ] `node scripts/reconcile.mjs check` returns **zero rows** after every money-moving operation, not only at the end
-- [ ] Operations 4, 11 and 12 wrote no balance change and no ledger row — the three refusals
-- [ ] Operations 19 and 20 produced one row each, not two
-- [ ] The three screen-versus-SQL checks agree to the credit
-- [ ] **The teacher dashboard's earnings tile no longer says "Coming in E7"** — `client/src/pages/teacher/Dashboard.jsx`, one badge. 7.6 shipped the screen it points at and could not touch the file: it was on that PR's denylist because 6a.5 held it. By 7.8 E6a has landed and the file is free
-- [ ] **`/app/wallet` shows the `SESSION_CHARGE` row** — negative, dated, with a running total that matches the balance. Handed over by 7.5, which could not reach a real session charge without writing a ledger row by hand; it is the last claim that screen makes that nobody has watched happen
-- [ ] The undo ran and `diff --baseline` shows the database back at the baseline, output pasted
-- [ ] `RETRO.md` exists and names every open item as an item
-- [ ] `docs/README.md`'s epic index lists E7 with its split and status
-- [ ] `docs/OWNERSHIP.md` records the owner change and the new read service
-- [ ] Every status box in the epic README is ticked, or the unticked ones are explained in the retro
+- [x] `npm run reconcile` exists and exits `0` on a clean database
+- [x] Twenty operations run, all categories in the table above covered
+- [x] `node scripts/reconcile.mjs check` returns **zero rows** after every money-moving operation, not only at the end
+- [x] Operations 4, 11 and 12 wrote no balance change and no ledger row — the three refusals
+- [x] Operations 19 and 20 produced one row each, not two
+- [x] The three screen-versus-SQL checks agree to the credit
+- [x] **The teacher dashboard's earnings tile no longer says "Coming in E7"** — `client/src/pages/teacher/Dashboard.jsx`, one badge. 7.6 shipped the screen it points at and could not touch the file: it was on that PR's denylist because 6a.5 held it. By 7.8 E6a has landed and the file is free
+- [x] **`/app/wallet` shows the `SESSION_CHARGE` row** — negative, dated, with a running total that matches the balance. Handed over by 7.5, which could not reach a real session charge without writing a ledger row by hand; it is the last claim that screen makes that nobody has watched happen
+- [x] The undo ran and `diff --baseline` shows the database back at the baseline, output pasted
+- [x] `RETRO.md` exists and names every open item as an item
+- [x] `docs/README.md`'s epic index lists E7 with its split and status
+- [x] `docs/OWNERSHIP.md` records the owner change and the new read service
+- [x] Every status box in the epic README is ticked, or the unticked ones are explained in the retro
 
 ## Manual test
 

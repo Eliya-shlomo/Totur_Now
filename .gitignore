@@ -23,3 +23,9 @@ npm-debug.log*
 
 # test / coverage
 coverage/
+
+# verification passes — the reconciliation baseline is whatever the database held when
+# somebody started clicking, so it is evidence for one afternoon and never a fixture.
+# PR 6.9 wrote the harness, 7.8's review checklist says the file is not committed, and
+# this line is how that stops being something an operator has to remember.
+.baseline.json

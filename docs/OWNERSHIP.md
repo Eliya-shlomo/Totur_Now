@@ -55,7 +55,8 @@ infrastructure files. Sections 2–4 exist to pay that cost.
 | `server/src/config/env.js` | DEV-A | Created in 0.3. Adding a variable means adding it here **and** to `.env.example`. |
 | `server/src/utils/` | DEV-A | `AppError`, `asyncHandler`, `logger`, `password` — created in 0.3, imported by everything. |
 | `server/src/middlewares/` | DEV-A for `errorHandler`/`validate` (0.3); DEV-B for auth middleware (1.1) | Security-critical. Human-written per `MVP.md` §17.5. |
-| `server/src/services/wallet.service.js` | DEV-B | Human-written, no agent. Per `MVP.md` §17.5. |
+| `server/src/services/wallet.service.js` | **DEV-A** (was DEV-B) | Human-written, no agent. Per `MVP.md` §17.5. Created by DEV-B in PR 6.5 with three operations — `chargeStudent`, `creditTeacher`, `refundSession` — because §18 wrote E6 as depending on an E7 that did not exist yet. E7 moved to DEV-A (§18 said B; Rotem was mid-E6a and §17.7 holds one epic per owner), added a fourth operation `topUpWallet` in PR 7.1, and the file is DEV-A's from there. **Four operations is the whole of it.** A fifth entry point to money is the thing §15.2's rule 3 exists to forbid. |
+| `server/src/services/wallet.view.service.js` | DEV-A | **Reads only, and agent-writable — that is the point of it being a separate file.** `GET /wallet`, `GET /wallet/transactions` (PR 7.2) and `GET /wallet/earnings` (PR 7.6) shape rows for a screen and move nothing, so §17.5's human-written rule does not reach them. It sits beside `wallet.service.js` so the line between "answers what the money did" and "moves the money" is a filename rather than a convention. Nothing here opens a transaction. |
 | `server/src/services/video.*.service.js` | DEV-C | The provider SDK lives here and nowhere else. |
 | ~~`server/src/routes/video.routes.js`, `controllers/video.*`~~ | — | **Deleted in E6 (PR 6.1) and not replaced.** Room access is `GET /sessions/:id/video` on the session router — see §2.1, rule 3. |
 | `server/src/config/video.js`, video env vars | DEV-C | Provider credentials. Add to `.env.example` with the rest. |
@@ -214,3 +215,9 @@ setup, and the review checklist (`MVP.md` §17.4, last item) exists to catch it.
 
 Human-written, no agent (from `MVP.md` §17.5): `wallet.service.js`, the three
 critical transactions, `prisma/schema/`, auth middleware, LLM prompts.
+
+**The rule is about code that moves money, not about code that talks about it.**
+`wallet.view.service.js` reads the same tables and is agent-written; `utils/commission.js`
+answers §5.3's rate as a pure function and is agent-written; both are deliberate and both
+are named above. E7 added a fourth human-written operation, `topUpWallet` (PR 7.1), and
+everything around it — the controller, the validator, the two screens — was an agent's.

@@ -83,6 +83,29 @@ if (!process.env.DATABASE_URL) {
   process.exit(2);
 }
 
+/**
+ * The host and database, on every run, before anything else — PR 7.8.
+ *
+ * **This banner is not decoration and it is not an invariant.** There are two databases
+ * in this project: the repo-root `.env` is the local Docker Postgres on `localhost:5433`,
+ * and `server/.env` is the hosted Neon instance, which is what anything started with a
+ * working directory of `server/` picks up. This script always reads the root one. A probe
+ * that wrote to Neon and a `check` that read the local database both succeed, and the
+ * pass reports zero rows because it is looking at a database nothing touched.
+ *
+ * That happened in PR 7.3 and again in 7.4, and 7.8's brief responded by telling the
+ * operator to "confirm the host it connected to" — against a tool that printed no host.
+ * One line closes it: the evidence pasted into a retro now names the database it is
+ * evidence about.
+ *
+ * Credentials are never printed. `URL` gives up host, port and pathname and nothing else
+ * is read off it.
+ */
+{
+  const { hostname, port, pathname } = new URL(process.env.DATABASE_URL);
+  console.log(`database: ${hostname}${port ? `:${port}` : ''}${pathname}\n`);
+}
+
 // `['warn', 'error']` rather than `config/db.js`'s default, which adds `query`: this is an
 // operator's tool and its output is meant to be pasted into a retro.
 const prisma = new PrismaClient({ log: ['warn', 'error'] });

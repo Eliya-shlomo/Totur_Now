@@ -1,4 +1,4 @@
-import { Alert, Anchor, Badge, Card, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import { Alert, Anchor, Card, Group, SimpleGrid, Stack, Text, Title } from '@mantine/core';
 import {
   IconCoin,
   IconStar,
@@ -178,11 +178,20 @@ export default function Dashboard() {
             />
 
             {/*
-              Earnings is a tile with no number, and that is the honest answer today.
-              `GET /teachers/me` returns sessions, resolves and rating; it returns no
-              money, and E7 owns the wallet that would. A figure derived here from
-              sessions and price would be a payout estimate this screen cannot stand
-              behind — so the tile says where earnings live and links there.
+              Earnings is still a tile with no number, and the reason changed in E7.
+
+              It used to say "Coming in E7" because the destination did not exist. 7.6
+              built it: `/teach/earnings` reads `GET /wallet/earnings` and answers the
+              gross, the fee and the net, all-time and per session. The badge outlived
+              the thing it was apologising for, so 7.8 removed it.
+
+              **The tile still carries no figure, and that is deliberate.** This screen
+              is drawn from `GET /teachers/me`, which returns sessions, resolves and
+              rating and no money at all. Putting a number here means a second request
+              on every dashboard load for a figure the next tap shows in full — and a
+              figure derived locally from sessions and price would be a payout estimate
+              this screen cannot stand behind. The tile names where earnings live and
+              links there.
             */}
             <Card withBorder padding="md">
               <Stack gap={4}>
@@ -193,9 +202,9 @@ export default function Dashboard() {
                   </Text>
                 </Group>
 
-                <Badge variant="light" color="gray">
-                  Coming in E7
-                </Badge>
+                <Text size="sm" c="dimmed">
+                  Gross, fee and net, per session.
+                </Text>
 
                 <Anchor component={Link} to="/teach/earnings" size="xs">
                   Earnings breakdown

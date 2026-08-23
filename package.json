@@ -27,6 +27,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "node prisma/seed/index.js",
     "bench:classify": "node scripts/classify-bench.mjs",
+    "reconcile": "node scripts/reconcile.mjs",
     "db:studio": "prisma studio",
     "prepare": "husky || true"
   },
