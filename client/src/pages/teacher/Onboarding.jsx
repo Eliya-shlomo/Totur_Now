@@ -10,7 +10,7 @@ import ErrorState from '@/components/state/ErrorState';
 import LoadingState from '@/components/state/LoadingState';
 import LevelPicker from '@/components/teacher/LevelPicker';
 import PriceSlider from '@/components/teacher/PriceSlider';
-import TopicPicker from '@/components/teacher/TopicPicker';
+import TopicPicker, { topicName } from '@/components/teacher/TopicPicker';
 import { notify } from '@/lib/notify';
 
 /**
@@ -457,9 +457,11 @@ function Summary({ record, onGoOnline, onEdit, onSkip, busy }) {
         <Stack gap="md">
           <Fact label="Topics">
             <Group gap={6}>
+              {/* `topicName()`, the same label the picker two steps back showed the
+                  teacher when they ticked these boxes. */}
               {record.topics.map((topic) => (
                 <Badge key={topic.id} variant="default" size="sm" radius="sm">
-                  {topic.nameEn}
+                  {topicName(topic)}
                 </Badge>
               ))}
             </Group>

@@ -24,7 +24,7 @@ import LoadingState from '@/components/state/LoadingState';
 import LevelPicker from '@/components/teacher/LevelPicker';
 import PriceSlider from '@/components/teacher/PriceSlider';
 import TeacherCard from '@/components/teacher/TeacherCard';
-import TopicPicker from '@/components/teacher/TopicPicker';
+import TopicPicker, { topicName } from '@/components/teacher/TopicPicker';
 import { notify } from '@/lib/notify';
 
 /**
@@ -516,7 +516,7 @@ function StrandedTopicsNotice({ topics }) {
 
   return (
     <Alert icon={<IconInfoCircle size={16} />} color="gray" variant="light">
-      {topics.map((topic) => topic.nameEn).join(', ')}{' '}
+      {topics.map(topicName).join(', ')}{' '}
       {one
         ? 'is a whole subject rather than a subtopic'
         : 'are whole subjects rather than subtopics'}

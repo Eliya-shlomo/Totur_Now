@@ -9,6 +9,7 @@ import ErrorState from '@/components/state/ErrorState';
 import LoadingState from '@/components/state/LoadingState';
 import ReviewList from '@/components/teacher/ReviewList';
 import TeacherBadge from '@/components/teacher/TeacherBadge';
+import { topicName } from '@/components/teacher/TopicPicker';
 import NotFound from '@/pages/NotFound';
 
 /**
@@ -212,9 +213,17 @@ export default function TeacherProfile() {
           </Text>
         ) : (
           <Group gap="xs">
+            {/*
+              `topicName()` — Hebrew, falling back to English — and not `nameEn`, which
+              is what this list rendered until the reviews section landed beside it.
+              6a.5 made a topic name data rather than chrome and changed the three
+              screens it was allowed to touch; this one and `TeacherCard` kept PR 0.5's
+              English rule, so the same topic appeared twice on this page in two
+              languages, once as a chip here and once on a review below.
+            */}
             {teacher.topics.map((topic) => (
               <Badge key={topic.id} variant="default" size="md" radius="sm">
-                {topic.nameEn}
+                {topicName(topic)}
               </Badge>
             ))}
           </Group>
