@@ -1,6 +1,8 @@
 import { Button, Group, Select, Switch } from '@mantine/core';
 import { IconFilterOff } from '@tabler/icons-react';
 
+import { topicName } from '@/components/teacher/TopicPicker';
+
 /**
  * The four filters on `GET /teachers` — topic, level, price band, online only.
  *
@@ -104,10 +106,14 @@ function toTopicGroups(topics) {
   return topics
     .filter((parent) => parent.children?.length > 0)
     .map((parent) => ({
-      group: parent.nameEn,
+      // `topicName()` — Hebrew, falling back to English — so this filter names a topic
+      // the way every other taxonomy surface does. It read `nameEn` until now, which
+      // meant a student narrowing the list by "Integrals" here and then opening a
+      // profile saw two different names for the row they had just filtered on.
+      group: topicName(parent),
       items: parent.children.map((child) => ({
         value: String(child.id),
-        label: child.nameEn,
+        label: topicName(child),
       })),
     }));
 }

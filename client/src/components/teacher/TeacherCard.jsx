@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 
 import CreditMinutes from '@/components/match/CreditMinutes';
 import TeacherBadge from '@/components/teacher/TeacherBadge';
+import { topicName } from '@/components/teacher/TopicPicker';
 
 /**
  * One teacher, as a card. `TeacherCard` in `shared/api.d.ts`.
@@ -121,9 +122,18 @@ function TeacherRating({ rating, ratingCount }) {
 /**
  * What the teacher teaches, capped.
  *
- * `nameEn` is the label: the UI is English and LTR, fixed in `client/index.html` at
- * PR 0.5. `nameHe` rides along in the payload for the day that changes and for the
- * LLM classifier in E3.
+ * **The label is `topicName()` — Hebrew, falling back to English.** This card carried
+ * `nameEn` from PR 0.5, when the rule was "the UI is English and LTR"; 6a.5 replaced
+ * that rule for taxonomy specifically and changed the three screens it was allowed to
+ * touch, leaving this one and the public profile behind. The result was visible on
+ * `/teachers/:id`, where these chips read "Calculus — Integrals" directly above review
+ * chips reading `חדו"א — אינטגרלים` — the same topic, twice, in two languages.
+ *
+ * The rule is 6a.5's and the reason is its: a topic name is *data*, not chrome. The
+ * taxonomy names Bagrut material, `offerView.js` resolves `topicLabel` from `nameHe`
+ * server-side for offers, sessions and reviews, and a Hebrew-speaking student reading
+ * "Calculus — Integrals" over their own question was an English-UI decision outliving
+ * the content it was made about. The surrounding chrome stays English.
  *
  * Four chips, then a count. A teacher carrying twelve topics would otherwise make
  * their card three times the height of their neighbour's and break the grid.
@@ -138,7 +148,7 @@ function TopicChips({ topics, max = 4 }) {
     <Group gap={6}>
       {shown.map((topic) => (
         <Badge key={topic.id} variant="default" size="sm" radius="sm">
-          {topic.nameEn}
+          {topicName(topic)}
         </Badge>
       ))}
 

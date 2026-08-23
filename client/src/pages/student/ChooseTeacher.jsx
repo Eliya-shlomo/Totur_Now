@@ -13,6 +13,7 @@ import PriceCeiling from '@/components/match/PriceCeiling';
 import EmptyState from '@/components/state/EmptyState';
 import ErrorState from '@/components/state/ErrorState';
 import LoadingState from '@/components/state/LoadingState';
+import { topicName } from '@/components/teacher/TopicPicker';
 import { useSocketEvent } from '@/hooks/useSocketEvent';
 import { notify } from '@/lib/notify';
 
@@ -623,7 +624,10 @@ function MatchResults({
  *
  * Three answers, in order of what the student actually chose or was told:
  *
- * - the leaf, as "Calculus · Integrals", plus its name on its own for the cards
+ * - the leaf, as `חדו"א — אינטגרלים · אינטגרל מסוים`, plus its name on its own for the
+ *   cards. **`topicName()` and not `nameEn`**: this is the screen the student reaches
+ *   straight from the picker in `TopicOverride`, and the two disagreed about the name of
+ *   the topic the student had just chosen there
  * - the parent alone, when a question has a real topic and no leaf under it
  * - nothing, for the sentinel — which the caller renders as a sentence rather than as
  *   a topic name
@@ -637,13 +641,18 @@ function topicHeadingFor(topics, { topicId, subtopicId }) {
   for (const parent of topics) {
     const leaf = (parent.children ?? []).find((child) => child.id === subtopicId);
 
-    if (leaf) return { label: `${parent.nameEn} · ${leaf.nameEn}`, subtopicName: leaf.nameEn };
+    if (leaf) {
+      return {
+        label: `${topicName(parent)} · ${topicName(leaf)}`,
+        subtopicName: topicName(leaf),
+      };
+    }
   }
 
   if (topicId !== SENTINEL_TOPIC_ID) {
     const parent = topics.find((topic) => topic.id === topicId);
 
-    if (parent) return { label: parent.nameEn, subtopicName: null };
+    if (parent) return { label: topicName(parent), subtopicName: null };
   }
 
   return { label: null, subtopicName: null };
