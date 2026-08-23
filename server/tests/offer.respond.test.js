@@ -431,10 +431,21 @@ const teacherRow = (overrides = {}) => ({
   ...overrides,
 });
 
+/**
+ * `loadTeacherContact` joined the list in 7.9. The teacher's branch computes
+ * `expectedEarning` from `teacher_profiles.created_at` now rather than from a hardcoded
+ * `new Date()`, so a suite that left it out would reach the real database through the
+ * default — and §5.3's own assertions live in `commission.column.test.js`, which is why
+ * the date here is only recent enough to be uninteresting.
+ */
 function viewDeps(overrides = {}) {
   return {
     loadSession: spy(async () => sessionView()),
     loadTeacher: spy(async () => teacherRow()),
+    loadTeacherContact: spy(async () => ({
+      createdAt: new Date(),
+      user: { fullName: 'Dana Levi', email: 'dana@example.invalid' },
+    })),
     ...overrides,
   };
 }
