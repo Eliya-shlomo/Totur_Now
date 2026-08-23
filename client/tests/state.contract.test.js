@@ -27,6 +27,21 @@ import { describe, it } from 'node:test';
 const CLIENT_SRC = fileURLToPath(new URL('../src/', import.meta.url));
 
 /**
+ * The widths `theme.js` owns, as anybody would be tempted to write them by hand.
+ *
+ * `theme.js` is frozen (OWNERSHIP §2) so that the five breakpoints and the shell's layout
+ * sizes have exactly one home, and a component that hardcodes one is the failure that
+ * freeze exists to prevent. There was one in the client when E10 started —
+ * `ImagePicker`'s `CAMERA_BREAKPOINT = '(max-width: 48em)'` — and it had survived four
+ * epics because nobody read breakpoints as a set.
+ *
+ * **Prose is fine and there is a lot of it.** Thirty-odd comments explain a decision by
+ * naming the width it was made at, which is exactly what a comment is for. The assertion
+ * strips comments before it looks.
+ */
+const BREAKPOINT_LITERALS = /36em|48em|64em|75em|88em|375px|576px|768px|1024px|1200px|1408px/;
+
+/**
  * Screens that talk to `@/api/` and render neither `LoadingState` nor `ErrorState`.
  *
  * One entry, and it is a form that posts.
@@ -172,6 +187,21 @@ describe('the four-state contract', () => {
     }
   });
 
+  it('reads every breakpoint from the theme and none from a literal', () => {
+    const offenders = [];
+
+    for (const [file, source] of sources) {
+      if (file === 'theme.js') continue;
+
+      const code = withoutComments(source);
+      const match = code.match(BREAKPOINT_LITERALS);
+
+      if (match) offenders.push(`${file} — ${match[0]}`);
+    }
+
+    assert.deepEqual(offenders, []);
+  });
+
   it('gives every ErrorState a way out', () => {
     // An `ErrorState` with no `onRetry` is a dead end with a nicer icon. Every failure a
     // screen renders this for was a GET, and a GET can always be tried again.
@@ -191,6 +221,16 @@ describe('the four-state contract', () => {
     assert.deepEqual(offenders, []);
   });
 });
+
+/**
+ * A source with its comments removed, so an assertion can look at the code alone.
+ *
+ * The `//` rule spares `://`, because `'@mantine/core'` is not a comment and neither is a
+ * URL. Block comments go first so a `//` inside one cannot survive as a half-line.
+ */
+function withoutComments(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(?<!:)\/\/[^\n]*/g, '');
+}
 
 /** @see ERROR_STATE_WITHOUT_RETRY */
 function isAllowedWithoutRetry(file, element) {

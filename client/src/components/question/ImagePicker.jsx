@@ -1,4 +1,14 @@
-import { ActionIcon, Box, Button, Group, Image, Loader, Stack, Text } from '@mantine/core';
+import {
+  ActionIcon,
+  Box,
+  Button,
+  Group,
+  Image,
+  Loader,
+  Stack,
+  Text,
+  useMantineTheme,
+} from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { IconCamera, IconPhotoPlus, IconRefresh, IconX } from '@tabler/icons-react';
 import { useRef } from 'react';
@@ -36,9 +46,6 @@ import { useRef } from 'react';
  */
 const ACCEPT = 'image/jpeg,image/png,image/webp';
 
-/** Below this width the file input opens the camera. Matches `theme.breakpoints.sm`. */
-const CAMERA_BREAKPOINT = '(max-width: 48em)';
-
 /**
  * @param {Array<{key: string, previewUrl: string, name: string,
  *   status: 'uploading'|'ready'|'failed', error?: string}>} items  one per picked file
@@ -50,7 +57,13 @@ const CAMERA_BREAKPOINT = '(max-width: 48em)';
  */
 export default function ImagePicker({ items, max, onPick, onRemove, onRetry, disabled = false }) {
   const inputRef = useRef(null);
-  const isPhone = useMediaQuery(CAMERA_BREAKPOINT);
+  const theme = useMantineTheme();
+
+  // Below `sm` the file input opens the camera — §14.4's phone row. Read off the theme
+  // rather than written as a literal: `theme.js` is frozen precisely so the five widths
+  // have one home, and this was the last hardcoded breakpoint in the client (PR 10.5).
+  // The idiom is `AppLayout`'s.
+  const isPhone = useMediaQuery(`(max-width: ${theme.breakpoints.sm})`);
 
   const remaining = max - items.length;
   const isFull = remaining <= 0;
