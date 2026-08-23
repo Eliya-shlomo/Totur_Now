@@ -103,3 +103,35 @@ export const teacherByIdSchema = z.object({
   params: z.object({ id: z.string().uuid('That is not a valid teacher id.') }).strict(),
   query: z.object({}).strict(),
 });
+
+/**
+ * `GET /teachers/:id/reviews` — one teacher's reviews, paged.
+ *
+ * The id is the same `uuid` rule `teacherByIdSchema` states, and for the same reason: a
+ * malformed uuid raises Postgres `22P02` rather than matching no rows, so uncaught it is
+ * a 500 for what is plainly a bad request.
+ *
+ * `page` and `pageSize` are `teacherListSchema`'s, deliberately including its
+ * `.transform()` cap rather than a `.max()` rejection — a client cannot know our ceiling
+ * before it asks, and a 400 would turn one over-eager parameter into a blank profile.
+ * `total` still reports the true unpaged count, so a caller can tell it did not receive
+ * everything.
+ *
+ * `.strict()` on all three parts, so `?sort=oldest` is a `VALIDATION_ERROR` naming the
+ * parameter rather than a silently ignored filter.
+ */
+export const teacherReviewsSchema = z.object({
+  body: z.object({}).strict(),
+  params: z.object({ id: z.string().uuid('That is not a valid teacher id.') }).strict(),
+  query: z
+    .object({
+      page: z.coerce.number().int().min(FIRST_PAGE, 'Pages start at 1.').default(FIRST_PAGE),
+      pageSize: z.coerce
+        .number()
+        .int()
+        .min(1, 'Ask for at least one row.')
+        .default(DEFAULT_PAGE_SIZE)
+        .transform((value) => Math.min(value, MAX_PAGE_SIZE)),
+    })
+    .strict(),
+});

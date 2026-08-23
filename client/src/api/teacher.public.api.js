@@ -1,11 +1,12 @@
 import { api } from '@/api/client';
 
 /**
- * The public teacher surface — `GET /teachers` and `GET /teachers/:id` (PR 2.3).
+ * The public teacher surface — `GET /teachers` and `GET /teachers/:id` (PR 2.3), and
+ * `GET /teachers/:id/reviews` (PR 8.3).
  *
- * No authentication on either call. A stranger compares teachers before deciding
- * whether to register, so these are the two requests the app makes on behalf of
- * somebody who has no session at all.
+ * No authentication on any of them. A stranger compares teachers before deciding
+ * whether to register, so these are the requests the app makes on behalf of somebody
+ * who has no session at all.
  *
  * One module per server domain, and screens call these rather than `api` directly
  * (CONVENTIONS.md → Client). The interceptor in `client.js` already unwraps
@@ -45,4 +46,25 @@ export function getTeachers(params = {}) {
  */
 export function getTeacher(id) {
   return api.get(`/teachers/${id}`);
+}
+
+/**
+ * A page of what students wrote about one teacher (PR 8.3).
+ *
+ * Unauthenticated like the two above — this is a public profile, read by strangers.
+ * **No student comes back**, in any form: the payload is the review, its stars, its
+ * comment, the topic and the date. That is a server-side decision (`toTeacherReview`)
+ * and nothing here needs to filter it.
+ *
+ * Rejects with `NOT_FOUND` for a user id that is not a teacher's, the same way
+ * `getTeacher` does, so a screen holding both can render one 404 for the pair.
+ *
+ * @param {string} id a user id
+ * @param {object} [params]
+ * @param {number} [params.page]      1-based
+ * @param {number} [params.pageSize]  capped server-side
+ * @returns {Promise<import('@tutor/shared').TeacherReviewsResponse>}
+ */
+export function getTeacherReviews(id, params = {}) {
+  return api.get(`/teachers/${id}/reviews`, { params });
 }

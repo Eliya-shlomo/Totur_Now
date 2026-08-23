@@ -686,3 +686,121 @@ export interface EarningsResponse {
   /** All-time, across every finished session — not just the page returned. */
   totals: { gross: number; fee: number; net: number };
 }
+
+// ── E8 — ratings & reputation ────────────────────────────────────────────────
+//
+// Opened whole by PR 8.3, including the two shapes 8.4 and 8.5 implement. Frozen in
+// `docs/epics/E8-ratings-reputation/README.md` under "Contract freeze"; later PRs in
+// this epic append *inside* this block rather than at the end of the file, because
+// every append at EOF is a place two branches conflict. E7 opened its block once in
+// 7.2 for the same reason.
+
+/**
+ * One review as a stranger sees it on a teacher's profile.
+ *
+ * **There is no student on this shape and there is not going to be one.** The page is
+ * about the teacher; the student is a third party who wrote a sentence about a maths
+ * problem, and `GET /teachers/:id/reviews` is unauthenticated. §6.3's rule — the
+ * platform states only what it can stand behind — cuts the same way: "Dana K. said
+ * this" is a claim about Dana, and nothing on the profile needs it.
+ */
+export interface TeacherReview {
+  id: string;
+  /** 1–5, or null. **A review without stars is common** — `isResolved` is the only required field (§6.2). */
+  stars: number | null;
+  isResolved: boolean;
+  /** The student's own words, or null. Unmoderated — see the risks section. */
+  comment: string | null;
+  /** The question's subtopic, for the row's label. Null on the sentinel path (`topic_id = 0`). */
+  topicName: string | null;
+  /** ISO 8601, UTC. `reviews.created_at`. */
+  createdAt: string;
+}
+
+/**
+ * `GET /teachers/:id/reviews?page&pageSize`. Public, unauthenticated, newest first.
+ *
+ * **Its own endpoint rather than a field on `TeacherCard`**, because reviews are paged
+ * and a card is not, and because `TeacherCard` is frozen in E2's README and rendered by
+ * three screens that have no use for a review array.
+ */
+export interface TeacherReviewsResponse {
+  reviews: TeacherReview[];
+  /** Every review, not the page. The number beside the stars on the profile. */
+  total: number;
+}
+
+/**
+ * One finished session, from the student's side. `GET /sessions/mine`.
+ *
+ * **No minutes and no money beyond `totalCharged`.** Minutes are `blocksUsed ×
+ * block.minutes` and `lib/credits.js` already owns that translation — E7 ruled on this
+ * once and the ruling holds: a server-computed minute figure is a second rounding of a
+ * number the client already renders.
+ */
+export interface SessionHistoryRecord {
+  sessionId: string;
+  status: SessionStatus;
+  /** ISO 8601, UTC. `sessions.ended_at`. Null for a `CANCELLED` session that never ran. */
+  endedAt: string | null;
+  /** The teacher. A history entry without a name is a receipt. */
+  teacher: { id: string; fullName: string };
+  /** The question's subtopic label, then its parent, then null. */
+  topicLabel: string | null;
+  /** The question's own title, for the row a student will actually recognise. */
+  questionTitle: string | null;
+  blocksUsed: number;
+  /** Credits. `sessions.total_charged`. Zero on a refunded no-show. */
+  totalCharged: number;
+  /**
+   * The student's own review, or null.
+   *
+   * **Null on an `ENDED` row is the actionable state**, not an empty one: §10 makes the
+   * rating mandatory, so that session has not reached a terminal state and the screen
+   * links back to `/app/session/:id/review`. See the README.
+   */
+  review: { stars: number | null; isResolved: boolean } | null;
+}
+
+/** `GET /sessions/mine?page&pageSize`. Student-only. Newest first. */
+export interface SessionHistoryResponse {
+  sessions: SessionHistoryRecord[];
+  total: number;
+  /** How many `ENDED` sessions carry no review. The badge on the sidebar link. */
+  unratedCount: number;
+}
+
+/**
+ * One row of `teacher_topic_stats`, as the teacher sees their own.
+ *
+ * **The four stored columns are `NUMERIC(8,2)` and three of them arrive here as
+ * whole-ish numbers that are not whole.** A parent topic accumulates at
+ * `PARENT_TOPIC_WEIGHT`, so 42 leaf sessions is 12.6 parent ones — `matchView.js`
+ * already met this and rounds for display. This shape carries the honest value and the
+ * screen decides; a server that rounded would make the teacher's own numbers disagree
+ * with the algorithm's.
+ */
+export interface TopicStatRecord {
+  topicId: number;
+  slug: string;
+  nameHe: string;
+  nameEn: string;
+  /** False for a parent topic — its numbers are propagated, not taught. */
+  isLeaf: boolean;
+  sessionsCount: number;
+  resolvedCount: number;
+  /** `rating_sum / rating_count`, on the 1–5 scale. Null when `rating_count` is 0. Not 0. */
+  rating: number | null;
+  ratingCount: number;
+}
+
+/**
+ * `GET /teachers/me/stats` — §12's row, implemented for the first time in 8.5.
+ *
+ * Leaves first, each followed by nothing: the tree is flat and `isLeaf` is what a
+ * renderer groups on. Ordering is `sessionsCount` descending, which is "what you teach
+ * most" and is also the order the teacher would sort it into by hand.
+ */
+export interface TeacherStatsResponse {
+  topics: TopicStatRecord[];
+}

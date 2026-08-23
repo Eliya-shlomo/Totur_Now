@@ -1,8 +1,9 @@
+import { UNCLASSIFIED_TOPIC_ID } from '#config/constants/index.js';
 import { standingOf } from '#utils/standing.js';
 
 /**
- * The two shapes a teacher row is allowed to leave the server in — `TeacherCard`
- * and `TeacherMeResponse` in `shared/api.d.ts`.
+ * The shapes a teacher row is allowed to leave the server in — `TeacherCard` and
+ * `TeacherMeResponse` in `shared/api.d.ts`, and since 8.3 `TeacherReview`.
  *
  * One table, two audiences (docs/epics/E2-teacher-onboarding/README.md). A student
  * reads a stranger's card with no session at all; a teacher reads their own record
@@ -124,4 +125,61 @@ export function toTeacherMe(teacher) {
     resolvedCount: teacher.resolvedCount,
     onboardingComplete: onboardingCompleteOf(teacher),
   };
+}
+
+/**
+ * One review, as a stranger sees it on a teacher's profile — PR 8.3.
+ *
+ * **There is no student on this shape and there is not going to be one.** Not a name,
+ * not an initial, not an id, and not a commented-out line that a refactor could
+ * uncomment: this serializer does not know the field exists, and the repository does not
+ * select it. The endpoint is unauthenticated, so the reviews of two teachers intersected
+ * would identify a student's whole term — and §6.3's rule cuts the same way, because
+ * "Dana K. said this" is a claim about Dana that the page has no reason to make.
+ *
+ * **`stars` stays `null` and is never coerced.** `isResolved` is the only required field
+ * on a review (§6.2) and `RateSession.jsx` sends stars only when the student picked
+ * some, so a review without them is the common case rather than the edge. A `?? 0` here
+ * would be the client-side twin of the defect `session.review.service.js` spends a
+ * paragraph on: it turns "no opinion" into the worst rating a student can give.
+ *
+ * The topic is the question's subtopic, then its parent, then `null` — same order
+ * `offerView.js` and `sessionView.js` label a session in, because the subtopic is the
+ * more specific true thing.
+ *
+ * **The sentinel is excluded by id and not by falsiness, and it has to be excluded at
+ * all because it is a real row with a real name.** `topics` id `0` is seeded as
+ * "כללי / לא מסווג" (§8.1's fallback), so a plain `?? nameHe` chain answers that label
+ * for every question the classifier could not place — a chip on a public review reading
+ * *general / unclassified*, which says less than no chip at all. Found by calling the
+ * endpoint rather than by any test, which is why the fixture in
+ * `teacher.reviews.test.js` now carries the id.
+ *
+ * @param {object} review a row from `findTeacherReviewPage`
+ * @returns {import('@tutor/shared').TeacherReview}
+ */
+export function toTeacherReview(review) {
+  const question = review.session?.question;
+
+  return {
+    id: review.id,
+    stars: review.stars,
+    isResolved: review.isResolved,
+    comment: review.comment,
+    topicName: labelOf(question?.subtopic) ?? labelOf(question?.topic) ?? null,
+    createdAt: review.createdAt.toISOString(),
+  };
+}
+
+/**
+ * One topic's label, or `null` when there is nothing worth labelling.
+ *
+ * `UNCLASSIFIED_TOPIC_ID` is `0` and therefore falsy, so the comparison is explicit: a
+ * reader of `if (topic.id)` cannot tell that a real topic id is never zero, and the same
+ * guard has to hold for an absent topic, which is the ordinary case on the sentinel path.
+ */
+function labelOf(topic) {
+  if (!topic || topic.id === UNCLASSIFIED_TOPIC_ID) return null;
+
+  return topic.nameHe;
 }

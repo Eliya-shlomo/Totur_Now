@@ -1,13 +1,21 @@
 import { Router } from 'express';
 
 import { getMe, patchMe } from '#controllers/teacher.me.controller.js';
-import { getTeacherById, listTeachers } from '#controllers/teacher.public.controller.js';
+import {
+  getTeacherById,
+  getTeacherReviews,
+  listTeachers,
+} from '#controllers/teacher.public.controller.js';
 import { authenticate } from '#middlewares/authenticate.js';
 import { authorize } from '#middlewares/authorize.js';
 import { validate } from '#middlewares/validate.js';
 import { asyncHandler } from '#utils/asyncHandler.js';
 import { teacherMeSchema, teacherUpdateSchema } from '#validators/teacher.me.schema.js';
-import { teacherByIdSchema, teacherListSchema } from '#validators/teacher.public.schema.js';
+import {
+  teacherByIdSchema,
+  teacherListSchema,
+  teacherReviewsSchema,
+} from '#validators/teacher.public.schema.js';
 
 /**
  * The four teacher endpoints, mounted at `/api/v1/teachers`.
@@ -77,3 +85,16 @@ teacherRoutes.get('/', validate(teacherListSchema), asyncHandler(listTeachers));
 
 /** 2.3 — DEV-A. One `TeacherCard`. A student's user id is `NOT_FOUND`, not a 500. */
 teacherRoutes.get('/:id', validate(teacherByIdSchema), asyncHandler(getTeacherById));
+
+/**
+ * 8.3. A page of `TeacherReview`, newest first, with the unpaged `total`.
+ *
+ * **Declared after `/:id` and it cannot be shadowed by it.** The freeze note above is
+ * about `/me` versus `/:id`, which are both one segment; this path is two, so Express
+ * never matches it against the route above. Order is not load-bearing here and the file
+ * stays in its declared shape.
+ *
+ * No auth, like the two public reads above — and the response carries no student in any
+ * form, which is `toTeacherReview`'s job and is asserted in `teacher.reviews.test.js`.
+ */
+teacherRoutes.get('/:id/reviews', validate(teacherReviewsSchema), asyncHandler(getTeacherReviews));

@@ -1,8 +1,9 @@
 import { FIRST_PAGE } from '#config/constants/index.js';
+import { findTeacherReviewPage } from '#repositories/review.repository.js';
 import { findTeacherById, findTeacherPage } from '#repositories/teacher.repository.js';
 import { AppError } from '#utils/AppError.js';
 import { bandCeiling } from '#utils/pricing.js';
-import { toTeacherCard } from '#utils/teacherView.js';
+import { toTeacherCard, toTeacherReview } from '#utils/teacherView.js';
 
 /**
  * What a student sees about a teacher. MVP.md §5.2, §6.2, §12 "Teachers".
@@ -74,4 +75,60 @@ export async function getTeacherCard(id) {
   if (!teacher) throw AppError.notFound('Teacher');
 
   return toTeacherCard(teacher);
+}
+
+/** 8.3's two collaborators. See the note on the function below. */
+const reviewDeps = {
+  loadTeacher: findTeacherById,
+  loadReviews: findTeacherReviewPage,
+};
+
+/**
+ * A page of what students wrote about one teacher — `GET /teachers/:id/reviews`, PR 8.3.
+ *
+ * **The teacher is checked before the reviews are read, and a missing one is
+ * `NOT_FOUND` rather than an empty list.** A student's user id has no
+ * `teacher_profiles` row, and `findTeacherReviewPage` would answer `{reviews: [], total:
+ * 0}` for it perfectly happily — which tells a caller that this person is a teacher with
+ * nothing written about them. They are not a teacher. `getTeacherCard` above makes the
+ * same distinction for the same reason, and the message says nothing about whether the
+ * id belongs to a student, an admin or nobody at all, because this endpoint is
+ * unauthenticated and a caller who could tell those apart could enumerate the user table
+ * one uuid at a time.
+ *
+ * It costs one extra read on a public route. The alternative is a second implementation
+ * of "is this id a teacher" inside a review query, which is the shape that eventually
+ * disagrees with the first.
+ *
+ * `total` is the unpaged count — the number beside the stars in the heading — and the
+ * repository computes it in the same snapshot as the page.
+ *
+ * **The two reads arrive through the second argument** — 3.3's idiom, which the two
+ * functions above predate. It is what lets the test assert the thing that matters most
+ * here and has no return value: that a request for a student's id never reaches the
+ * review query at all, and that the page offset handed to the repository is
+ * `(page - 1) × pageSize` rather than `page × pageSize`, which is invisible on a seeded
+ * database where every review list fits on one page.
+ *
+ * @param {object} query
+ * @param {string} query.id a user id, already shape-checked by `teacherReviewsSchema`
+ * @param {number} query.page      1-based
+ * @param {number} query.pageSize  already capped at `MAX_PAGE_SIZE`
+ * @param {typeof reviewDeps} [deps]
+ * @returns {Promise<import('@tutor/shared').TeacherReviewsResponse>}
+ */
+export async function listTeacherReviews({ id, page, pageSize }, deps = reviewDeps) {
+  const { loadTeacher, loadReviews } = { ...reviewDeps, ...deps };
+
+  const teacher = await loadTeacher(id);
+
+  if (!teacher) throw AppError.notFound('Teacher');
+
+  const { reviews, total } = await loadReviews({
+    teacherId: id,
+    skip: (page - FIRST_PAGE) * pageSize,
+    take: pageSize,
+  });
+
+  return { reviews: reviews.map(toTeacherReview), total };
 }

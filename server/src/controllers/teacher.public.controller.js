@@ -1,7 +1,12 @@
-import { getTeacherCard, getTeacherList } from '#services/teacher.public.service.js';
+import {
+  getTeacherCard,
+  getTeacherList,
+  listTeacherReviews,
+} from '#services/teacher.public.service.js';
 
 /**
- * What a student sees about a teacher — `GET /teachers` and `GET /teachers/:id`.
+ * What a student sees about a teacher — `GET /teachers`, `GET /teachers/:id` and
+ * `GET /teachers/:id/reviews`.
  *
  * No authentication on either route, deliberately: a stranger reads a teacher's
  * profile before deciding whether to register. That is also why the payload is
@@ -36,4 +41,20 @@ export async function listTeachers(req, res) {
  */
 export async function getTeacherById(req, res) {
   res.json({ success: true, data: await getTeacherCard(req.params.id) });
+}
+
+/**
+ * `GET /teachers/:id/reviews` — a page of what students wrote, PR 8.3.
+ *
+ * The id is a path parameter and the paging is a query, so both halves are handed to the
+ * service in one object rather than picked apart here. `req.query` is already coerced,
+ * defaulted and capped by `teacherReviewsSchema`.
+ *
+ * Unauthenticated like the two above it, and the response carries no student in any
+ * form — enforced in `toTeacherReview`, which does not know the field exists.
+ */
+export async function getTeacherReviews(req, res) {
+  const data = await listTeacherReviews({ id: req.params.id, ...req.query });
+
+  res.json({ success: true, data });
 }
