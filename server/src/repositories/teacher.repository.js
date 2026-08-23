@@ -231,3 +231,68 @@ export async function findLeafTopicIds(topicIds) {
 
   return topics.map((topic) => topic.id);
 }
+
+/**
+ * Every `teacher_topic_stats` row this teacher has, with the topic behind it —
+ * `GET /teachers/me/stats` (8.5).
+ *
+ * **The one addition to a file frozen after 2.1, and the freeze is why it is here.**
+ * E2's freeze exists so two parallel tracks over `teacher_profiles` never edit one
+ * file; the rule it states is that a query the epic needs belongs *in* this file
+ * rather than in a private copy somewhere else. This is that query: 8.5 is the
+ * teacher reading their own record, which is the audience this file already serves,
+ * and the alternative — a `teacher.stats.repository.js` selecting from a table this
+ * one already relates to — is the second source of truth the freeze was written
+ * against. Nothing above changes.
+ *
+ * **No `Prisma.Decimal` leaves this function.** The four counters are
+ * `Decimal @db.Decimal(8, 2)` so the 0.3 parent propagation does not truncate, and a
+ * `Decimal` serialized by `res.json` is `{"s":1,"e":0,"d":[…]}` rather than a number.
+ * `matching.repository.js` states this rule for this exact table and converts at its
+ * own edge; this is the same rule at the second one, and the conversion happens
+ * nowhere downstream — a serializer that converted too would be two places free to
+ * disagree about what `12.60` is.
+ *
+ * **`Number()` and never a rounding.** `12.60` is what a parent topic honestly holds
+ * after 42 leaf sessions, and this endpoint carries the stored value: the teacher's
+ * own numbers have to agree with the ones `matching.scoring.js` ranks them on, which
+ * is the entire reason the screen exists. `matchView.js` rounds because a student's
+ * card has to; a card is not this.
+ *
+ * `parentId` is selected for `isLeaf` alone. A parent row is not a topic the teacher
+ * taught — it is the sum of their leaves at `PARENT_TOPIC_WEIGHT` — and a flat list
+ * that cannot tell the two apart shows "Calculus: 12.6 sessions" beside "Integration
+ * by parts: 42 sessions" as if they were the same kind of claim.
+ *
+ * Ordered by `sessionsCount` descending, which is "what you teach most" and is the
+ * order a teacher would sort it into by hand. `topicId` breaks the tie, so a teacher
+ * whose rows are all zero gets taxonomy order rather than whatever the planner
+ * returned.
+ *
+ * One statement. The topic comes back with the row, never per row — E2's N+1 lesson,
+ * and the reason this is a nested `select` rather than a map over the ids.
+ *
+ * @param {string} teacherId
+ * @returns {Promise<Array<{topic: {id: number, slug: string, nameHe: string, nameEn: string, parentId: number|null}, ratingSum: number, ratingCount: number, resolvedCount: number, sessionsCount: number}>>}
+ */
+export async function findTeacherTopicStats(teacherId) {
+  const rows = await prisma.teacherTopicStat.findMany({
+    where: { teacherId },
+    select: {
+      ratingSum: true,
+      ratingCount: true,
+      resolvedCount: true,
+      sessionsCount: true,
+      topic: { select: { id: true, slug: true, nameHe: true, nameEn: true, parentId: true } },
+    },
+    orderBy: [{ sessionsCount: 'desc' }, { topicId: 'asc' }],
+  });
+
+  return rows.map((row) => ({
+    topic: row.topic,
+    ratingSum: Number(row.ratingSum),
+    ratingCount: Number(row.ratingCount),
+    resolvedCount: Number(row.resolvedCount),
+    sessionsCount: Number(row.sessionsCount),
+  }));
+}

@@ -1,7 +1,8 @@
 import { api } from '@/api/client';
 
 /**
- * The teacher's own record — `GET` and `PATCH /teachers/me` (PR 2.2).
+ * The teacher's own record — `GET` and `PATCH /teachers/me` (PR 2.2), and since 8.5
+ * their per-topic reputation at `GET /teachers/me/stats`.
  *
  * The write half of the teacher surface, and the mirror of `teacher.public.api.js`:
  * that module is what a stranger reads about a teacher, this one is what a teacher
@@ -52,4 +53,26 @@ export function getTeacherMe() {
  */
 export function updateTeacherMe(patch) {
   return api.patch('/teachers/me', patch);
+}
+
+/**
+ * The teacher's own reputation, one row per topic — `GET /teachers/me/stats` (PR 8.5).
+ *
+ * **The only place in the product where §9.3's parent propagation is visible.** A
+ * session on a subtopic counts fully toward that subtopic and at 0.3 toward its parent,
+ * which is why a row can honestly read `12.6` sessions. The server sends the stored
+ * value and never rounds it — the teacher's figures have to match the ones the matching
+ * engine ranks them on — so any rounding is the screen's decision and is made in
+ * `TopicStatsCard.jsx`.
+ *
+ * Unpaged, unlike the reviews list in `teacher.public.api.js`: a teacher has at most one
+ * row per topic in a fifteen-topic taxonomy, and the endpoint rejects a query string
+ * rather than ignoring one.
+ *
+ * No id parameter, like everything else in this file. The row set is the token's.
+ *
+ * @returns {Promise<import('@tutor/shared').TeacherStatsResponse>}
+ */
+export function getMyTopicStats() {
+  return api.get('/teachers/me/stats');
 }

@@ -1,8 +1,9 @@
 import { publishTeacherStatus } from '#services/presence.service.js';
-import { getTeacherMe, updateTeacherMe } from '#services/teacher.me.service.js';
+import { getMyTopicStats, getTeacherMe, updateTeacherMe } from '#services/teacher.me.service.js';
 
 /**
- * The teacher's own record — `GET` and `PATCH /teachers/me`.
+ * The teacher's own record — `GET` and `PATCH /teachers/me`, and since 8.5 their own
+ * per-topic reputation at `GET /teachers/me/stats`.
  *
  * The two export names are the contract with the frozen `teacher.routes.js` (PR 2.1);
  * 2.2 replaced the stub bodies and left the names alone, which is the whole trick that
@@ -66,4 +67,21 @@ export async function patchMe(req, res) {
   if (req.body.status !== undefined) {
     publishTeacherStatus(req.user.id, teacher.status);
   }
+}
+
+/**
+ * `GET /teachers/me/stats` — 200 `TeacherStatsResponse`. PR 8.5.
+ *
+ * A third handler on the `/me` mount, and it takes its teacher from `req.user.id` like
+ * the two above: there is no id in the path, so there is nothing here to tamper with.
+ *
+ * The array can be empty and that is a 200, not a 404. A teacher with no
+ * `teacher_topic_stats` rows has not been rated in any topic yet, which is every teacher
+ * on their first day; the screen renders an empty state and the service's note says why
+ * that is the honest answer.
+ */
+export async function getMyStats(req, res) {
+  const stats = await getMyTopicStats(req.user.id);
+
+  res.status(200).json({ success: true, data: stats });
 }

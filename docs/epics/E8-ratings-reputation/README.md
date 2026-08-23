@@ -278,7 +278,7 @@ the person who wrote them.
 | 8.2 | [The defect E4 filed and four epics inherited — `globalRating` is unsmoothed](PR-8.2-global-rating-smoothing.md) | DEV-A | S | — | ☑ |
 | 8.3 | [Reviews on the public profile — `GET /teachers/:id/reviews` and the section that renders it](PR-8.3-public-reviews.md) | DEV-A | L | — | ☑ |
 | 8.4 | [The session history, and the way back to an unfinished rating](PR-8.4-session-history.md) | DEV-A | L | — | ☑ |
-| 8.5 | [The teacher's own per-topic reputation — `GET /teachers/me/stats`](PR-8.5-teacher-topic-stats.md) | DEV-A | M | 8.1 | ☐ |
+| 8.5 | [The teacher's own per-topic reputation — `GET /teachers/me/stats`](PR-8.5-teacher-topic-stats.md) | DEV-A | M | 8.1 | ☑ |
 | 8.6 | [E8 close: §18's ranking pass, and the retro](PR-8.6-e8-close.md) | DEV-A | S | 8.1, 8.2, 8.3, 8.4, 8.5 | ☐ |
 
 Status: ☐ not started · ◐ partial · ☑ done. Size: S (<2h) · M (2–4h) · L (half day+).

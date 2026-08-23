@@ -10,16 +10,23 @@ import { SOCKET_EVENTS } from '@tutor/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { getTeacherMe } from '@/api/teacher.api';
+import { getMyTopicStats, getTeacherMe } from '@/api/teacher.api';
 import ErrorState from '@/components/state/ErrorState';
 import LoadingState from '@/components/state/LoadingState';
+import TopicStatsCard from '@/components/teacher/TopicStatsCard';
 import { useSocketEvent } from '@/hooks/useSocketEvent';
 
 /**
  * `/teach` — the teacher's dashboard. MVP.md §14.1, PR 5.7.
  *
  * The teacher's half of the product: the screen that decides whether they are
- * reachable at all. Two blocks — availability, and standing.
+ * reachable at all. Three blocks — availability, standing, and since 8.5 the per-topic
+ * breakdown behind that standing.
+ *
+ * **The topic block is a block here rather than a route of its own.** §14.1's teacher
+ * tree has five entries and none of them is a stats page; the dashboard's third element
+ * is "rating", and per-topic numbers are what that means now that the table has a writer
+ * that is not the seed. If it grows past a card, that is a new route in a later PR.
  *
  * **The incoming offer is no longer raised here.** It was, from 5.7 until 6b.3, and
  * that is why a teacher on `/teach/profile` never saw one: the listener unmounted with
@@ -62,6 +69,46 @@ export default function Dashboard() {
   }, []);
 
   useEffect(loadTeacher, [loadTeacher]);
+
+  /** `TeacherStatsResponse`. Its own read, its own error — see `loadStats`. */
+  const [stats, setStats] = useState(null);
+  const [statsError, setStatsError] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  /**
+   * The per-topic breakdown, read separately from the record above.
+   *
+   * Two requests on mount rather than one widened endpoint. They are different tables —
+   * `teacher_profiles` and `teacher_topic_stats` — read by different rules, and a
+   * teacher whose topic block fails still sees their availability notice and their
+   * standing, which is the half of this screen that decides whether students can reach
+   * them at all. One combined read would take that down with it.
+   */
+  const loadStats = useCallback(() => {
+    let cancelled = false;
+
+    setStatsLoading(true);
+    setStatsError(null);
+
+    getMyTopicStats()
+      .then((data) => {
+        if (!cancelled) setStats(data);
+      })
+      .catch((problem) => {
+        // Everything from the api layer is an `ApiError`, so `.message` is already safe
+        // to show — see client/src/api/ApiError.js.
+        if (!cancelled) setStatsError(problem);
+      })
+      .finally(() => {
+        if (!cancelled) setStatsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(loadStats, [loadStats]);
 
   /**
    * `teacher:status` — this teacher's own availability, from wherever it moved.
@@ -213,6 +260,31 @@ export default function Dashboard() {
             </Card>
           </SimpleGrid>
         )}
+      </Stack>
+
+      {/*
+        The topic breakdown, under the tiles it explains.
+
+        The tiles above are one rating over everything the teacher has ever done; this is
+        the same reputation split the way the matching engine actually reads it — §9.3
+        scores a candidate on the question's topic, not on their career average, so a
+        teacher strong in integrals and untested in geometry is two different candidates
+        depending on the question. This block is where that becomes visible.
+      */}
+      <Stack gap="xs">
+        <Text fw={600}>Your topics</Text>
+
+        <Text size="sm" c="dimmed">
+          Students are matched to you question by question, so what counts is your history in the
+          topic they are asking about — not your overall average.
+        </Text>
+
+        <TopicStatsCard
+          stats={stats}
+          loading={statsLoading}
+          error={statsError}
+          onRetry={loadStats}
+        />
       </Stack>
     </Stack>
   );

@@ -37,6 +37,26 @@ export const teacherMeSchema = z.object({
 });
 
 /**
+ * `GET /teachers/me/stats` — PR 8.5. No input either, and it gets a schema anyway.
+ *
+ * CONVENTIONS.md → Validation: every endpoint gets one, "including for endpoints that
+ * 'obviously can't fail'". The three empty `.strict()` objects are not decoration — they
+ * are what makes `?page=2` a `VALIDATION_ERROR` rather than a silently ignored query
+ * string, which matters here because the response is deliberately unpaged: a teacher has
+ * one row per topic they have been rated in, the taxonomy is fifteen topics, and a client
+ * that thinks it is paging is a client reading a truncated breakdown without knowing.
+ *
+ * A separate export rather than reusing `teacherMeSchema`. They are identical today and
+ * the day one of them takes a filter — a level, a date window — sharing would have
+ * widened both.
+ */
+export const teacherStatsSchema = z.object({
+  body: z.object({}).strict(),
+  params: z.object({}).strict(),
+  query: z.object({}).strict(),
+});
+
+/**
  * The two statuses a teacher may set by hand.
  *
  * `OFFER_LOCKED` and `IN_SESSION` are the matching engine's (E4) and are deliberately
